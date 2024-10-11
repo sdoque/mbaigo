@@ -25,6 +25,8 @@
 
 package forms
 
+import "reflect"
+
 type ServiceQuest_v1 struct {
 	SysId             int                 `json:"systemId"`
 	RequesterName     string              `json:"requesterName"`
@@ -41,6 +43,11 @@ func (f *ServiceQuest_v1) NewForm() Form {
 
 func (f *ServiceQuest_v1) FormVersion() string {
 	return f.Version
+}
+
+// Register ServiceQuest_v1 in the formTypeMap
+func init() {
+	FormTypeMap["ServiceQuest_v1"] = reflect.TypeOf(ServiceQuest_v1{})
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -63,4 +70,9 @@ func (f *ServicePoint_v1) NewForm() Form {
 
 func (f *ServicePoint_v1) FormVersion() string {
 	return f.Version
+}
+
+// Register ServicePoint_v1 in the formTypeMap
+func init() {
+	FormTypeMap["ServicePoint_v1"] = reflect.TypeOf(ServicePoint_v1{})
 }

@@ -25,7 +25,10 @@
 
 package forms
 
-import "time"
+import (
+	"reflect"
+	"time"
+)
 
 // type ActivityCost struct {
 // 	Activity  string    `json:"activity"`
@@ -49,4 +52,9 @@ func (f *ActivityCostForm_v1) NewForm() Form {
 
 func (f *ActivityCostForm_v1) FormVersion() string {
 	return f.Version
+}
+
+// Register ActivityCostForm_v1 in the formTypeMap
+func init() {
+	FormTypeMap["ActivityCostForm_v1"] = reflect.TypeOf(ActivityCostForm_v1{})
 }

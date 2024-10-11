@@ -33,7 +33,7 @@ import (
 	"github.com/sdoque/mbaigo/forms"
 )
 
-// ServRegForms returns the list of foms that the service registration handles
+// ServRegForms returns the list of forms that the service registration handles
 func ServQustForms() []string {
 	return []string{"ServiceQuest_v1", "ServicePoint_v1"}
 }
@@ -46,6 +46,7 @@ func FillQuestForm(sys *components.System, res components.UnitAsset, sDef, proto
 	f.ServiceDefinition = sDef
 	// TODO: known bug on commit
 	// f.Protocol = append()
+	f.Protocol = protocol
 	f.Details = res.GetDetails()
 	return f
 }
@@ -128,8 +129,7 @@ func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocat
 }
 
 // FillDiscoveredServices returrns a json data byte array with a slice of matching services (e.g., Service Registrar)
-func FillDiscoveredServices(dsList []forms.ServiceRecord_v1, version string) (payload []byte, err error) {
-	var f forms.Form
+func FillDiscoveredServices(dsList []forms.ServiceRecord_v1, version string) (f forms.Form, err error) {
 	switch version {
 	case "ServiceRecordList_v1":
 		dslForm := &forms.ServiceRecordList_v1{} // pointer to struct
@@ -142,7 +142,6 @@ func FillDiscoveredServices(dsList []forms.ServiceRecord_v1, version string) (pa
 		err = errors.New("unsupported service registrattion form version")
 		return
 	}
-	payload, err = json.MarshalIndent(f, "", "  ")
 	return
 }
 

@@ -25,6 +25,8 @@
 
 package forms
 
+import "reflect"
+
 type ServiceRecord_v1 struct {
 	Id                int                 `json:"registryID"`
 	ServiceDefinition string              `json:"definition"`
@@ -53,6 +55,11 @@ func (f *ServiceRecord_v1) FormVersion() string {
 	return f.Version
 }
 
+// Register ServiceRecord_v1 in the formTypeMap
+func init() {
+	FormTypeMap["ServiceRecord_v1"] = reflect.TypeOf(ServiceRecord_v1{})
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 type ServiceRecordList_v1 struct {
@@ -67,6 +74,11 @@ func (f *ServiceRecordList_v1) NewForm() Form {
 
 func (f *ServiceRecordList_v1) FormVersion() string {
 	return f.Version
+}
+
+// Register ActivityCostForm_v1 in the formTypeMap
+func init() {
+	FormTypeMap["ServiceRecordList_v1"] = reflect.TypeOf(ServiceRecordList_v1{})
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -87,6 +99,11 @@ func (f *SystemRecord_v1) FormVersion() string {
 	return f.Version
 }
 
+// Register SystemRecord_v1 in the formTypeMap
+func init() {
+	FormTypeMap["SystemRecord_v1"] = reflect.TypeOf(SystemRecord_v1{})
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 type SystemRecordList_v1 struct {
@@ -101,4 +118,9 @@ func (f *SystemRecordList_v1) NewForm() Form {
 
 func (f *SystemRecordList_v1) FormVersion() string {
 	return f.Version
+}
+
+// Register SystemRecordList_v1 in the formTypeMap
+func init() {
+	FormTypeMap["SystemRecordList_v1"] = reflect.TypeOf(SystemRecordList_v1{})
 }

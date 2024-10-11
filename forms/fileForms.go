@@ -31,6 +31,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -49,6 +50,11 @@ func (fileForm *FileForm_v1) NewForm() Form {
 
 func (fileForm *FileForm_v1) FormVersion() string {
 	return fileForm.Version
+}
+
+// Register FileForm_v1 in the formTypeMap
+func init() {
+	FormTypeMap["FileForm_v1"] = reflect.TypeOf(FileForm_v1{})
 }
 
 // TransferFile enables the transfer of different types files when the filename is given in the URL
