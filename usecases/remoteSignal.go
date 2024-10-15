@@ -45,6 +45,7 @@ type RSignal struct {
 	Sys         *components.System
 }
 
+// TODO: Remove
 // GetValue makes a GET HTTP request to a provider to obtain a signal payload as a service.
 // If the URL is unknown, it will first get it from the Service Registrar
 func (sig *RSignal) GetValue() (v float64, err error) {
@@ -112,6 +113,90 @@ func (sig *RSignal) GetValue() (v float64, err error) {
 	return v, nil
 }
 
+// GetState request the current state of a unit asset (via the asset's service)
+func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, err error) {
+	// get the address of the informing service of the target asset via the Orchestrator
+	if len(cer.Url) == 0 {
+		err := Search4Services(cer, sys)
+		if err != nil {
+			log.Printf("unable to locate the derised service")
+			return f, err
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Create a new context, with a 2-second timeout
+	defer cancel()
+	// Create a new HTTP request
+	req, err := http.NewRequest(http.MethodGet, cer.Url[0], nil)
+	if err != nil {
+		cer.Url = []string{} // failed to get the resource at that location: reset address field (could pop the first elemen [1:] in a for loop until it is empty)
+		return f, err
+	}
+	// Associate the cancellable context with the request
+	req = req.WithContext(ctx)
+	// Send the request /////////////////////////////////
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return f, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("GetRValue-Error reading registration response body: %v", err)
+		return
+	}
+
+	headerContentTtype := resp.Header.Get("Content-Type")
+	f, err = Unpack(bodyBytes, headerContentTtype)
+	if err != nil {
+		fmt.Printf("error unpacking the service response: %s", err)
+	}
+	return f, nil
+}
+
+// SetState puts a request to change the state of a unit asset (via the asset's service)
+func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte) (err error) {
+	// get the address of the informing service of the target asset via the Orchestrator
+	if len(cer.Url) == 0 {
+		err := Search4Services(cer, sys)
+		if err != nil {
+			log.Printf("unable to locate the derised service")
+			return err
+		}
+	}
+	// Create a new context, with a 2-second timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	// Create a new HTTP request
+	req, err := http.NewRequest(http.MethodPut, cer.Url[0], bytes.NewReader(bodyBytes))
+	if err != nil {
+		return err
+	}
+	// Set the Content-Type header
+	req.Header.Set("Content-Type", "application/json")
+	// Associate the cancellable context with the request
+	req = req.WithContext(ctx)
+
+	// Send the request /////////////////////////////////
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Read the response /////////////////////////////////
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Println(body) ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	return nil
+}
+
+// DOTO: remove
 // UpdateValue makes a PUT HTTP request to a service provider to update a signal payload as a service.
 // If the URL is unknown, it will first get it from the Service Registrar
 func (sig *RSignal) UpdateValue(value float64) (err error) {

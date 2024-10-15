@@ -24,6 +24,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -128,22 +129,97 @@ func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocat
 	return servLocation, err
 }
 
-// FillDiscoveredServices returrns a json data byte array with a slice of matching services (e.g., Service Registrar)
-func FillDiscoveredServices(dsList []forms.ServiceRecord_v1, version string) (f forms.Form, err error) {
-	switch version {
-	case "ServiceRecordList_v1":
-		dslForm := &forms.ServiceRecordList_v1{} // pointer to struct
-		f = dslForm.NewForm()
-		for _, rec := range dsList {
-			sf := rec.NewForm().(*forms.ServiceRecord_v1) // create new form and cast it to *ServiceRecord_v1
-			dslForm.List = append(dslForm.List, *sf)
+// Search4Services requests from the core systems the address of resources' services that meet the need
+func Search4Services(cer *components.Cervice, sys *components.System) (err error) {
+	// instantiate the service quest form
+	questForm := forms.ServiceQuest_v1{
+		SysId:             0,
+		RequesterName:     sys.Name,
+		ServiceDefinition: cer.Name,
+		Protocol:          "http",
+		Details:           cer.Details,
+		Version:           "ServiceQuest_v1",
+	}
+
+	//pack the service quest form
+	qf, err := Pack(&questForm, "application/json")
+	if err != nil {
+		return err
+	}
+
+	// Search for an Orchestator system within the local cloud
+	var orchestratorPointer *components.CoreSystem
+	for _, cSys := range sys.CoreS {
+		if cSys.Name == "orchestrator" {
+			orchestratorPointer = cSys
 		}
-	default:
-		err = errors.New("unsupported service registrattion form version")
+	}
+	if orchestratorPointer == nil {
+		err = errors.New("failed to locate an Orchestrator")
+		return err
+	}
+	oURL := orchestratorPointer.Url + "/squest"
+
+	// Prepare the request to the Orchestartor
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Create a new context, with a 2-second timeout
+	defer cancel()
+	req, err := http.NewRequest(http.MethodPost, oURL, bytes.NewBuffer(qf))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json") // set the Content-Type header
+	req = req.WithContext(ctx)                         // associate the cancellable context with the request
+
+	// Send the request /////////////////////////////////
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+
+	defer resp.Body.Close()
+	// Read the response /////////////////////////////////
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	headerContentTtype := resp.Header.Get("Content-Type")
+	discoveryForm, err := Unpack(bodyBytes, headerContentTtype)
+	if err != nil {
+		log.Printf("error extracting the discovery request %v\n", err)
+	}
+
+	fmt.Printf("The discovery form is %v\n", string(bodyBytes))
+	// Perform a type assertion to convert the returned Form to SignalA_v1a
+	df, ok := discoveryForm.(*forms.ServicePoint_v1)
+	if !ok {
+		fmt.Println("Problem unpacking the service discovery request form")
 		return
 	}
-	return
+	fmt.Printf("The service discovery request form is %v+\n", df)
+
+	cer.Url = append(cer.Url, df.ServLocation)
+	return err
 }
+
+// TODO: remove
+// FillDiscoveredServices returrns a json data byte array with a slice of matching services (e.g., Service Registrar)
+// func FillDiscoveredServices(dsList []forms.ServiceRecord_v1, version string) (f forms.Form, err error) {
+// 	switch version {
+// 	case "ServiceRecordList_v1":
+// 		dslForm := &forms.ServiceRecordList_v1{} // pointer to struct
+// 		f = dslForm.NewForm()
+// 		for _, rec := range dsList {
+// 			sf := rec.NewForm().(*forms.ServiceRecord_v1) // create new form and cast it to *ServiceRecord_v1
+// 			dslForm.List = append(dslForm.List, *sf)
+// 		}
+// 	default:
+// 		err = errors.New("unsupported service registrattion form version")
+// 		return
+// 	}
+// 	return
+// }
 
 // ExtractDiscoveryForm is used by the Orchestrator and the authorized consumer system
 func ExtractDiscoveryForm(bodyBytes []byte) (sLoc forms.ServicePoint_v1, err error) {
