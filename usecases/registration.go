@@ -76,7 +76,7 @@ func RegisterServices(sys *components.System) {
 					if core.Name == "serviceregistrar" {
 						resp, err := http.Get(core.Url + "/status")
 						if err != nil {
-							fmt.Println("Error checking service registar status:", err)
+							fmt.Println("error checking service registar status:", err)
 							continue // Skip to the next iteration of the loop
 						}
 

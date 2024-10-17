@@ -38,7 +38,7 @@ import (
 func Ontology(w http.ResponseWriter, req *http.Request, sys components.System) {
 	fmt.Println("Printing the ontology")
 	rdf := "@prefix temp: <http://www.arrowhead.eu/temp#> .\n"
-	rdf += "@prefix afo: <http://example.com/afo-core.ttl> .\n"
+	rdf += "@prefix afo: <http://www.synecdoque.com/afo-core.ttl> .\n"
 	rdf += "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n"
 	rdf += "@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n"
 	rdf += "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"

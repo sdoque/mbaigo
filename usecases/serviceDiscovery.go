@@ -178,6 +178,12 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 	}
 
 	defer resp.Body.Close()
+
+	// Check if the status code indicates an error (anything outside the 200–299 range)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("received non-2xx status code: %d, response: %s", resp.StatusCode, http.StatusText(resp.StatusCode))
+	}
+
 	// Read the response /////////////////////////////////
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -190,36 +196,33 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 		log.Printf("error extracting the discovery request %v\n", err)
 	}
 
-	fmt.Printf("The discovery form is %v\n", string(bodyBytes))
 	// Perform a type assertion to convert the returned Form to SignalA_v1a
 	df, ok := discoveryForm.(*forms.ServicePoint_v1)
 	if !ok {
 		fmt.Println("Problem unpacking the service discovery request form")
 		return
 	}
-	fmt.Printf("The service discovery request form is %v+\n", df)
 
 	cer.Url = append(cer.Url, df.ServLocation)
 	return err
 }
 
-// TODO: remove
 // FillDiscoveredServices returrns a json data byte array with a slice of matching services (e.g., Service Registrar)
-// func FillDiscoveredServices(dsList []forms.ServiceRecord_v1, version string) (f forms.Form, err error) {
-// 	switch version {
-// 	case "ServiceRecordList_v1":
-// 		dslForm := &forms.ServiceRecordList_v1{} // pointer to struct
-// 		f = dslForm.NewForm()
-// 		for _, rec := range dsList {
-// 			sf := rec.NewForm().(*forms.ServiceRecord_v1) // create new form and cast it to *ServiceRecord_v1
-// 			dslForm.List = append(dslForm.List, *sf)
-// 		}
-// 	default:
-// 		err = errors.New("unsupported service registrattion form version")
-// 		return
-// 	}
-// 	return
-// }
+func FillDiscoveredServices(dsList []forms.ServiceRecord_v1, version string) (f forms.Form, err error) {
+	switch version {
+	case "ServiceRecordList_v1":
+		dslForm := &forms.ServiceRecordList_v1{} // pointer to struct
+		f = dslForm.NewForm()
+		for _, rec := range dsList {
+			sf := rec.NewForm().(*forms.ServiceRecord_v1) // create new form and cast it to *ServiceRecord_v1
+			dslForm.List = append(dslForm.List, *sf)
+		}
+	default:
+		err = errors.New("unsupported service registrattion form version")
+		return
+	}
+	return
+}
 
 // ExtractDiscoveryForm is used by the Orchestrator and the authorized consumer system
 func ExtractDiscoveryForm(bodyBytes []byte) (sLoc forms.ServicePoint_v1, err error) {
