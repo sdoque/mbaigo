@@ -57,7 +57,6 @@ func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, er
 	// Create a new HTTP request
 	req, err := http.NewRequest(http.MethodGet, cer.Url[0], nil)
 	if err != nil {
-		cer.Url = []string{} // failed to get the resource at that location: reset address field (could pop the first elemen [1:] in a for loop until it is empty)
 		return f, err
 	}
 	// Associate the cancellable context with the request
@@ -66,6 +65,7 @@ func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, er
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
+		cer.Url = []string{} // failed to get the resource at that location: reset address field (could pop the first elemen [1:] in a for loop until it is empty)
 		return f, err
 	}
 	defer resp.Body.Close()
@@ -106,6 +106,7 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 	if err != nil {
 		return err
 	}
+
 	// Set the Content-Type header
 	req.Header.Set("Content-Type", "application/json")
 	// Associate the cancellable context with the request
@@ -115,6 +116,7 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
+		cer.Url = []string{} // failed to get the resource at that location: reset address field (could pop the first elemen [1:] in a for loop until it is empty)
 		return err
 	}
 	defer resp.Body.Close()
