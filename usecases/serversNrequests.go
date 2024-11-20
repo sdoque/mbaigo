@@ -103,7 +103,7 @@ func SetoutServers(sys *components.System) (err error) {
 		}()
 	}
 
-	// if an HTTP server is required (configuration file)  set it up and start it
+	// if an HTTP server is required (configuration file) set it up and start it
 	if httpPort != 0 {
 		// Create a HTTP server
 		httpServer := &http.Server{

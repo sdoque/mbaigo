@@ -196,7 +196,7 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 		log.Printf("error extracting the discovery request %v\n", err)
 	}
 
-	// Perform a type assertion to convert the returned Form to SignalA_v1a
+	// Perform a type assertion to convert the returned Form to ServicePoint_v1
 	df, ok := discoveryForm.(*forms.ServicePoint_v1)
 	if !ok {
 		fmt.Println("Problem unpacking the service discovery request form")

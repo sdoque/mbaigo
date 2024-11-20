@@ -182,15 +182,24 @@ func registerService(sys *components.System, ua *components.UnitAsset, ser *comp
 			log.Printf("Error reading registration response body: %v", err)
 			return
 		}
-		rRecord, err := servRegRespExtract(bodyBytes)
+
+		headerContentTtype := resp.Header.Get("Content-Type")
+		rRecord, err := Unpack(bodyBytes, headerContentTtype)
 		if err != nil {
-			log.Print("Error extracting registration reply", err)
+			log.Printf("error extracting the registration record relpy %v\n", err)
+		}
+
+		// Perform a type assertion to convert the returned Form to ServiceRecord_v1
+		rr, ok := rRecord.(*forms.ServiceRecord_v1)
+		if !ok {
+			fmt.Println("Problem unpacking the service registration reply")
 			return
 		}
-		ser.ID = rRecord.Id
-		ser.RegTimestamp = rRecord.Created
-		ser.RegExpiration = rRecord.EndOfValidity
-		parsedTime, err := time.Parse(time.RFC3339, rRecord.EndOfValidity)
+
+		ser.ID = rr.Id
+		ser.RegTimestamp = rr.Created
+		ser.RegExpiration = rr.EndOfValidity
+		parsedTime, err := time.Parse(time.RFC3339, rr.EndOfValidity)
 		if err != nil {
 			log.Printf("Error parsing input: %s", err)
 			return
@@ -240,7 +249,7 @@ func serviceRegistrationForm(sys *components.System, res *components.UnitAsset, 
 		for key, valueSlice := range ser.Details {
 			sf.Details[key] = append(sf.Details[key], valueSlice...)
 		}
-		sf.Certificate = sys.Husk.Certificate
+		// sf.Certificate = sys.Husk.Certificate
 		resName := (*res).GetName()
 		sf.SubPath = resName + "/" + ser.SubPath
 
@@ -273,79 +282,4 @@ func deepCopyMap(m map[string][]string) map[string][]string {
 // ServiceRegistrationFormsList returns the list of foms that the service registration handles
 func ServiceRegistrationFormsList() []string {
 	return []string{"ServiceRecord_v1"}
-}
-
-// servRegReqExtract determines the corrrecet forrm in to which the raw json data
-// is used to update the service based on entry into the data base [Receving @ ServiceRegistry]
-func ServRegReqExtract(bodyBytes []byte) (rec forms.ServiceRecord_v1, err error) {
-	var jsonData map[string]interface{}
-	err = json.Unmarshal(bodyBytes, &jsonData)
-	if err != nil {
-		log.Printf("Error unmarshaling JSON data: %v", err)
-		return
-	}
-	formVersion, ok := jsonData["version"].(string)
-	if !ok {
-		log.Printf("Error: 'version' key not found in JSON data")
-		return
-	}
-	switch formVersion {
-	case "ServiceRecord_v1":
-		var f forms.ServiceRecord_v1
-		err = json.Unmarshal(bodyBytes, &f)
-		if err != nil {
-			log.Println("Unable to extract registration request ")
-			return
-		}
-		rec = f
-	default:
-		err = errors.New("unsupported service registrattion form version")
-	}
-	return
-}
-
-// ServRegRespFillIn returrns a json data byte array with the data of the service to be registered
-// in the form of choice [Sending @ ServiceRegistry]
-func ServRegRespFillIn(rec forms.ServiceRecord_v1, version string) (payload []byte, err error) {
-	var f forms.Form
-	switch version {
-	case "ServiceRecord_v1":
-		var sf forms.ServiceRecord_v1
-		sf.NewForm()
-		f = &rec
-	default:
-		err = errors.New("unsupported service registrattion form version")
-		return
-	}
-	payload, err = json.MarshalIndent(f, "", "  ")
-	return
-}
-
-// servRegRespExtract determines the corrrecet forrm in to which the raw json data
-// is used to update the service based on entry into the data base [Receiving @ Application system]
-func servRegRespExtract(bodyBytes []byte) (rec forms.ServiceRecord_v1, err error) {
-	var jsonData map[string]interface{}
-	err = json.Unmarshal(bodyBytes, &jsonData)
-	if err != nil {
-		log.Printf("Error unmarshaling JSON data: %v", err)
-		return
-	}
-	formVersion, ok := jsonData["version"].(string)
-	if !ok {
-		log.Printf("Error: 'version' key not found in JSON data")
-		return
-	}
-	switch formVersion {
-	case "ServiceRecord_v1":
-		var f forms.ServiceRecord_v1
-		err = json.Unmarshal(bodyBytes, &f)
-		if err != nil {
-			log.Println("Unable to extract registration reply")
-			return
-		}
-		rec = f
-	default:
-		err = errors.New("unsupported service registrattion form version")
-	}
-	return
 }
