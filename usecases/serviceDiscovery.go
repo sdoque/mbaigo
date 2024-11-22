@@ -35,7 +35,7 @@ import (
 )
 
 // ServRegForms returns the list of forms that the service registration handles
-func ServQustForms() []string {
+func ServQuestForms() []string {
 	return []string{"ServiceQuest_v1", "ServicePoint_v1"}
 }
 
