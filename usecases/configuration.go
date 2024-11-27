@@ -76,17 +76,17 @@ func Configure(sys *components.System) ([]json.RawMessage, []components.Service,
 
 	serReg := components.CoreSystem{
 		Name:        "serviceregistrar",
-		Url:         "http://localhost:8443/serviceregistrar/registry",
+		Url:         "http://localhost:20102/serviceregistrar/registry",
 		Certificate: ".X509pubKey",
 	}
 	orches := components.CoreSystem{
 		Name:        "orchestrator",
-		Url:         "http://localhost:8445/orchestrator/orchestration",
+		Url:         "http://localhost:20103/orchestrator/orchestration",
 		Certificate: ".X509pubKey",
 	}
 	ca := components.CoreSystem{
 		Name:        "ca",
-		Url:         "http://localhost:9000/ca/certification",
+		Url:         "http://localhost:20100/ca/certification",
 		Certificate: ".X509pubKey",
 	}
 	coreSystems := []components.CoreSystem{serReg, orches, ca}

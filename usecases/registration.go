@@ -171,6 +171,7 @@ func registerService(sys *components.System, ua *components.UnitAsset, ser *comp
 		}
 		registrar = nil
 		ser.ID = 0 // if re-registration failed, a complete new one should be made (POST)
+		return
 	}
 
 	// Handle response ------------------------------------------------
@@ -244,7 +245,12 @@ func serviceRegistrationForm(sys *components.System, res *components.UnitAsset, 
 		sf.ServiceDefinition = ser.Definition
 		sf.SystemName = sys.Name
 		sf.IPAddresses = sys.Host.IPAddresses
-		sf.ProtoPort = sys.Husk.ProtoPort
+		sf.ProtoPort = make(map[string]int) // initialize the map
+		for key, port := range sys.Husk.ProtoPort {
+			if port != 0 { // exclude entries where the port is 0
+				sf.ProtoPort[key] = port
+			}
+		}
 		sf.Details = deepCopyMap((*res).GetDetails())
 		for key, valueSlice := range ser.Details {
 			sf.Details[key] = append(sf.Details[key], valueSlice...)

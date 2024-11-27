@@ -32,7 +32,7 @@ type ServiceQuest_v1 struct {
 	RequesterName     string              `json:"requesterName"`
 	ServiceDefinition string              `json:"serrviceDefinition"`
 	Protocol          string              `json:"protocol"`
-	Details           map[string][]string `json:"Details"`
+	Details           map[string][]string `json:"details"`
 	Version           string              `json:"version"`
 }
 
