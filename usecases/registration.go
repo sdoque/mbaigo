@@ -36,7 +36,7 @@ import (
 	"github.com/sdoque/mbaigo/forms"
 )
 
-// RegisterServices keeps trach of the leading Service Registrar and keeps all services registered
+// RegisterServices keeps track of the leading Service Registrar and keeps all services registered
 func RegisterServices(sys *components.System) {
 
 	var leadingRegistrar *components.CoreSystem
@@ -76,7 +76,7 @@ func RegisterServices(sys *components.System) {
 					if core.Name == "serviceregistrar" {
 						resp, err := http.Get(core.Url + "/status")
 						if err != nil {
-							fmt.Println("error checking service registar status:", err)
+							fmt.Println("error checking service registrar status:", err)
 							continue // Skip to the next iteration of the loop
 						}
 
@@ -129,7 +129,7 @@ func RegisterServices(sys *components.System) {
 	}
 }
 
-// registerService makes a POST or PUT request to register or regegister individual services
+// registerService makes a POST or PUT request to register or register individual services
 func registerService(sys *components.System, ua *components.UnitAsset, ser *components.Service, registrar *components.CoreSystem) (delay time.Duration) {
 
 	delay = 15 * time.Second
@@ -233,7 +233,7 @@ func deregisterService(registrar *components.CoreSystem, ser *components.Service
 	fmt.Printf("service %s deleted from the service registrar with HTTP Response Status: %d, %s\n", ser.Definition, resp.StatusCode, http.StatusText(resp.StatusCode))
 }
 
-// serviceRegistrationForm returrns a json data byte array with the data of the service to be registered
+// serviceRegistrationForm returns a json data byte array with the data of the service to be registered
 // in the form of choice [Sending @ Application system]
 func serviceRegistrationForm(sys *components.System, res *components.UnitAsset, ser *components.Service, version string) (payload []byte, err error) {
 	var f forms.Form
@@ -285,7 +285,7 @@ func deepCopyMap(m map[string][]string) map[string][]string {
 	return newMap
 }
 
-// ServiceRegistrationFormsList returns the list of foms that the service registration handles
+// ServiceRegistrationFormsList returns the list of forms that the service registration handles
 func ServiceRegistrationFormsList() []string {
 	return []string{"ServiceRecord_v1"}
 }

@@ -86,7 +86,7 @@ func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocat
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Create a new context, with a 2-second timeout
 	defer cancel()
-	// Create a new HTTP request to the Orchestator system (for now the Service Registrar)
+	// Create a new HTTP request to the Orchestrator system (for now the Service Registrar)
 	var orchestratorPointer *components.CoreSystem
 	for _, cSys := range sys.CoreS {
 		if cSys.Name == "orchestrator" {
@@ -94,7 +94,7 @@ func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocat
 		}
 	}
 
-	// prepare the payload to performe a service quest
+	// prepare the payload to perform a service quest
 	oURL := orchestratorPointer.Url + "/squest"
 	jsonQF, err := json.MarshalIndent(qf, "", "  ")
 	if err != nil {
@@ -147,7 +147,7 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 		return err
 	}
 
-	// Search for an Orchestator system within the local cloud
+	// Search for an Orchestrator system within the local cloud
 	var orchestratorPointer *components.CoreSystem
 	for _, cSys := range sys.CoreS {
 		if cSys.Name == "orchestrator" {
@@ -160,7 +160,7 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 	}
 	oURL := orchestratorPointer.Url + "/squest"
 
-	// Prepare the request to the Orchestartor
+	// Prepare the request to the Orchestrator
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Create a new context, with a 2-second timeout
 	defer cancel()
 	req, err := http.NewRequest(http.MethodPost, oURL, bytes.NewBuffer(qf))
@@ -207,7 +207,7 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 	return err
 }
 
-// FillDiscoveredServices returrns a json data byte array with a slice of matching services (e.g., Service Registrar)
+// FillDiscoveredServices returns a json data byte array with a slice of matching services (e.g., Service Registrar)
 func FillDiscoveredServices(dsList []forms.ServiceRecord_v1, version string) (f forms.Form, err error) {
 	switch version {
 	case "ServiceRecordList_v1":
@@ -218,7 +218,7 @@ func FillDiscoveredServices(dsList []forms.ServiceRecord_v1, version string) (f 
 			dslForm.List = append(dslForm.List, *sf)
 		}
 	default:
-		err = errors.New("unsupported service registrattion form version")
+		err = errors.New("unsupported service registration form version")
 		return
 	}
 	return

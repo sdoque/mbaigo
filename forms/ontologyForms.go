@@ -23,7 +23,7 @@
 // Basic forms include the service registration and the service query forms.
 // The form version is used for backward compatibility.
 
-// HATEOAS forms are HTML templates used to describe the systems, resources and services
+// the ontology forms are used to generate a semantic model of the system, device it is running on, its unit assets and services they offer
 
 package forms
 

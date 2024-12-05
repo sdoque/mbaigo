@@ -80,7 +80,7 @@ func SetActivitiesCost(serv *components.Service, bodyBytes []byte) (err error) {
 	return
 }
 
-// ACServices handles the http requestfor the cost of a service
+// ACServices handles the http request for the cost of a service
 func ACServices(w http.ResponseWriter, r *http.Request, ua *components.UnitAsset, serviceP string) {
 	servicesList := (*ua).GetServices()
 	serv := servicesList[serviceP]

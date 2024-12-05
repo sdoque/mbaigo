@@ -65,7 +65,7 @@ func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, er
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		cer.Url = []string{} // failed to get the resource at that location: reset address field (could pop the first elemen [1:] in a for loop until it is empty)
+		cer.Url = []string{} // failed to get the resource at that location: reset address field (could pop the first element [1:] in a for loop until it is empty)
 		return f, err
 	}
 	defer resp.Body.Close()
@@ -116,7 +116,7 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		cer.Url = []string{} // failed to get the resource at that location: reset address field (could pop the first elemen [1:] in a for loop until it is empty)
+		cer.Url = []string{} // failed to get the resource at that location: reset address field (could pop the first element [1:] in a for loop until it is empty)
 		return err
 	}
 	defer resp.Body.Close()

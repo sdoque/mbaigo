@@ -23,7 +23,7 @@
 // Basic forms include the service registration and the service query forms.
 // The form version is used for backward compatibility.
 
-// HATEOAS forms are HTML templates used to describe the systems, resources and services
+// doc forms are HTML templates used to describe the systems, resources and services
 
 package forms
 
@@ -36,7 +36,7 @@ import (
 	"github.com/sdoque/mbaigo/components"
 )
 
-// System HATEOAS provides an intial documentation as a web server of the system with hyperlinks to the services for authorized browsers
+// System HATEOAS provides an initial documentation as a web server of the system with hyperlinks to the services for authorized browsers
 // It is the acronym for Hypermedia as the Engine of Application State
 func SysHateoas(w http.ResponseWriter, req *http.Request, sys components.System) {
 	text := "<!DOCTYPE html><html><body>"

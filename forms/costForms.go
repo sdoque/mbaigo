@@ -30,13 +30,6 @@ import (
 	"time"
 )
 
-// type ActivityCost struct {
-// 	Activity  string    `json:"activity"`
-// 	Cost      float64   `json:"cost"`
-// 	Unit      string    `json:"unit"`
-// 	Timestamp time.Time `json:"timestamp"`
-// }
-
 type ActivityCostForm_v1 struct {
 	Activity  string    `json:"activity"`
 	Cost      float64   `json:"cost"`
