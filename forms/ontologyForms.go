@@ -34,8 +34,8 @@ import (
 	"github.com/sdoque/mbaigo/components"
 )
 
-// function Ontology provides a semantic model of a system running on a host and exposing the functionality of asset
-func Ontology(w http.ResponseWriter, req *http.Request, sys components.System) {
+// function SModel provides a semantic model of a system running on a host and exposing the functionality of asset
+func SModel(w http.ResponseWriter, req *http.Request, sys components.System) {
 	fmt.Println("Printing the ontology")
 	rdf := "@prefix temp: <http://www.arrowhead.eu/temp#> .\n"
 	rdf += "@prefix afo: <http://www.synecdoque.com/afo-core.ttl> .\n"
@@ -45,11 +45,13 @@ func Ontology(w http.ResponseWriter, req *http.Request, sys components.System) {
 	rdf += "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\n"
 
 	// Add the system instance
-	rdf += fmt.Sprintf(":%s a afo:System ;\n", sys.Name)
+	sName := sys.Host.Name + "_" + sys.Name
+	rdf += fmt.Sprintf(":%s a afo:System ;\n", sName)
+	rdf += fmt.Sprintf("    afo:hasName :%s ;\n", sys.Name)
 	rdf += fmt.Sprintf("    afo:runOnHost :%s ;\n", sys.Host.Name)
 
 	for assetName := range sys.UAssets {
-		rdf += fmt.Sprintf("    afo:hasUnitAsset :%s ;\n", assetName)
+		rdf += fmt.Sprintf("    afo:hasUnitAsset :%s_%s ;\n", sName, assetName)
 	}
 	details := sys.Husk.Details
 	for key, values := range details {
@@ -67,28 +69,23 @@ func Ontology(w http.ResponseWriter, req *http.Request, sys components.System) {
 		}
 		rdf += "\n    ] ;\n"
 	}
-	protoLen := len(sys.Husk.ProtoPort)
+	// protoLen := len(sys.Husk.ProtoPort)
 	protoCount := 0
+	ppStart := false
 	for protocol := range sys.Husk.ProtoPort {
-		rdf += fmt.Sprintf("    afo:hasProtocol \"%s\"", protocol)
-		protoCount++
-		if protoCount < protoLen {
-			rdf += " ;\n"
+		if sys.Husk.ProtoPort[protocol] != 0 {
+			if protoCount > 0 && ppStart {
+				rdf += " ;\n"
+			}
+			ppStart = true
+			rdf += "    afo:hasProtocol [\n"
+			rdf += fmt.Sprintf("        afo:hasProtocol \"%s\" ;\n", protocol)
+			rdf += fmt.Sprintf("        afo:usesPort %d \n", sys.Husk.ProtoPort[protocol])
+			rdf += "    ]"
 		}
+		protoCount++
 	}
 	rdf += ".\n\n"
-
-	// Add the protocol-port instances
-	// protoCount = 0
-	for protocol, port := range sys.Husk.ProtoPort {
-		rdf += fmt.Sprintf(":%s a afo:Protocol ;\n", protocol)
-		rdf += fmt.Sprintf("    afo:usesPort %d .\n", port)
-		// protoCount++
-		// if protoCount < protoLen {
-		// 	rdf += " ;\n"
-		// }
-	}
-	rdf += "\n"
 
 	// Add the host instance
 	rdf += fmt.Sprintf(":%s a afo:Host ;\n", sys.Host.Name)
@@ -106,7 +103,7 @@ func Ontology(w http.ResponseWriter, req *http.Request, sys components.System) {
 
 	// Add the unit asset instances
 	for assetName, asset := range sys.UAssets {
-		rdf += fmt.Sprintf(":%s a afo:UnitAsset ;\n", assetName)
+		rdf += fmt.Sprintf(":%s_%s a afo:UnitAsset ;\n", sName, assetName)
 		rdf += fmt.Sprintf("    afo:hasName \"%s\" ;\n", assetName)
 
 		details := (*asset).GetDetails()
@@ -129,7 +126,7 @@ func Ontology(w http.ResponseWriter, req *http.Request, sys components.System) {
 		servicesLen := len(services)
 		serviceCount := 0
 		for _, service := range services {
-			rdf += fmt.Sprintf("    afo:hasService :%s_%s", assetName, service.Definition)
+			rdf += fmt.Sprintf("    afo:hasService :%s_%s_%s", sName, assetName, service.Definition)
 			serviceCount++
 			if serviceCount < servicesLen {
 				rdf += " ;\n"
@@ -142,7 +139,7 @@ func Ontology(w http.ResponseWriter, req *http.Request, sys components.System) {
 	for assetName, asset := range sys.UAssets {
 		services := (*asset).GetServices()
 		for _, service := range services {
-			rdf += fmt.Sprintf(":%s_%s a afo:Service ;\n", assetName, service.Definition)
+			rdf += fmt.Sprintf(":%s_%s_%s a afo:Service ;\n", sName, assetName, service.Definition)
 			rdf += fmt.Sprintf("    afo:hasName \"%s/%s\" ;\n", assetName, service.Definition)
 			rdf += fmt.Sprintf("    afo:hasServiceDefinition \"%s\" ;\n", service.Definition)
 			details = service.Details

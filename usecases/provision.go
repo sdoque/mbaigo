@@ -85,7 +85,7 @@ func HTTPProcessSetRequest(w http.ResponseWriter, req *http.Request) (f forms.Si
 		}
 		f = sig
 	default:
-		err = errors.New("unsupported service registrattion form version")
+		err = errors.New("unsupported service registration form version")
 	}
 	return
 }

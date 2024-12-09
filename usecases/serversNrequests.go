@@ -195,8 +195,8 @@ func handleThreeParts(w http.ResponseWriter, r *http.Request, part string, sys *
 		http.Redirect(w, r, "/"+sys.Name+"/doc", http.StatusFound)
 	case "doc":
 		forms.SysHateoas(w, r, *sys)
-	case "onto":
-		forms.Ontology(w, r, *sys)
+	case "model":
+		forms.SModel(w, r, *sys)
 	case "cert":
 		forms.Certificate(w, r, *sys)
 	default:
