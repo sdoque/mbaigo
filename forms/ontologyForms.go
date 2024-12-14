@@ -36,7 +36,7 @@ import (
 
 // function SModel provides a semantic model of a system running on a host and exposing the functionality of asset
 func SModel(w http.ResponseWriter, req *http.Request, sys components.System) {
-	fmt.Println("Printing the ontology")
+	fmt.Println("Processing the semantic model")
 	rdf := "@prefix temp: <http://www.arrowhead.eu/temp#> .\n"
 	rdf += "@prefix afo: <http://www.synecdoque.com/afo-core.ttl> .\n"
 	rdf += "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n"
@@ -44,20 +44,18 @@ func SModel(w http.ResponseWriter, req *http.Request, sys components.System) {
 	rdf += "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
 	rdf += "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\n"
 
-	// Add the system instance
+	// Add the system instance ----------------------------------------------------------------------
 	sName := sys.Host.Name + "_" + sys.Name
 	rdf += fmt.Sprintf(":%s a afo:System ;\n", sName)
-	rdf += fmt.Sprintf("    afo:hasName :%s ;\n", sys.Name)
-	rdf += fmt.Sprintf("    afo:runOnHost :%s ;\n", sys.Host.Name)
+	rdf += fmt.Sprintf("    afo:hasName :\"%s\" ;\n", sys.Name)
+	rdf += fmt.Sprintf("    afo:runsOnHost :%s ;\n", sys.Host.Name)
 
 	for assetName := range sys.UAssets {
 		rdf += fmt.Sprintf("    afo:hasUnitAsset :%s_%s ;\n", sName, assetName)
 	}
 	details := sys.Husk.Details
 	for key, values := range details {
-		rdf += "    afo:hasAttribute [\n"
-		rdf += "        a afo:Attribute ;\n"
-		rdf += fmt.Sprintf("        afo:hasName \"%s\" ;\n", key)
+		rdf += fmt.Sprintf("    afo:has%s [\n", key)
 		valuesCount := 0
 		valuesLen := len(values)
 		for _, value := range values {
@@ -69,7 +67,7 @@ func SModel(w http.ResponseWriter, req *http.Request, sys components.System) {
 		}
 		rdf += "\n    ] ;\n"
 	}
-	// protoLen := len(sys.Husk.ProtoPort)
+
 	protoCount := 0
 	ppStart := false
 	for protocol := range sys.Husk.ProtoPort {
@@ -78,8 +76,8 @@ func SModel(w http.ResponseWriter, req *http.Request, sys components.System) {
 				rdf += " ;\n"
 			}
 			ppStart = true
-			rdf += "    afo:hasProtocol [\n"
-			rdf += fmt.Sprintf("        afo:hasProtocol \"%s\" ;\n", protocol)
+			rdf += "    afo:communicatesOver [\n"
+			rdf += fmt.Sprintf("        afo:usesProtocol \"%s\" ;\n", protocol)
 			rdf += fmt.Sprintf("        afo:usesPort %d \n", sys.Husk.ProtoPort[protocol])
 			rdf += "    ]"
 		}
@@ -87,7 +85,7 @@ func SModel(w http.ResponseWriter, req *http.Request, sys components.System) {
 	}
 	rdf += ".\n\n"
 
-	// Add the host instance
+	// Add the host instance ----------------------------------------------------------------------
 	rdf += fmt.Sprintf(":%s a afo:Host ;\n", sys.Host.Name)
 	rdf += fmt.Sprintf("    afo:hasName \"%s\" ;\n", sys.Host.Name)
 	ipaLen := len(sys.Host.IPAddresses)
@@ -101,16 +99,15 @@ func SModel(w http.ResponseWriter, req *http.Request, sys components.System) {
 	}
 	rdf += " .\n\n"
 
-	// Add the unit asset instances
+	// Add the unit asset instances ----------------------------------------------------------------------
 	for assetName, asset := range sys.UAssets {
 		rdf += fmt.Sprintf(":%s_%s a afo:UnitAsset ;\n", sName, assetName)
 		rdf += fmt.Sprintf("    afo:hasName \"%s\" ;\n", assetName)
 
 		details := (*asset).GetDetails()
 		for key, values := range details {
-			rdf += "    afo:hasAttribute [\n"
-			rdf += "        a afo:Attribute ;\n"
-			rdf += fmt.Sprintf("        afo:hasName \"%s\" ;\n", key)
+			rdf += fmt.Sprintf("    afo:has%s [\n", key)
+			// rdf += fmt.Sprintf("        afo:hasName \"%s\" ;\n", key)
 			valuesCount := 0
 			valuesLen := len(values)
 			for _, value := range values {
@@ -122,6 +119,17 @@ func SModel(w http.ResponseWriter, req *http.Request, sys components.System) {
 			}
 			rdf += "\n    ] ;\n"
 		}
+		cervices := (*asset).GetCervices()
+		// cervicesLen := len(cervices)
+		cerviceCount := 0
+		for _, cervice := range cervices {
+			rdf += fmt.Sprintf("    afo:consumesService :%s_%s_%s", sName, assetName, cervice.Name)
+			cerviceCount++
+			// if cerviceCount < cervicesLen {
+			rdf += " ;\n"
+			// }
+		}
+
 		services := (*asset).GetServices()
 		servicesLen := len(services)
 		serviceCount := 0
@@ -135,8 +143,49 @@ func SModel(w http.ResponseWriter, req *http.Request, sys components.System) {
 		rdf += " .\n\n"
 	}
 
-	// Add the service instances
+	// Add the consumed services instances ----------------------------------------------------------------------
 	for assetName, asset := range sys.UAssets {
+
+		cervices := (*asset).GetCervices()
+		for _, cervice := range cervices {
+			rdf += fmt.Sprintf(":%s_%s_%s a afo:ConsumedService ;\n", sName, assetName, cervice.Name)
+			rdf += fmt.Sprintf("    afo:hasName \"%s\" ;\n", cervice.Name)
+			details = cervice.Details
+			detailsCount := 0
+			detailsLen := len(details)
+			for key, values := range details {
+				rdf += fmt.Sprintf("    afo:has%s [\n", key)
+				detailsCount++
+				valuesCount := 0
+				valuesLen := len(values)
+				for _, value := range values {
+					rdf += fmt.Sprintf("        afo:hasValue \"%s\"", value)
+					valuesCount++
+					if valuesCount < valuesLen {
+						rdf += " ;\n"
+					}
+					rdf += "\n    ]"
+					if detailsCount < detailsLen {
+						rdf += " ;\n"
+					}
+				}
+			}
+			pAddressCount := 0
+			pAddressLen := len(cervice.Url)
+			if pAddressLen > 0 {
+				rdf += " \n"
+			}
+			for _, address := range cervice.Url {
+				rdf += fmt.Sprintf("        afo:hasProvider \"%s\"", address)
+				pAddressCount++
+				if pAddressCount < pAddressLen {
+					rdf += " ;\n"
+				}
+			}
+			rdf += " .\n\n"
+		}
+
+		// Add the provided services instances ----------------------------------------------------------------------
 		services := (*asset).GetServices()
 		for _, service := range services {
 			rdf += fmt.Sprintf(":%s_%s_%s a afo:Service ;\n", sName, assetName, service.Definition)
@@ -144,9 +193,9 @@ func SModel(w http.ResponseWriter, req *http.Request, sys components.System) {
 			rdf += fmt.Sprintf("    afo:hasServiceDefinition \"%s\" ;\n", service.Definition)
 			details = service.Details
 			for key, values := range details {
-				rdf += "    afo:hasAttribute [\n"
-				rdf += "        a afo:Attribute ;\n"
-				rdf += fmt.Sprintf("        afo:hasName \"%s\" ;\n", key)
+				rdf += fmt.Sprintf("    afo:has%s [\n", key)
+				// rdf += "        a afo:Attribute ;\n"
+				// rdf += fmt.Sprintf("        afo:hasName \"%s\" ;\n", key)
 				valuesCount := 0
 				valuesLen := len(values)
 				for _, value := range values {
@@ -163,8 +212,9 @@ func SModel(w http.ResponseWriter, req *http.Request, sys components.System) {
 				rdf += fmt.Sprintf("    afo:hasCost %.2f ;\n", service.ACost)
 				rdf += fmt.Sprintf("    afo:hasCostUnit \"%s\" ;\n", service.CUnit)
 			}
-			rdf += fmt.Sprintf("    afo:hasRegistrationPeriod %d .", service.RegPeriod)
+			rdf += fmt.Sprintf("    afo:hasRegistrationPeriod %d .\n\n", service.RegPeriod)
 		}
+
 	}
 
 	// Set the content type to text/turtle
