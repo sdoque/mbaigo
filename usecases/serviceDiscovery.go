@@ -71,7 +71,7 @@ func ExtractQuestForm(bodyBytes []byte) (rec forms.ServiceQuest_v1, err error) {
 		var f forms.ServiceQuest_v1
 		err = json.Unmarshal(bodyBytes, &f)
 		if err != nil {
-			log.Println("Unable to extract the discovey form request ")
+			log.Println("Unable to extract the discovery form request ")
 			return
 		}
 		rec = f

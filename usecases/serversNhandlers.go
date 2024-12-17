@@ -196,7 +196,7 @@ func handleThreeParts(w http.ResponseWriter, r *http.Request, part string, sys *
 	case "doc":
 		forms.SysHateoas(w, r, *sys)
 	case "model":
-		forms.SModel(w, r, *sys)
+		forms.SModel(w, r, sys)
 	case "cert":
 		forms.Certificate(w, r, *sys)
 	default:

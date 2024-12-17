@@ -30,42 +30,55 @@ package forms
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/sdoque/mbaigo/components"
 )
 
 // function SModel provides a semantic model of a system running on a host and exposing the functionality of asset
-func SModel(w http.ResponseWriter, req *http.Request, sys components.System) {
-	fmt.Println("Processing the semantic model")
-	rdf := "@prefix temp: <http://www.arrowhead.eu/temp#> .\n"
-	rdf += "@prefix afo: <http://www.synecdoque.com/afo-core.ttl> .\n"
-	rdf += "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n"
-	rdf += "@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n"
-	rdf += "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
-	rdf += "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\n"
+func SModel(w http.ResponseWriter, req *http.Request, sys *components.System) {
 
-	// Add the system instance ----------------------------------------------------------------------
+	rdf := prefixes()
+	rdf += modelSystem(sys)
+	rdf += modelHost(sys)
+	rdf += modelUAsset(sys)
+
+	w.Header().Set("Content-Type", "text/turtle")
+	w.Write([]byte(rdf))
+}
+
+func prefixes() (description string) {
+	description = "@prefix : <http://www.synecdoque.com/example#> .\n"
+	description += "@prefix afo: <http://www.synecdoque.com/afo-core.ttl> .\n"
+	description += "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n"
+	description += "@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n"
+	description += "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
+	description += "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\n"
+	return
+}
+
+func modelSystem(sys *components.System) (systemModel string) {
 	sName := sys.Host.Name + "_" + sys.Name
-	rdf += fmt.Sprintf(":%s a afo:System ;\n", sName)
-	rdf += fmt.Sprintf("    afo:hasName :\"%s\" ;\n", sys.Name)
-	rdf += fmt.Sprintf("    afo:runsOnHost :%s ;\n", sys.Host.Name)
+	systemModel = fmt.Sprintf(":%s a afo:System ;\n", sName)
+	systemModel += fmt.Sprintf("    afo:hasName \"%s\" ;\n", sys.Name)
+	systemModel += fmt.Sprintf("    afo:runsOnHost :%s ;\n", sys.Host.Name)
 
 	for assetName := range sys.UAssets {
-		rdf += fmt.Sprintf("    afo:hasUnitAsset :%s_%s ;\n", sName, assetName)
+		systemModel += fmt.Sprintf("    afo:hasUnitAsset :%s_%s ;\n", sName, assetName)
 	}
 	details := sys.Husk.Details
 	for key, values := range details {
-		rdf += fmt.Sprintf("    afo:has%s [\n", key)
+		systemModel += fmt.Sprintf("    afo:has%s [\n", key)
 		valuesCount := 0
 		valuesLen := len(values)
 		for _, value := range values {
-			rdf += fmt.Sprintf("        afo:hasValue \"%s\"", value)
+			systemModel += fmt.Sprintf("        afo:hasValue \"%s\"", value)
 			valuesCount++
 			if valuesCount < valuesLen {
-				rdf += " ;\n"
+				systemModel += " ;\n"
 			}
 		}
-		rdf += "\n    ] ;\n"
+		systemModel += "\n    ] ;\n"
 	}
 
 	protoCount := 0
@@ -73,60 +86,70 @@ func SModel(w http.ResponseWriter, req *http.Request, sys components.System) {
 	for protocol := range sys.Husk.ProtoPort {
 		if sys.Husk.ProtoPort[protocol] != 0 {
 			if protoCount > 0 && ppStart {
-				rdf += " ;\n"
+				systemModel += " ;\n"
 			}
 			ppStart = true
-			rdf += "    afo:communicatesOver [\n"
-			rdf += fmt.Sprintf("        afo:usesProtocol \"%s\" ;\n", protocol)
-			rdf += fmt.Sprintf("        afo:usesPort %d \n", sys.Husk.ProtoPort[protocol])
-			rdf += "    ]"
+			systemModel += "    afo:communicatesOver [\n"
+			systemModel += fmt.Sprintf("        afo:usesProtocol \"%s\" ;\n", protocol)
+			systemModel += fmt.Sprintf("        afo:usesPort %d \n", sys.Husk.ProtoPort[protocol])
+			systemModel += "    ]"
 		}
 		protoCount++
 	}
-	rdf += ".\n\n"
+	systemModel += ".\n\n"
+	return
+}
 
-	// Add the host instance ----------------------------------------------------------------------
-	rdf += fmt.Sprintf(":%s a afo:Host ;\n", sys.Host.Name)
-	rdf += fmt.Sprintf("    afo:hasName \"%s\" ;\n", sys.Host.Name)
+func modelHost(sys *components.System) string {
+	hostModel := fmt.Sprintf(":%s a afo:Host ;\n", sys.Host.Name)
+	hostModel += fmt.Sprintf("    afo:hasName \"%s\" ;\n", sys.Host.Name)
 	ipaLen := len(sys.Host.IPAddresses)
 	ipaCount := 0
 	for _, ipa := range sys.Host.IPAddresses {
-		rdf += fmt.Sprintf("    afo:hasIPaddress \"%s\"", ipa)
+		hostModel += fmt.Sprintf("    afo:hasIPaddress \"%s\"", ipa)
 		ipaCount++
 		if ipaCount < ipaLen {
-			rdf += " ;\n"
+			hostModel += " ;\n"
 		}
 	}
-	rdf += " .\n\n"
+	hostModel += " .\n\n"
+	return hostModel
+}
 
-	// Add the unit asset instances ----------------------------------------------------------------------
+func modelUAsset(sys *components.System) string {
+	sName := sys.Host.Name + "_" + sys.Name
+	var assetModels string
 	for assetName, asset := range sys.UAssets {
-		rdf += fmt.Sprintf(":%s_%s a afo:UnitAsset ;\n", sName, assetName)
-		rdf += fmt.Sprintf("    afo:hasName \"%s\" ;\n", assetName)
+		assetModels += fmt.Sprintf(":%s_%s a afo:UnitAsset ;\n", sName, assetName)
+		assetModels += fmt.Sprintf("    afo:hasName \"%s\" ;\n", assetName)
 
 		details := (*asset).GetDetails()
 		for key, values := range details {
-			rdf += fmt.Sprintf("    afo:has%s [\n", key)
+			assetModels += fmt.Sprintf("    afo:has%s [\n", key)
 			// rdf += fmt.Sprintf("        afo:hasName \"%s\" ;\n", key)
 			valuesCount := 0
 			valuesLen := len(values)
 			for _, value := range values {
-				rdf += fmt.Sprintf("        afo:hasValue \"%s\"", value)
+				assetModels += fmt.Sprintf("        afo:hasValue \"%s\"", value)
 				valuesCount++
 				if valuesCount < valuesLen {
-					rdf += " ;\n"
+					assetModels += " ;\n"
 				}
 			}
-			rdf += "\n    ] ;\n"
+			assetModels += "\n    ] ;\n"
 		}
+
 		cervices := (*asset).GetCervices()
 		// cervicesLen := len(cervices)
+		// if cervicesLen > 0 {
+		// 	assetModels += " ;\n"
+		// }
 		cerviceCount := 0
 		for _, cervice := range cervices {
-			rdf += fmt.Sprintf("    afo:consumesService :%s_%s_%s", sName, assetName, cervice.Name)
+			assetModels += fmt.Sprintf("    afo:consumesService :%s_%s_%s", sName, assetName, cervice.Name)
 			cerviceCount++
 			// if cerviceCount < cervicesLen {
-			rdf += " ;\n"
+			assetModels += " ;\n"
 			// }
 		}
 
@@ -134,90 +157,103 @@ func SModel(w http.ResponseWriter, req *http.Request, sys components.System) {
 		servicesLen := len(services)
 		serviceCount := 0
 		for _, service := range services {
-			rdf += fmt.Sprintf("    afo:hasService :%s_%s_%s", sName, assetName, service.Definition)
+			assetModels += fmt.Sprintf("    afo:hasService :%s_%s_%s", sName, assetName, service.Definition)
 			serviceCount++
 			if serviceCount < servicesLen {
-				rdf += " ;\n"
+				assetModels += " ;\n"
 			}
 		}
-		rdf += " .\n\n"
+		assetModels += " .\n\n"
+
+		assetModels += modelCervices(sName, asset)
+		assetModels += modelServices(sName, asset, sys)
+	}
+	return assetModels
+}
+
+func modelCervices(sName string, ua *components.UnitAsset) string {
+	var cervicesModel string
+	asset := *ua
+	cervices := asset.GetCervices()
+	for _, cervice := range cervices {
+
+		cervicesModel += fmt.Sprintf(":%s_%s_%s a afo:ConsumedService ;\n", sName, asset.GetName(), cervice.Name)
+		cervicesModel += fmt.Sprintf("    afo:hasName \"%s\" ;\n", cervice.Name)
+		details := cervice.Details
+		detailsCount := 0
+		detailsLen := len(details)
+		for key, values := range details {
+			cervicesModel += fmt.Sprintf("    afo:has%s [\n", key)
+			detailsCount++
+			valuesCount := 0
+			valuesLen := len(values)
+			for _, value := range values {
+				cervicesModel += fmt.Sprintf("\t\tafo:hasValue \"%s\"", value)
+				valuesCount++
+				if valuesCount < valuesLen {
+					cervicesModel += " ;\n"
+				}
+				cervicesModel += "\n\t]"
+				if detailsCount < detailsLen {
+					cervicesModel += " ;\n"
+				}
+			}
+		}
+		pAddressCount := 0
+		pAddressLen := len(cervice.Url)
+		if pAddressLen > 0 {
+			cervicesModel += " ;\n"
+		}
+		for _, address := range cervice.Url {
+			cervicesModel += fmt.Sprintf("    afo:consumes <%s>", address)
+			pAddressCount++
+			if pAddressCount < pAddressLen {
+				cervicesModel += " ;\n"
+			}
+		}
+		cervicesModel += " .\n\n"
+	}
+	return cervicesModel
+}
+
+func modelServices(sName string, ua *components.UnitAsset, sys *components.System) string {
+	var servicesModel string
+	asset := *ua
+	assetName := asset.GetName()
+	services := asset.GetServices()
+	for _, service := range services {
+		servicesModel += fmt.Sprintf(":%s_%s_%s a afo:Service ;\n", sName, assetName, service.Definition)
+		servicesModel += fmt.Sprintf("    afo:hasName \"%s/%s\" ;\n", assetName, service.Definition)
+		servicesModel += fmt.Sprintf("    afo:hasServiceDefinition \"%s\" ;\n", service.Definition)
+		for protocol, port := range sys.Husk.ProtoPort {
+			if port != 0 {
+				addr := protocol + "://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(port) + "/" + sys.Name + "/" + assetName + "/" + service.Definition
+				servicesModel += fmt.Sprintf("    afo:hasUrl <%s> ;\n", addr)
+			}
+		}
+		details := service.Details
+		for key, values := range details {
+			servicesModel += fmt.Sprintf("    afo:has%s [\n", key)
+			// rdf += "        a afo:Attribute ;\n"
+			// rdf += fmt.Sprintf("        afo:hasName \"%s\" ;\n", key)
+			valuesCount := 0
+			valuesLen := len(values)
+			for _, value := range values {
+				servicesModel += fmt.Sprintf("        afo:hasValue \"%s\"", value)
+				valuesCount++
+				if valuesCount < valuesLen {
+					servicesModel += " ;\n"
+				}
+			}
+			servicesModel += "\n    ] ;\n"
+		}
+		servicesModel += fmt.Sprintf("    afo:isSubscribAble %t ;\n", service.SubscribeAble)
+		if service.CUnit != "" {
+			servicesModel += fmt.Sprintf("    afo:hasCost %.2f ;\n", service.ACost)
+			servicesModel += fmt.Sprintf("    afo:hasCostUnit \"%s\" ;\n", service.CUnit)
+		}
+		servicesModel += fmt.Sprintf("    afo:hasRegistrationPeriod %d .\n\n", service.RegPeriod)
 	}
 
-	// Add the consumed services instances ----------------------------------------------------------------------
-	for assetName, asset := range sys.UAssets {
-
-		cervices := (*asset).GetCervices()
-		for _, cervice := range cervices {
-			rdf += fmt.Sprintf(":%s_%s_%s a afo:ConsumedService ;\n", sName, assetName, cervice.Name)
-			rdf += fmt.Sprintf("    afo:hasName \"%s\" ;\n", cervice.Name)
-			details = cervice.Details
-			detailsCount := 0
-			detailsLen := len(details)
-			for key, values := range details {
-				rdf += fmt.Sprintf("    afo:has%s [\n", key)
-				detailsCount++
-				valuesCount := 0
-				valuesLen := len(values)
-				for _, value := range values {
-					rdf += fmt.Sprintf("        afo:hasValue \"%s\"", value)
-					valuesCount++
-					if valuesCount < valuesLen {
-						rdf += " ;\n"
-					}
-					rdf += "\n    ]"
-					if detailsCount < detailsLen {
-						rdf += " ;\n"
-					}
-				}
-			}
-			pAddressCount := 0
-			pAddressLen := len(cervice.Url)
-			if pAddressLen > 0 {
-				rdf += " \n"
-			}
-			for _, address := range cervice.Url {
-				rdf += fmt.Sprintf("        afo:hasProvider \"%s\"", address)
-				pAddressCount++
-				if pAddressCount < pAddressLen {
-					rdf += " ;\n"
-				}
-			}
-			rdf += " .\n\n"
-		}
-
-		// Add the provided services instances ----------------------------------------------------------------------
-		services := (*asset).GetServices()
-		for _, service := range services {
-			rdf += fmt.Sprintf(":%s_%s_%s a afo:Service ;\n", sName, assetName, service.Definition)
-			rdf += fmt.Sprintf("    afo:hasName \"%s/%s\" ;\n", assetName, service.Definition)
-			rdf += fmt.Sprintf("    afo:hasServiceDefinition \"%s\" ;\n", service.Definition)
-			details = service.Details
-			for key, values := range details {
-				rdf += fmt.Sprintf("    afo:has%s [\n", key)
-				// rdf += "        a afo:Attribute ;\n"
-				// rdf += fmt.Sprintf("        afo:hasName \"%s\" ;\n", key)
-				valuesCount := 0
-				valuesLen := len(values)
-				for _, value := range values {
-					rdf += fmt.Sprintf("        afo:hasValue \"%s\"", value)
-					valuesCount++
-					if valuesCount < valuesLen {
-						rdf += " ;\n"
-					}
-				}
-				rdf += "\n    ] ;\n"
-			}
-			rdf += fmt.Sprintf("    afo:isSubscribAble %t ;\n", service.SubscribeAble)
-			if service.CUnit != "" {
-				rdf += fmt.Sprintf("    afo:hasCost %.2f ;\n", service.ACost)
-				rdf += fmt.Sprintf("    afo:hasCostUnit \"%s\" ;\n", service.CUnit)
-			}
-			rdf += fmt.Sprintf("    afo:hasRegistrationPeriod %d .\n\n", service.RegPeriod)
-		}
-
-	}
-
-	// Set the content type to text/turtle
-	w.Header().Set("Content-Type", "text/turtle")
-	w.Write([]byte(rdf))
+	return servicesModel
 }
