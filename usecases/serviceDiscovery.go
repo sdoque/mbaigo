@@ -76,7 +76,7 @@ func ExtractQuestForm(bodyBytes []byte) (rec forms.ServiceQuest_v1, err error) {
 		}
 		rec = f
 	default:
-		err = errors.New("unsupported service registrattion form version")
+		err = errors.New("unsupported service registration form version")
 	}
 	return
 }
@@ -135,7 +135,7 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 	questForm := forms.ServiceQuest_v1{
 		SysId:             0,
 		RequesterName:     sys.Name,
-		ServiceDefinition: cer.Name,
+		ServiceDefinition: cer.Definition,
 		Protocol:          "http",
 		Details:           cer.Details,
 		Version:           "ServiceQuest_v1",
@@ -203,7 +203,7 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 		return
 	}
 
-	cer.Url = append(cer.Url, df.ServLocation)
+	cer.Nodes[df.ServNode] = append(cer.Nodes[df.ServNode], df.ServLocation)
 	return err
 }
 

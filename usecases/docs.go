@@ -25,7 +25,7 @@
 
 // doc forms are HTML templates used to describe the systems, resources and services
 
-package forms
+package usecases
 
 import (
 	"fmt"
@@ -36,8 +36,8 @@ import (
 	"github.com/sdoque/mbaigo/components"
 )
 
-// System HATEOAS provides an initial documentation as a web server of the system with hyperlinks to the services for authorized browsers
-// It is the acronym for Hypermedia as the Engine of Application State
+// System Documentation (HATEOAS) provides an initial documentation on the system's web server of with hyperlinks to the services for browsers
+// HATEOAS is the acronym for Hypermedia as the Engine of Application State, using hyperlinks to navigate the API
 func SysHateoas(w http.ResponseWriter, req *http.Request, sys components.System) {
 	text := "<!DOCTYPE html><html><body>"
 	w.Write([]byte(text))
@@ -119,7 +119,7 @@ func ResHateoas(w http.ResponseWriter, req *http.Request, ua components.UnitAsse
 	w.Write([]byte(text))
 }
 
-// ResHateoas provides information about the service and is accessed via the system's web server
+// ServiceHateoas provides information about the service and is accessed via the system's web server
 func ServiceHateoas(w http.ResponseWriter, req *http.Request, ser components.Service, sys components.System) {
 	parts := strings.Split(req.URL.Path, "/")
 	uaName := parts[2]
@@ -137,22 +137,22 @@ func ServiceHateoas(w http.ResponseWriter, req *http.Request, ser components.Ser
 	w.Write([]byte(text))
 }
 
-// getFirstAsset returns the first key-value pair in the Assets map
-func getFirstAsset(assetMap map[string]*components.UnitAsset) []components.UnitAsset {
-	var assetList []components.UnitAsset
-	for key := range assetMap {
-		assetList = append(assetList, *assetMap[key])
-		return assetList
-	}
-	return assetList
-}
+// // getFirstAsset returns the first key-value pair in the Assets map
+// func getFirstAsset(assetMap map[string]*components.UnitAsset) []components.UnitAsset {
+// 	var assetList []components.UnitAsset
+// 	for key := range assetMap {
+// 		assetList = append(assetList, *assetMap[key])
+// 		return assetList
+// 	}
+// 	return assetList
+// }
 
-// getServicesList() returns the original list of services
-func getServicesList(uat components.UnitAsset) []components.Service {
-	var serviceList []components.Service
-	services := uat.GetServices()
-	for s := range services {
-		serviceList = append(serviceList, *services[s])
-	}
-	return serviceList
-}
+// // getServicesList() returns the original list of services
+// func getServicesList(uat components.UnitAsset) []components.Service {
+// 	var serviceList []components.Service
+// 	services := uat.GetServices()
+// 	for s := range services {
+// 		serviceList = append(serviceList, *services[s])
+// 	}
+// 	return serviceList
+// }

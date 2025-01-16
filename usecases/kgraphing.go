@@ -25,18 +25,19 @@
 
 // the ontology forms are used to generate a semantic model of the system, device it is running on, its unit assets and services they offer
 
-package forms
+package usecases
 
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 
 	"github.com/sdoque/mbaigo/components"
 )
 
-// function SModel provides a semantic model of a system running on a host and exposing the functionality of asset
-func SModel(w http.ResponseWriter, req *http.Request, sys *components.System) {
+// function KGraphing provides a semantic model of a system running on a host and exposing the functionality of asset
+func KGraphing(w http.ResponseWriter, req *http.Request, sys *components.System) {
 
 	rdf := prefixes()
 	rdf += modelSystem(sys)
@@ -48,7 +49,7 @@ func SModel(w http.ResponseWriter, req *http.Request, sys *components.System) {
 }
 
 func prefixes() (description string) {
-	description = "@prefix : <http://www.synecdoque.com/example#> .\n"
+	description = "@prefix : <http://www.synecdoque.com/lcloud/> .\n"
 	description += "@prefix afo: <http://www.synecdoque.com/afo-core.ttl> .\n"
 	description += "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n"
 	description += "@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n"
@@ -123,6 +124,9 @@ func modelUAsset(sys *components.System) string {
 		assetModels += fmt.Sprintf(":%s_%s a afo:UnitAsset ;\n", sName, assetName)
 		assetModels += fmt.Sprintf("    afo:hasName \"%s\" ;\n", assetName)
 
+		pattern := `"<(.*)>"`
+		re := regexp.MustCompile(pattern)
+
 		details := (*asset).GetDetails()
 		for key, values := range details {
 			assetModels += fmt.Sprintf("    afo:has%s [\n", key)
@@ -130,6 +134,14 @@ func modelUAsset(sys *components.System) string {
 			valuesCount := 0
 			valuesLen := len(values)
 			for _, value := range values {
+				match := re.FindStringSubmatch(value)
+				if len(match) > 1 {
+					// The first capture group contains the desired string with < and >
+					result := match[1]
+					fmt.Println("Extracted string:", result)
+				} else {
+					fmt.Println("No match found (debug string)")
+				}
 				assetModels += fmt.Sprintf("        afo:hasValue \"%s\"", value)
 				valuesCount++
 				if valuesCount < valuesLen {
@@ -140,13 +152,9 @@ func modelUAsset(sys *components.System) string {
 		}
 
 		cervices := (*asset).GetCervices()
-		// cervicesLen := len(cervices)
-		// if cervicesLen > 0 {
-		// 	assetModels += " ;\n"
-		// }
 		cerviceCount := 0
 		for _, cervice := range cervices {
-			assetModels += fmt.Sprintf("    afo:consumesService :%s_%s_%s", sName, assetName, cervice.Name)
+			assetModels += fmt.Sprintf("    afo:consumesService :%s_%s_%s", sName, assetName, cervice.Definition)
 			cerviceCount++
 			// if cerviceCount < cervicesLen {
 			assetModels += " ;\n"
@@ -177,8 +185,8 @@ func modelCervices(sName string, ua *components.UnitAsset) string {
 	cervices := asset.GetCervices()
 	for _, cervice := range cervices {
 
-		cervicesModel += fmt.Sprintf(":%s_%s_%s a afo:ConsumedService ;\n", sName, asset.GetName(), cervice.Name)
-		cervicesModel += fmt.Sprintf("    afo:hasName \"%s\" ;\n", cervice.Name)
+		cervicesModel += fmt.Sprintf(":%s_%s_%s a afo:ConsumedService ;\n", sName, asset.GetName(), cervice.Definition)
+		cervicesModel += fmt.Sprintf("    afo:hasName \"%s\" ;\n", cervice.Definition)
 		details := cervice.Details
 		detailsCount := 0
 		detailsLen := len(details)
@@ -199,15 +207,24 @@ func modelCervices(sName string, ua *components.UnitAsset) string {
 				}
 			}
 		}
-		pAddressCount := 0
-		pAddressLen := len(cervice.Url)
-		if pAddressLen > 0 {
+		pCounter := 0
+		providersCount := len(cervice.Nodes)
+		if providersCount > 0 {
 			cervicesModel += " ;\n"
 		}
-		for _, address := range cervice.Url {
-			cervicesModel += fmt.Sprintf("    afo:consumes <%s>", address)
-			pAddressCount++
-			if pAddressCount < pAddressLen {
+		for pName, provider := range cervice.Nodes {
+			cervicesModel += fmt.Sprintf("    afo:consumes :%s ;\n", pName)
+			uCounter := 0
+			urlCount := len(provider)
+			for _, url := range provider {
+				cervicesModel += fmt.Sprintf("    afo:hasUrl <%s>", url)
+				uCounter++
+				if uCounter < urlCount {
+					cervicesModel += " ;\n"
+				}
+			}
+			pCounter++
+			if pCounter < providersCount {
 				cervicesModel += " ;\n"
 			}
 		}
@@ -234,8 +251,6 @@ func modelServices(sName string, ua *components.UnitAsset, sys *components.Syste
 		details := service.Details
 		for key, values := range details {
 			servicesModel += fmt.Sprintf("    afo:has%s [\n", key)
-			// rdf += "        a afo:Attribute ;\n"
-			// rdf += fmt.Sprintf("        afo:hasName \"%s\" ;\n", key)
 			valuesCount := 0
 			valuesLen := len(values)
 			for _, value := range values {

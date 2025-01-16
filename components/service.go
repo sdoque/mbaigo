@@ -25,7 +25,7 @@ package components
 // An Arrowhead Service has specific properties that exposes a unit asset's functionality
 type Service struct {
 	ID            int                 `json:"-"`                  // Id assigned by the Service Registrar
-	Definition    string              `json:"servicedefinition"`  // Service definition or purpose
+	Definition    string              `json:"definition"`         // Service definition or purpose
 	SubPath       string              `json:"-"`                  // The URL subpath after the resource's
 	Details       map[string][]string `json:"details"`            // Metadata or details about the service
 	RegPeriod     int                 `json:"registrationPeriod"` // The period until the registrar is expecting a sign of life
@@ -113,10 +113,10 @@ func MergeDetails(map1, map2 map[string][]string) map[string][]string {
 
 // A Cervice is a consumed service
 type Cervice struct {
-	Name    string
-	Details map[string][]string
-	Url     []string
-	Protos  []string
+	Definition string
+	Details    map[string][]string
+	Nodes      map[string][]string
+	Protos     []string
 }
 
 // Cervises is a collection of "Cervice" structs

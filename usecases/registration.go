@@ -235,37 +235,37 @@ func deregisterService(registrar *components.CoreSystem, ser *components.Service
 
 // serviceRegistrationForm returns a json data byte array with the data of the service to be registered
 // in the form of choice [Sending @ Application system]
-func serviceRegistrationForm(sys *components.System, res *components.UnitAsset, ser *components.Service, version string) (payload []byte, err error) {
+func serviceRegistrationForm(sys *components.System, ua *components.UnitAsset, ser *components.Service, version string) (payload []byte, err error) {
 	var f forms.Form
 	switch version {
 	case "ServiceRecord_v1":
-		var sf forms.ServiceRecord_v1 // declare a new service form
-		sf.NewForm()
-		sf.Id = ser.ID
-		sf.ServiceDefinition = ser.Definition
-		sf.SystemName = sys.Name
-		sf.IPAddresses = sys.Host.IPAddresses
-		sf.ProtoPort = make(map[string]int) // initialize the map
+		resName := (*ua).GetName()
+		var sr forms.ServiceRecord_v1 // declare a new service form
+		sr.NewForm()
+		sr.Id = ser.ID
+		sr.ServiceDefinition = ser.Definition
+		sr.SystemName = sys.Name
+		sr.ServiceNode = sys.Host.Name + "_" + sys.Name + "_" + resName + "_" + ser.Definition
+		sr.IPAddresses = sys.Host.IPAddresses
+		sr.ProtoPort = make(map[string]int) // initialize the map
 		for key, port := range sys.Husk.ProtoPort {
 			if port != 0 { // exclude entries where the port is 0
-				sf.ProtoPort[key] = port
+				sr.ProtoPort[key] = port
 			}
 		}
-		sf.Details = deepCopyMap((*res).GetDetails())
+		sr.Details = deepCopyMap((*ua).GetDetails())
 		for key, valueSlice := range ser.Details {
-			sf.Details[key] = append(sf.Details[key], valueSlice...)
+			sr.Details[key] = append(sr.Details[key], valueSlice...)
 		}
-		// sf.Certificate = sys.Husk.Certificate
-		resName := (*res).GetName()
-		sf.SubPath = resName + "/" + ser.SubPath
+		sr.SubPath = resName + "/" + ser.SubPath
 
 		if ser.RegPeriod != 0 {
-			sf.RegLife = ser.RegPeriod
+			sr.RegLife = ser.RegPeriod
 		} else {
-			sf.RegLife = 30
+			sr.RegLife = 30
 		}
-		sf.Created = ser.RegTimestamp
-		f = &sf
+		sr.Created = ser.RegTimestamp
+		f = &sr
 	default:
 		err = errors.New("unsupported service registration form version")
 		return

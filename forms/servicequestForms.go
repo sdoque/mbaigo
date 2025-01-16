@@ -53,14 +53,14 @@ func init() {
 ///////////////////////////////////////////////////////////////////////////////
 
 type ServicePoint_v1 struct {
-	ServiceID           int                 `json:"serviceId"`
-	ProviderName        string              `json:"providerName"`
-	ProviderCertificate string              `json:"providerCert"`
-	ServiceDefinition   string              `json:"definition"`
-	Details             map[string][]string `json:"details"`
-	ServLocation        string              `json:"servlocation"`
-	Token               string              `json:"token"`
-	Version             string              `json:"version"`
+	ServiceID         int                 `json:"serviceId"`
+	ProviderName      string              `json:"providerName"`
+	ServiceDefinition string              `json:"definition"`
+	Details           map[string][]string `json:"details"`
+	ServLocation      string              `json:"serviceURL"`
+	ServNode          string              `json:"serviceNode"`
+	Token             string              `json:"token"`
+	Version           string              `json:"version"`
 }
 
 func (f *ServicePoint_v1) NewForm() Form {

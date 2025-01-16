@@ -31,6 +31,7 @@ type ServiceRecord_v1 struct {
 	Id                int                 `json:"registryID"`
 	ServiceDefinition string              `json:"definition"`
 	SystemName        string              `json:"systemName"`
+	ServiceNode       string              `json:"serviceNode"`
 	IPAddresses       []string            `json:"ipAddresses"`
 	ProtoPort         map[string]int      `json:"protoPort"`
 	Details           map[string][]string `json:"details"`

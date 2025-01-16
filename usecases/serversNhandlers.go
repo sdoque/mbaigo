@@ -194,9 +194,9 @@ func handleThreeParts(w http.ResponseWriter, r *http.Request, part string, sys *
 	case "":
 		http.Redirect(w, r, "/"+sys.Name+"/doc", http.StatusFound)
 	case "doc":
-		forms.SysHateoas(w, r, *sys)
-	case "model":
-		forms.SModel(w, r, sys)
+		SysHateoas(w, r, *sys)
+	case "kgraph":
+		KGraphing(w, r, sys)
 	case "cert":
 		forms.Certificate(w, r, *sys)
 	default:
@@ -214,7 +214,7 @@ func handleFourParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 
 	switch servicePath {
 	case "doc":
-		forms.ResHateoas(w, r, *Resource, *sys)
+		ResHateoas(w, r, *Resource, *sys)
 		return
 
 	default:
@@ -240,7 +240,7 @@ func handleFiveParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 	case "doc":
 		service := findServiceByPath(uAsset.GetServices(), servicePath)
 		if service != nil {
-			forms.ServiceHateoas(w, r, *service, *sys)
+			ServiceHateoas(w, r, *service, *sys)
 		} else {
 			http.Error(w, "Service not found", http.StatusNotFound)
 		}
