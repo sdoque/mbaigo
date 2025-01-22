@@ -30,6 +30,7 @@ package forms
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -63,10 +64,11 @@ func SysHateoas(w http.ResponseWriter, req *http.Request, sys components.System)
 	text = "</ul> having the following services:<ul>"
 	w.Write([]byte(text))
 	servicesList := getServicesList(getFirstAsset(*assetList)[0])
+	sort.Slice(servicesList, func(i, j int) bool { return servicesList[i].Definition < servicesList[j].Definition })
 	for _, service := range servicesList {
 		metaservice := ""
-		for key, values := range service.Details {
-			metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
+		for _, key := range sortMapKeys(service.Details) {
+			metaservice += key + ": " + fmt.Sprintf("%v", service.Details[key]) + " "
 		}
 		serviceURI := "<li><b>" + service.Definition + "</b> with details: " + metaservice + "</li>"
 		w.Write([]byte(serviceURI))
@@ -155,4 +157,14 @@ func getServicesList(uat components.UnitAsset) []components.Service {
 		serviceList = append(serviceList, *services[s])
 	}
 	return serviceList
+}
+
+// sortMapKeys returns a sorted list of string keys from a map (of any type)
+func sortMapKeys[T any](m map[string]T) []string {
+	var list []string
+	for k := range m {
+		list = append(list, k)
+	}
+	sort.Strings(list)
+	return list
 }
