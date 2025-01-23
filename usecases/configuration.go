@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/sdoque/mbaigo/components"
 )
@@ -155,6 +156,9 @@ func Configure(sys *components.System) ([]json.RawMessage, []components.Service,
 	}
 
 	// update the services (e.g., re-registration period)
+	// (the slices might have their order jumbled, so have to sort them so the indices matches correctly)
+	sortServicesList(configurationIn.CServices)
+	sortServicesList(originalSs)
 	for i := range configurationIn.CServices {
 		(configurationIn.CServices)[i].Merge(&originalSs[i])
 	}
@@ -181,4 +185,9 @@ func getServicesList(uat components.UnitAsset) []components.Service {
 		serviceList = append(serviceList, *services[s])
 	}
 	return serviceList
+}
+
+// sortServicesList sorts a list of services, based on the definition of each service
+func sortServicesList(list []components.Service) {
+	sort.Slice(list, func(i, j int) bool { return list[i].Definition < list[j].Definition })
 }
