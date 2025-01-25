@@ -36,7 +36,7 @@ import (
 	"github.com/sdoque/mbaigo/components"
 )
 
-// System Documentation (HATEOAS) provides an initial documentation on the system's web server of with hyperlinks to the services for browsers
+// System Documentation (based on HATEOAS) provides an initial documentation on the system's web server of with hyperlinks to the services for browsers
 // HATEOAS is the acronym for Hypermedia as the Engine of Application State, using hyperlinks to navigate the API
 func SysHateoas(w http.ResponseWriter, req *http.Request, sys components.System) {
 	text := "<!DOCTYPE html><html><body>"
