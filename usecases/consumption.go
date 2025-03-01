@@ -34,7 +34,7 @@ import (
 
 // GetState request the current state of a unit asset (via the asset's service)
 func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, err error) {
-	// get the address of the informing service of the target asset via the Orchestrator
+	// if no known providers, search for one via the Orchestrator
 	if len(cer.Nodes) == 0 {
 		err := Search4Services(cer, sys)
 		if err != nil {
@@ -43,7 +43,7 @@ func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, er
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Create a new context, with a 2-second timeout
 	defer cancel()
-	// Create a new HTTP request
+	// Create a new HTTP request using the first known provider
 	var serviceUrl string
 	for _, values := range cer.Nodes {
 		if len(values) > 0 {

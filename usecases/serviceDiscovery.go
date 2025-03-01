@@ -170,7 +170,7 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 	req.Header.Set("Content-Type", "application/json") // set the Content-Type header
 	req = req.WithContext(ctx)                         // associate the cancellable context with the request
 
-	// Send the request /////////////////////////////////
+	// Send the request to the Orchestrator /////////////////////////////////
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -181,7 +181,7 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 
 	// Check if the status code indicates an error (anything outside the 200–299 range)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("received non-2xx status code: %d, response: %s", resp.StatusCode, http.StatusText(resp.StatusCode))
+		return fmt.Errorf("received non-2xx status code: %d, response: %s from the Orchestrator", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
 	// Read the response /////////////////////////////////
