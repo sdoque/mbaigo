@@ -23,7 +23,7 @@
 // Basic forms include the service registration and the service query forms.
 // The form version is used for backward compatibility.
 
-// HATEOAS forms are HTML templates used to describe the systems, resources and services
+// the certificate form is a plain text certificate
 
 package forms
 

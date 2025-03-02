@@ -120,7 +120,7 @@ func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
 		}
 	}
 	if url == "" {
-		return "", fmt.Errorf("failed to locate certificte authority: %w", err)
+		return "", fmt.Errorf("failed to locate certificate authority: %w", err)
 	}
 	url += "/certify"
 

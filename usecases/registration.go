@@ -36,7 +36,7 @@ import (
 	"github.com/sdoque/mbaigo/forms"
 )
 
-// RegisterServices keeps trach of the leading Service Registrar and keeps all services registered
+// RegisterServices keeps track of the leading Service Registrar and keeps all services registered
 func RegisterServices(sys *components.System) {
 
 	var leadingRegistrar *components.CoreSystem
@@ -76,7 +76,7 @@ func RegisterServices(sys *components.System) {
 					if core.Name == "serviceregistrar" {
 						resp, err := http.Get(core.Url + "/status")
 						if err != nil {
-							fmt.Println("error checking service registar status:", err)
+							fmt.Println("error checking service registrar status:", err)
 							continue // Skip to the next iteration of the loop
 						}
 
@@ -129,7 +129,7 @@ func RegisterServices(sys *components.System) {
 	}
 }
 
-// registerService makes a POST or PUT request to register or regegister individual services
+// registerService makes a POST or PUT request to register or register individual services
 func registerService(sys *components.System, ua *components.UnitAsset, ser *components.Service, registrar *components.CoreSystem) (delay time.Duration) {
 
 	delay = 15 * time.Second
@@ -171,6 +171,7 @@ func registerService(sys *components.System, ua *components.UnitAsset, ser *comp
 		}
 		registrar = nil
 		ser.ID = 0 // if re-registration failed, a complete new one should be made (POST)
+		return
 	}
 
 	// Handle response ------------------------------------------------
@@ -182,15 +183,24 @@ func registerService(sys *components.System, ua *components.UnitAsset, ser *comp
 			log.Printf("Error reading registration response body: %v", err)
 			return
 		}
-		rRecord, err := servRegRespExtract(bodyBytes)
+
+		headerContentTtype := resp.Header.Get("Content-Type")
+		rRecord, err := Unpack(bodyBytes, headerContentTtype)
 		if err != nil {
-			log.Print("Error extracting registration reply", err)
+			log.Printf("error extracting the registration record relpy %v\n", err)
+		}
+
+		// Perform a type assertion to convert the returned Form to ServiceRecord_v1
+		rr, ok := rRecord.(*forms.ServiceRecord_v1)
+		if !ok {
+			fmt.Println("Problem unpacking the service registration reply")
 			return
 		}
-		ser.ID = rRecord.Id
-		ser.RegTimestamp = rRecord.Created
-		ser.RegExpiration = rRecord.EndOfValidity
-		parsedTime, err := time.Parse(time.RFC3339, rRecord.EndOfValidity)
+
+		ser.ID = rr.Id
+		ser.RegTimestamp = rr.Created
+		ser.RegExpiration = rr.EndOfValidity
+		parsedTime, err := time.Parse(time.RFC3339, rr.EndOfValidity)
 		if err != nil {
 			log.Printf("Error parsing input: %s", err)
 			return
@@ -223,34 +233,39 @@ func deregisterService(registrar *components.CoreSystem, ser *components.Service
 	fmt.Printf("service %s deleted from the service registrar with HTTP Response Status: %d, %s\n", ser.Definition, resp.StatusCode, http.StatusText(resp.StatusCode))
 }
 
-// serviceRegistrationForm returrns a json data byte array with the data of the service to be registered
+// serviceRegistrationForm returns a json data byte array with the data of the service to be registered
 // in the form of choice [Sending @ Application system]
-func serviceRegistrationForm(sys *components.System, res *components.UnitAsset, ser *components.Service, version string) (payload []byte, err error) {
+func serviceRegistrationForm(sys *components.System, ua *components.UnitAsset, ser *components.Service, version string) (payload []byte, err error) {
 	var f forms.Form
 	switch version {
 	case "ServiceRecord_v1":
-		var sf forms.ServiceRecord_v1 // declare a new service form
-		sf.NewForm()
-		sf.Id = ser.ID
-		sf.ServiceDefinition = ser.Definition
-		sf.SystemName = sys.Name
-		sf.IPAddresses = sys.Host.IPAddresses
-		sf.ProtoPort = sys.Husk.ProtoPort
-		sf.Details = deepCopyMap((*res).GetDetails())
-		for key, valueSlice := range ser.Details {
-			sf.Details[key] = append(sf.Details[key], valueSlice...)
+		resName := (*ua).GetName()
+		var sr forms.ServiceRecord_v1 // declare a new service form
+		sr.NewForm()
+		sr.Id = ser.ID
+		sr.ServiceDefinition = ser.Definition
+		sr.SystemName = sys.Name
+		sr.ServiceNode = sys.Host.Name + "_" + sys.Name + "_" + resName + "_" + ser.Definition
+		sr.IPAddresses = sys.Host.IPAddresses
+		sr.ProtoPort = make(map[string]int) // initialize the map
+		for key, port := range sys.Husk.ProtoPort {
+			if port != 0 { // exclude entries where the port is 0
+				sr.ProtoPort[key] = port
+			}
 		}
-		sf.Certificate = sys.Husk.Certificate
-		resName := (*res).GetName()
-		sf.SubPath = resName + "/" + ser.SubPath
+		sr.Details = deepCopyMap((*ua).GetDetails())
+		for key, valueSlice := range ser.Details {
+			sr.Details[key] = append(sr.Details[key], valueSlice...)
+		}
+		sr.SubPath = resName + "/" + ser.SubPath
 
 		if ser.RegPeriod != 0 {
-			sf.RegLife = ser.RegPeriod
+			sr.RegLife = ser.RegPeriod
 		} else {
-			sf.RegLife = 30
+			sr.RegLife = 30
 		}
-		sf.Created = ser.RegTimestamp
-		f = &sf
+		sr.Created = ser.RegTimestamp
+		f = &sr
 	default:
 		err = errors.New("unsupported service registration form version")
 		return
@@ -270,82 +285,7 @@ func deepCopyMap(m map[string][]string) map[string][]string {
 	return newMap
 }
 
-// ServiceRegistrationFormsList returns the list of foms that the service registration handles
+// ServiceRegistrationFormsList returns the list of forms that the service registration handles
 func ServiceRegistrationFormsList() []string {
 	return []string{"ServiceRecord_v1"}
-}
-
-// servRegReqExtract determines the corrrecet forrm in to which the raw json data
-// is used to update the service based on entry into the data base [Receving @ ServiceRegistry]
-func ServRegReqExtract(bodyBytes []byte) (rec forms.ServiceRecord_v1, err error) {
-	var jsonData map[string]interface{}
-	err = json.Unmarshal(bodyBytes, &jsonData)
-	if err != nil {
-		log.Printf("Error unmarshaling JSON data: %v", err)
-		return
-	}
-	formVersion, ok := jsonData["version"].(string)
-	if !ok {
-		log.Printf("Error: 'version' key not found in JSON data")
-		return
-	}
-	switch formVersion {
-	case "ServiceRecord_v1":
-		var f forms.ServiceRecord_v1
-		err = json.Unmarshal(bodyBytes, &f)
-		if err != nil {
-			log.Println("Unable to extract registration request ")
-			return
-		}
-		rec = f
-	default:
-		err = errors.New("unsupported service registrattion form version")
-	}
-	return
-}
-
-// ServRegRespFillIn returrns a json data byte array with the data of the service to be registered
-// in the form of choice [Sending @ ServiceRegistry]
-func ServRegRespFillIn(rec forms.ServiceRecord_v1, version string) (payload []byte, err error) {
-	var f forms.Form
-	switch version {
-	case "ServiceRecord_v1":
-		var sf forms.ServiceRecord_v1
-		sf.NewForm()
-		f = &rec
-	default:
-		err = errors.New("unsupported service registrattion form version")
-		return
-	}
-	payload, err = json.MarshalIndent(f, "", "  ")
-	return
-}
-
-// servRegRespExtract determines the corrrecet forrm in to which the raw json data
-// is used to update the service based on entry into the data base [Receiving @ Application system]
-func servRegRespExtract(bodyBytes []byte) (rec forms.ServiceRecord_v1, err error) {
-	var jsonData map[string]interface{}
-	err = json.Unmarshal(bodyBytes, &jsonData)
-	if err != nil {
-		log.Printf("Error unmarshaling JSON data: %v", err)
-		return
-	}
-	formVersion, ok := jsonData["version"].(string)
-	if !ok {
-		log.Printf("Error: 'version' key not found in JSON data")
-		return
-	}
-	switch formVersion {
-	case "ServiceRecord_v1":
-		var f forms.ServiceRecord_v1
-		err = json.Unmarshal(bodyBytes, &f)
-		if err != nil {
-			log.Println("Unable to extract registration reply")
-			return
-		}
-		rec = f
-	default:
-		err = errors.New("unsupported service registrattion form version")
-	}
-	return
 }

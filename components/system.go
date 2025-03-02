@@ -33,7 +33,7 @@ import (
 type System struct {
 	Name          string                `json:"systemname"`
 	Host          *HostingDevice        // the system runs on a device
-	Husk          *Husk                 // the system aggreates a "husk" (a wrapper or a shell)
+	Husk          *Husk                 // the system aggregates a "husk" (a wrapper or a shell)
 	UAssets       map[string]*UnitAsset // the system aggregates "asset", which is made up of one or more unit-asset
 	CoreS         []*CoreSystem         // the system is part of a local cloud with mandatory core systems
 	Ctx           context.Context       // create a context that can be cancelled
@@ -62,8 +62,6 @@ func NewSystem(name string, ctx context.Context) System {
 }
 
 // The following code is used only for issues support on GitHub @sdoque --------------------------
-// It relies on a Makefile that injects buiild information
-// global vaiables about the build
 var (
 	AppName   string
 	Version   string

@@ -31,9 +31,10 @@ type ServiceRecord_v1 struct {
 	Id                int                 `json:"registryID"`
 	ServiceDefinition string              `json:"definition"`
 	SystemName        string              `json:"systemName"`
+	ServiceNode       string              `json:"serviceNode"`
 	IPAddresses       []string            `json:"ipAddresses"`
 	ProtoPort         map[string]int      `json:"protoPort"`
-	Details           map[string][]string `json:"Details"`
+	Details           map[string][]string `json:"details"`
 	Certificate       string              `json:"certificate"`
 	SubPath           string              `json:"subpath"`
 	RegLife           int                 `json:"registrationLife"`
@@ -63,8 +64,8 @@ func init() {
 ///////////////////////////////////////////////////////////////////////////////
 
 type ServiceRecordList_v1 struct {
-	List    []ServiceRecord_v1
-	Version string
+	List    []ServiceRecord_v1 `list:"version"`
+	Version string             `json:"version"`
 }
 
 func (f *ServiceRecordList_v1) NewForm() Form {
@@ -79,48 +80,4 @@ func (f *ServiceRecordList_v1) FormVersion() string {
 // Register ActivityCostForm_v1 in the formTypeMap
 func init() {
 	FormTypeMap["ServiceRecordList_v1"] = reflect.TypeOf(ServiceRecordList_v1{})
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-type SystemRecord_v1 struct {
-	SystemName  string   `json:"systemName"`
-	IPAddresses []string `json:"ipAddresses"`
-	Port        int      `json:"protoPort"`
-	Version     string   `json:"version"`
-}
-
-func (f *SystemRecord_v1) NewForm() Form {
-	f.Version = "SystemRecord_v1"
-	return f
-}
-
-func (f *SystemRecord_v1) FormVersion() string {
-	return f.Version
-}
-
-// Register SystemRecord_v1 in the formTypeMap
-func init() {
-	FormTypeMap["SystemRecord_v1"] = reflect.TypeOf(SystemRecord_v1{})
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-type SystemRecordList_v1 struct {
-	List    []SystemRecord_v1
-	Version string
-}
-
-func (f *SystemRecordList_v1) NewForm() Form {
-	f.Version = "SystemRecordList_v1"
-	return f
-}
-
-func (f *SystemRecordList_v1) FormVersion() string {
-	return f.Version
-}
-
-// Register SystemRecordList_v1 in the formTypeMap
-func init() {
-	FormTypeMap["SystemRecordList_v1"] = reflect.TypeOf(SystemRecordList_v1{})
 }

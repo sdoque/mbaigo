@@ -85,45 +85,10 @@ func HTTPProcessSetRequest(w http.ResponseWriter, req *http.Request) (f forms.Si
 		}
 		f = sig
 	default:
-		err = errors.New("unsupported service registrattion form version")
+		err = errors.New("unsupported service registration form version")
 	}
 	return
 }
-
-// func HTTPProcessSetRequest(w http.ResponseWriter, req *http.Request) (f forms.SignalA_v1a, err error) {
-// 	defer req.Body.Close()
-// 	bodyBytes, err := io.ReadAll(req.Body)
-// 	if err != nil {
-// 		http.Error(w, "Error reading request body", http.StatusInternalServerError)
-// 		return
-// 	}
-
-// 	contentType := req.Header.Get("Content-Type")
-// 	if contentType == "" {
-// 		http.Error(w, "Content-Type header missing", http.StatusBadRequest)
-// 		return
-// 	}
-
-// 	form, err := Unpack(bodyBytes, contentType)
-// 	if err != nil {
-// 		http.Error(w, fmt.Sprintf("Error unpacking request: %v", err), http.StatusBadRequest)
-// 		return
-// 	}
-
-// 	acceptHeader := req.Header.Get("Accept")
-// 	bestContentType := getBestContentType(acceptHeader)
-
-// 	responseData, err := Pack(form, bestContentType)
-// 	if err != nil {
-// 		http.Error(w, fmt.Sprintf("Error packing response: %v", err), http.StatusInternalServerError)
-// 		return
-// 	}
-
-// 	w.Header().Set("Content-Type", bestContentType)
-// 	w.WriteHeader(http.StatusOK)
-// 	w.Write(responseData)
-// 	return
-// }
 
 // getBestContentType parses the Accept header and returns the best content type based on q-values
 func getBestContentType(acceptHeader string) string {

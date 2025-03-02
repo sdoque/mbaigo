@@ -32,21 +32,10 @@ import (
 	"github.com/sdoque/mbaigo/forms"
 )
 
-// // RSignal is a remote signal, which has to be fetched from a service provider
-// type RSignal struct {
-// 	Value       float64
-// 	Unit        string
-// 	Timestamp   time.Time
-// 	Address     string
-// 	QuestForm   forms.ServiceQuest_v1
-// 	ServiceList forms.ServicePoint_v1
-// 	Sys         *components.System
-// }
-
 // GetState request the current state of a unit asset (via the asset's service)
 func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, err error) {
-	// get the address of the informing service of the target asset via the Orchestrator
-	if len(cer.Url) == 0 {
+	// if no known providers, search for one via the Orchestrator
+	if len(cer.Nodes) == 0 {
 		err := Search4Services(cer, sys)
 		if err != nil {
 			return f, err
@@ -54,8 +43,15 @@ func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, er
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Create a new context, with a 2-second timeout
 	defer cancel()
-	// Create a new HTTP request
-	req, err := http.NewRequest(http.MethodGet, cer.Url[0], nil)
+	// Create a new HTTP request using the first known provider
+	var serviceUrl string
+	for _, values := range cer.Nodes {
+		if len(values) > 0 {
+			serviceUrl = values[0]
+			break
+		}
+	}
+	req, err := http.NewRequest(http.MethodGet, serviceUrl, nil)
 	if err != nil {
 		return f, err
 	}
@@ -65,7 +61,7 @@ func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, er
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		cer.Url = []string{} // failed to get the resource at that location: reset address field (could pop the first elemen [1:] in a for loop until it is empty)
+		cer.Nodes = make(map[string][]string) // failed to get the resource at that location: reset the providers list, which will trigger a new service search
 		return f, err
 	}
 	defer resp.Body.Close()
@@ -92,7 +88,7 @@ func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, er
 // SetState puts a request to change the state of a unit asset (via the asset's service)
 func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte) (err error) {
 	// get the address of the informing service of the target asset via the Orchestrator
-	if len(cer.Url) == 0 {
+	if len(cer.Nodes) == 0 {
 		err := Search4Services(cer, sys)
 		if err != nil {
 			return err
@@ -102,7 +98,14 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	// Create a new HTTP request
-	req, err := http.NewRequest(http.MethodPut, cer.Url[0], bytes.NewReader(bodyBytes))
+	var serviceUrl string
+	for _, values := range cer.Nodes {
+		if len(values) > 0 {
+			serviceUrl = values[0]
+			break
+		}
+	}
+	req, err := http.NewRequest(http.MethodPut, serviceUrl, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return err
 	}
@@ -116,7 +119,7 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		cer.Url = []string{} // failed to get the resource at that location: reset address field (could pop the first elemen [1:] in a for loop until it is empty)
+		cer.Nodes = make(map[string][]string) // failed to get the resource at that location: reset the providers list, which will trigger a new service search
 		return err
 	}
 	defer resp.Body.Close()

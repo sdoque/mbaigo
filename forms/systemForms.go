@@ -21,33 +21,27 @@
 // the data exchanged maintains a consistent structure, facilitating seamless
 // integration and processing across system boundaries.
 
-// Cost forms are cost related schemas for a specific service.
+// Basic forms include the service registration and the service query forms.
 
 package forms
 
-import (
-	"reflect"
-	"time"
-)
+import "reflect"
 
-type ActivityCostForm_v1 struct {
-	Activity  string    `json:"activity"`
-	Cost      float64   `json:"cost"`
-	Unit      string    `json:"unit"`
-	Timestamp time.Time `json:"timestamp"`
-	Version   string    `json:"version"`
+type SystemRecordList_v1 struct {
+	List    []string `json:"systemurl"`
+	Version string   `json:"version"`
 }
 
-func (f *ActivityCostForm_v1) NewForm() Form {
-	f.Version = "ActivityCostForm_v1"
+func (f *SystemRecordList_v1) NewForm() Form {
+	f.Version = "SystemRecordList_v1"
 	return f
 }
 
-func (f *ActivityCostForm_v1) FormVersion() string {
+func (f *SystemRecordList_v1) FormVersion() string {
 	return f.Version
 }
 
-// Register ActivityCostForm_v1 in the formTypeMap
+// Register SystemRecordList_v1 in the formTypeMap
 func init() {
-	FormTypeMap["ActivityCostForm_v1"] = reflect.TypeOf(ActivityCostForm_v1{})
+	FormTypeMap["SystemRecordList_v1"] = reflect.TypeOf(SystemRecordList_v1{})
 }

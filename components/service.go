@@ -22,16 +22,16 @@
 
 package components
 
-// An Arrowhead Service has specific properties that exposes a thing's recource.
+// An Arrowhead Service has specific properties that exposes a unit asset's functionality
 type Service struct {
 	ID            int                 `json:"-"`                  // Id assigned by the Service Registrar
-	Definition    string              `json:"servicedefinition"`  // Service definition or purpose
+	Definition    string              `json:"definition"`         // Service definition or purpose
 	SubPath       string              `json:"-"`                  // The URL subpath after the resource's
 	Details       map[string][]string `json:"details"`            // Metadata or details about the service
 	RegPeriod     int                 `json:"registrationPeriod"` // The period until the registrar is expecting a sign of life
 	RegTimestamp  string              `json:"-"`                  // the creation date in the Service Registry to ensure that reRegistration is with the same record
-	RegExpiration string              `json:"-"`                  // The acutal time when the service record will expire if not refreshed
-	Description   string              `json:"-"`                  // This is used in the service HATEOAS
+	RegExpiration string              `json:"-"`                  // The actual time when the service record will expire if not refreshed
+	Description   string              `json:"-"`                  // This is used in the service description in /doc
 	SubscribeAble bool                `json:"-"`                  // If true, one can subscribe to this service
 	ACost         float64             `json:"-"`                  // activity cost to execute the service
 	CUnit         string              `json:"costUnit"`           // cost unit
@@ -113,10 +113,10 @@ func MergeDetails(map1, map2 map[string][]string) map[string][]string {
 
 // A Cervice is a consumed service
 type Cervice struct {
-	Name    string
-	Details map[string][]string
-	Url     []string
-	Protos  []string
+	Definition string
+	Details    map[string][]string
+	Nodes      map[string][]string
+	Protos     []string
 }
 
 // Cervises is a collection of "Cervice" structs

@@ -32,7 +32,7 @@ type ServiceQuest_v1 struct {
 	RequesterName     string              `json:"requesterName"`
 	ServiceDefinition string              `json:"serrviceDefinition"`
 	Protocol          string              `json:"protocol"`
-	Details           map[string][]string `json:"Details"`
+	Details           map[string][]string `json:"details"`
 	Version           string              `json:"version"`
 }
 
@@ -53,14 +53,14 @@ func init() {
 ///////////////////////////////////////////////////////////////////////////////
 
 type ServicePoint_v1 struct {
-	ServiceID           int                 `json:"serviceId"`
-	ProviderName        string              `json:"providerName"`
-	ProviderCertificate string              `json:"providerCert"`
-	ServiceDefinition   string              `json:"definition"`
-	Details             map[string][]string `json:"details"`
-	ServLocation        string              `json:"servlocation"`
-	Token               string              `json:"token"`
-	Version             string              `json:"version"`
+	ServiceID         int                 `json:"serviceId"`
+	ProviderName      string              `json:"providerName"`
+	ServiceDefinition string              `json:"definition"`
+	Details           map[string][]string `json:"details"`
+	ServLocation      string              `json:"serviceURL"`
+	ServNode          string              `json:"serviceNode"`
+	Token             string              `json:"token"`
+	Version           string              `json:"version"`
 }
 
 func (f *ServicePoint_v1) NewForm() Form {
