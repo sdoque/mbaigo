@@ -86,17 +86,19 @@ func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, er
 }
 
 // SetState puts a request to change the state of a unit asset (via the asset's service)
-func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte) (err error) {
-	// get the address of the informing service of the target asset via the Orchestrator
+func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte) (f forms.Form, err error) {
+	// Get the address of the informing service of the target asset via the Orchestrator
 	if len(cer.Nodes) == 0 {
 		err := Search4Services(cer, sys)
 		if err != nil {
-			return err
+			return f, err
 		}
 	}
+
 	// Create a new context, with a 2-second timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
+
 	// Create a new HTTP request
 	var serviceUrl string
 	for _, values := range cer.Nodes {
@@ -107,7 +109,7 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 	}
 	req, err := http.NewRequest(http.MethodPut, serviceUrl, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return err
+		return f, err
 	}
 
 	// Set the Content-Type header
@@ -115,19 +117,33 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 	// Associate the cancellable context with the request
 	req = req.WithContext(ctx)
 
-	// Send the request /////////////////////////////////
+	// Send the request
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		cer.Nodes = make(map[string][]string) // failed to get the resource at that location: reset the providers list, which will trigger a new service search
-		return err
+		cer.Nodes = make(map[string][]string) // Failed to get the resource at that location: reset the providers list, which will trigger a new service search
+		return f, err
 	}
 	defer resp.Body.Close()
 
 	// Check if the status code indicates an error (anything outside the 200–299 range)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("received non-2xx status code: %d, response: %s", resp.StatusCode, http.StatusText(resp.StatusCode))
+		return f, fmt.Errorf("received non-2xx status code: %d, response: %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
-	return nil
+	// If the response includes a payload, unpack it into a forms.Form
+	bodyBytes, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return f, fmt.Errorf("error reading response body: %v", err)
+	}
+
+	if len(bodyBytes) > 0 {
+		headerContentType := resp.Header.Get("Content-Type")
+		f, err = Unpack(bodyBytes, headerContentType)
+		if err != nil {
+			return f, fmt.Errorf("error unpacking the service response: %v", err)
+		}
+	}
+
+	return f, nil
 }

@@ -40,11 +40,13 @@ type SignalA_v1a struct {
 	Version   string    `json:"version" xml:"version"`
 }
 
+// NewForm creates a new form of type SignalA
 func (sig *SignalA_v1a) NewForm() Form {
 	sig.Version = "SignalA_v1.0"
 	return sig
 }
 
+// FormVersion returns the version of the form
 func (sig *SignalA_v1a) FormVersion() string {
 	return sig.Version
 }
@@ -62,11 +64,13 @@ type SignalB_v1a struct {
 	Version   string    `json:"version" xml:"version"`
 }
 
+// NewForm creates a new form of type SignalB
 func (sig *SignalB_v1a) NewForm() Form {
 	sig.Version = "SignalB_v1.0"
 	return sig
 }
 
+// FormVersion returns the version of the form
 func (sig *SignalB_v1a) FormVersion() string {
 	return sig.Version
 }
