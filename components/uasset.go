@@ -28,6 +28,7 @@ import "net/http"
 // But it is an interface that has to be implemented by every system's unit-asset
 type UnitAsset interface {
 	GetName() string
+	GetType() string
 	GetServices() Services
 	GetCervices() Cervices
 	GetDetails() map[string][]string

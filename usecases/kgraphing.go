@@ -50,6 +50,7 @@ func KGraphing(w http.ResponseWriter, req *http.Request, sys *components.System)
 
 func prefixes() (description string) {
 	description = "@prefix alc: <http://www.synecdoque.com/lcloud/> .\n"
+	description += "@prefix plm: <http://localhost:8080/ds18b20.ttl#> .\n"
 	description += "@prefix afo: <http://www.synecdoque.com/2025/afo#> .\n"
 	description += "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n"
 	description += "@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n"
@@ -120,6 +121,9 @@ func modelUAsset(sys *components.System) string {
 	for assetName, asset := range sys.UAssets {
 		assetModels += fmt.Sprintf("alc:%s_%s a afo:UnitAsset ;\n", sName, assetName)
 		assetModels += fmt.Sprintf("    afo:hasName \"%s\" ;\n", assetName)
+		if asset != nil && (*asset).GetType() != "" {
+			assetModels += fmt.Sprintf("    a  plm:\"%s\" ;\n", (*asset).GetType())
+		}
 
 		details := (*asset).GetDetails()
 		for key, values := range details {
