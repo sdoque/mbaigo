@@ -20,12 +20,14 @@
 package usecases
 
 import (
+	"bytes"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"log"
 	"reflect"
+	"strings"
 
 	"github.com/sdoque/mbaigo/forms"
 )
@@ -53,14 +55,33 @@ func Pack(f forms.Form, contentType string) (data []byte, err error) {
 func Unpack(data []byte, contentType string) (forms.Form, error) {
 	var rawData map[string]interface{}
 
+	// Heuristic handling for text/plain with possible charset
+	if strings.Contains(contentType, "text/plain") {
+		trimmed := bytes.TrimSpace(data)
+		if len(trimmed) > 0 {
+			switch trimmed[0] {
+			case '{', '[':
+				log.Println("Detected JSON in text/plain payload.")
+				contentType = "application/json"
+			case '<':
+				log.Println("Detected XML in text/plain payload.")
+				contentType = "application/xml"
+			default:
+				return nil, errors.New("plain text content is neither valid JSON nor XML")
+			}
+		} else {
+			return nil, errors.New("empty payload with content type text/plain")
+		}
+	}
+
 	// Unmarshal to get the form version
-	switch contentType {
-	case "application/json":
+	switch {
+	case strings.Contains(contentType, "application/json"):
 		if err := json.Unmarshal(data, &rawData); err != nil {
 			log.Printf("Error unmarshaling JSON: %v", err)
 			return nil, err
 		}
-	case "application/xml":
+	case strings.Contains(contentType, "application/xml"):
 		if err := xml.Unmarshal(data, &rawData); err != nil {
 			log.Printf("Error unmarshaling XML: %v", err)
 			return nil, err
@@ -85,13 +106,13 @@ func Unpack(data []byte, contentType string) (forms.Form, error) {
 	formInstance := reflect.New(formType).Interface().(forms.Form)
 
 	// Unmarshal the full data into the form instance
-	switch contentType {
-	case "application/json":
+	switch {
+	case strings.Contains(contentType, "application/json"):
 		if err := json.Unmarshal(data, formInstance); err != nil {
 			log.Printf("Error unmarshaling JSON into form: %v", err)
 			return nil, err
 		}
-	case "application/xml":
+	case strings.Contains(contentType, "application/xml"):
 		if err := xml.Unmarshal(data, formInstance); err != nil {
 			log.Printf("Error unmarshaling XML into form: %v", err)
 			return nil, err

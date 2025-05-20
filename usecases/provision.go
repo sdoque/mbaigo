@@ -61,7 +61,7 @@ func HTTPProcessSetRequest(w http.ResponseWriter, req *http.Request) (f forms.Si
 	defer req.Body.Close()
 	bodyBytes, err := io.ReadAll(req.Body) // Use io.ReadAll instead of ioutil.ReadAll
 	if err != nil {
-		log.Printf("Error reading registration response body: %v", err)
+		log.Printf("Error reading request body: %v", err)
 		return
 	}
 	var jsonData map[string]interface{}
@@ -80,12 +80,12 @@ func HTTPProcessSetRequest(w http.ResponseWriter, req *http.Request) (f forms.Si
 		var sig forms.SignalA_v1a
 		err = json.Unmarshal(bodyBytes, &sig)
 		if err != nil {
-			log.Println("Unable to extract registration request ")
+			log.Println("Unable to extract signal set request ")
 			return
 		}
 		f = sig
 	default:
-		err = errors.New("unsupported service registration form version")
+		err = errors.New("unsupported service set request form version")
 	}
 	return
 }
