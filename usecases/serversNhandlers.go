@@ -37,7 +37,7 @@ import (
 	"github.com/sdoque/mbaigo/forms"
 )
 
-// SetoutServers setup the http and https servers and starts them
+// SetoutServers setups the http and https servers and starts them
 func SetoutServers(sys *components.System) (err error) {
 	// get the servers port number (from configuration file)
 	httpPort := sys.Husk.ProtoPort["http"]
@@ -177,7 +177,7 @@ func ResourceHandler(sys *components.System, w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	resourceName := parts[2]
+	assetName := parts[2]
 	servicePath := ""
 	if len(parts) > 3 {
 		servicePath = parts[3]
@@ -191,9 +191,9 @@ func ResourceHandler(sys *components.System, w http.ResponseWriter, r *http.Requ
 	case 3:
 		handleThreeParts(w, r, parts[2], sys)
 	case 4:
-		handleFourParts(w, r, resourceName, servicePath, sys)
+		handleFourParts(w, r, assetName, servicePath, sys)
 	case 5:
-		handleFiveParts(w, r, resourceName, servicePath, record, sys)
+		handleFiveParts(w, r, assetName, servicePath, record, sys)
 	default:
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 	}
