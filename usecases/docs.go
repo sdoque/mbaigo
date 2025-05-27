@@ -60,17 +60,19 @@ func SysHateoas(w http.ResponseWriter, req *http.Request, sys components.System)
 		w.Write([]byte(resourceURI))
 	}
 
-	text = "</ul> having the following services:<ul>"
-	w.Write([]byte(text))
-	servicesList := getServicesList(getFirstAsset(*assetList)[0])
-	for _, service := range servicesList {
-		metaservice := ""
-		for key, values := range service.Details {
-			metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
-		}
-		serviceURI := "<li><b>" + service.Definition + "</b> with details: " + metaservice + "</li>"
-		w.Write([]byte(serviceURI))
-	}
+	// This part of the code is commented out because it is not used in the current implementation because the assets on a PLC might have different services
+	// ======================================
+	// text = "</ul> having the following services:<ul>"
+	// w.Write([]byte(text))
+	// servicesList := getServicesList(getFirstAsset(*assetList)[0])
+	// for _, service := range servicesList {
+	// 	metaservice := ""
+	// 	for key, values := range service.Details {
+	// 		metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
+	// 	}
+	// 	serviceURI := "<li><b>" + service.Definition + "</b> with details: " + metaservice + "</li>"
+	// 	w.Write([]byte(serviceURI))
+	// }
 
 	text = "</ul> <p> The services can be accessed using the following protocols with their respective bound ports:</p><ul>"
 	w.Write([]byte(text))
