@@ -35,7 +35,7 @@ type Husk struct {
 	Certificate string              `json:"-"`
 	CA_cert     string              `json:"-"`
 	TlsConfig   *tls.Config         `json:"-"` // client side mutual TLS configuration
-	DName       pkix.Name           `json:"distinguishedName"`
+	DName       pkix.Name           `json:"-"`
 	Details     map[string][]string `json:"details"`
 	ProtoPort   map[string]int      `json:"protoPort"`
 	InfoLink    string              `json:"onlineDocumentation"`

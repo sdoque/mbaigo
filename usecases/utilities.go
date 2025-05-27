@@ -28,6 +28,7 @@ import (
 	"log"
 	"reflect"
 	"strings"
+	"unicode"
 
 	"github.com/sdoque/mbaigo/forms"
 )
@@ -120,4 +121,52 @@ func Unpack(data []byte, contentType string) (forms.Form, error) {
 	}
 
 	return formInstance, nil
+}
+
+// ------- Naming Conventions Tools -------
+
+// ToCamel converts PascalCase to camelCase.
+func ToCamel(s string) string {
+	if s == "" {
+		return s
+	}
+	runes := []rune(s)
+	runes[0] = unicode.ToLower(runes[0])
+	return string(runes)
+}
+
+// ToPascal converts camelCase to PascalCase.
+func ToPascal(s string) string {
+	if s == "" {
+		return s
+	}
+	runes := []rune(s)
+	runes[0] = unicode.ToUpper(runes[0])
+	return string(runes)
+}
+
+// IsFirstLetterUpper returns true if the first rune is uppercase.
+func IsFirstLetterUpper(s string) bool {
+	if s == "" {
+		return false
+	}
+	return unicode.IsUpper([]rune(s)[0])
+}
+
+// IsFirstLetterLower returns true if the first rune is lowercase.
+func IsFirstLetterLower(s string) bool {
+	if s == "" {
+		return false
+	}
+	return unicode.IsLower([]rune(s)[0])
+}
+
+// IsPascalCase returns true if the string starts with an uppercase letter.
+func IsPascalCase(s string) bool {
+	return IsFirstLetterUpper(s)
+}
+
+// IsCamelCase returns true if the string starts with a lowercase letter.
+func IsCamelCase(s string) bool {
+	return IsFirstLetterLower(s)
 }
