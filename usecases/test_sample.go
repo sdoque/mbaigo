@@ -28,6 +28,6 @@ func (t mockTransport) RoundTrip(req *http.Request) (resp *http.Response, err er
 	return t.resp, nil
 }
 
-func sample(t *testing.T) {
+func test_sample(t *testing.T) {
 	return
 }
