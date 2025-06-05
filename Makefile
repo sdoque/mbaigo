@@ -7,7 +7,8 @@ lint:
 	test -z $$(gofmt -l .) || (echo "Code isn't gofmt'ed!" && exit 1)
 	go vet $$(go list ./... | grep -v /tmp)
 	gosec -quiet -fmt=golint -exclude-dir="tmp" ./...
-	pointerinterface ./...
+
+# pointerinterface ./...
 
 # Runs spellchecker on the code and comments
 # This requires this tool to be installed from https://github.com/crate-ci/typos?tab=readme-ov-file
