@@ -1,0 +1,43 @@
+name: Linters, Spellcheck, and Tests
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  Linters:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23
+      - name: Install dependencies
+        run: make deps
+      - name: Run linters
+        run: make lint
+
+  Spellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crate-ci/typos@v1.29.7
+
+  Tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23
+      - name: Install dependencies
+        run: make deps
+      - name: Run tests
+        run: make test
+      - name: Report stats
+        run: make analyse
