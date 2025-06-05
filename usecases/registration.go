@@ -59,11 +59,14 @@ func RegisterServices(sys *components.System) {
 
 				// Read from resp.Body and then close it directly after
 				bodyBytes, err := io.ReadAll(resp.Body)
-				resp.Body.Close() // Close the body directly after reading from it
+				errClose := resp.Body.Close() // Close the body directly after reading from it
 				if err != nil {
 					log.Println("\rError reading response from leading registrar:", err)
 					leadingRegistrar = nil
 					continue // Skip to the next iteration of the loop
+				}
+				if errClose != nil {
+					log.Println("Error closing the leading registrar response body:", errClose)
 				}
 
 				if !strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
@@ -82,12 +85,14 @@ func RegisterServices(sys *components.System) {
 
 						// Read from resp.Body and then close it directly after
 						bodyBytes, err := io.ReadAll(resp.Body)
-						resp.Body.Close() // Close the body directly after reading from it
+						errClose := resp.Body.Close() // Close the body directly after reading from it
 						if err != nil {
 							fmt.Println("Error reading service registrar response body:", err)
 							continue // Skip to the next iteration of the loop
 						}
-
+						if errClose != nil {
+							fmt.Println("Error closing service registrar response body:", errClose)
+						}
 						if strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
 							leadingRegistrar = core
 							fmt.Printf("\nlead registrar found at: %s\n", leadingRegistrar.Url)

@@ -45,7 +45,10 @@ func KGraphing(w http.ResponseWriter, req *http.Request, sys *components.System)
 	rdf += modelUAsset(sys)
 
 	w.Header().Set("Content-Type", "text/turtle")
-	w.Write([]byte(rdf))
+	_, err := w.Write([]byte(rdf))
+	if err != nil {
+		fmt.Println("Failed to write KGraphing information: ", err)
+	}
 }
 
 func prefixes() (description string) {
