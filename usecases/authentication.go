@@ -93,6 +93,7 @@ func RequestCertificate(sys *components.System) {
 		Certificates:       []tls.Certificate{clientCert},
 		RootCAs:            caCertPool,
 		InsecureSkipVerify: false,
+		MinVersion:         tls.VersionTLS12,
 	}
 	sys.Husk.TlsConfig = tlsConfig
 
@@ -137,7 +138,11 @@ func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
 
 	// Read the response body
 	buf := new(bytes.Buffer)
-	buf.ReadFrom(resp.Body)
+	_, err = buf.ReadFrom(resp.Body)
+	if err != nil {
+		log.Printf("Error while reading body: %v", err)
+		return "", err
+	}
 
 	return buf.String(), nil
 }
@@ -158,7 +163,14 @@ func getCACertificate(sys *components.System) (string, error) {
 	url := strings.TrimSuffix(coreUAurl, "ification") // the configuration file address to the CA includes the unit asset
 
 	// Make a GET request to the CA's endpoint
-	resp, err := http.Get(url)
+	// https://stackoverflow.com/questions/70281883/golang-untaint-url-variable-to-fix-gosec-warning-g107
+	//resp, err := http.Get(url)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		log.Printf("Error creating NewRequest: %v", err)
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request to CA: %w", err)
 	}
@@ -171,7 +183,11 @@ func getCACertificate(sys *components.System) (string, error) {
 
 	// Read the response body
 	buf := new(bytes.Buffer)
-	buf.ReadFrom(resp.Body)
+	_, err = buf.ReadFrom(resp.Body)
+	if err != nil {
+		log.Printf("Error while reading body: %v", err)
+		return "", err
+	}
 
 	return buf.String(), nil
 }

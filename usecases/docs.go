@@ -29,6 +29,7 @@ package usecases
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -39,102 +40,92 @@ import (
 // System Documentation (based on HATEOAS) provides an initial documentation on the system's web server of with hyperlinks to the services for browsers
 // HATEOAS is the acronym for Hypermedia as the Engine of Application State, using hyperlinks to navigate the API
 func SysHateoas(w http.ResponseWriter, req *http.Request, sys components.System) {
-	text := "<!DOCTYPE html><html><body>"
-	w.Write([]byte(text))
-	text = "<h1>System Description</h1>"
-	w.Write([]byte(text))
-	text = "<p>The system <b>" + sys.Name + "</b> " + sys.Husk.Description + "</p><br>"
-	w.Write([]byte(text))
-	text = "<a href=\"" + sys.Husk.InfoLink + "\">Online Documentation</a></p>"
-	w.Write([]byte(text))
+	text := "<!DOCTYPE html><html><body>\n"
+	text += "<h1>System Description</h1>\n"
+	text += "<p>The system <b>" + sys.Name + "</b> " + sys.Husk.Description + "</p><br>\n"
+	text += "<a href=\"" + sys.Husk.InfoLink + "\">Online Documentation</a></p>\n"
+	text += "<p> The resource list is </p><ul>\n"
 
-	text = "<p> The resource list is </p><ul>"
-	w.Write([]byte(text))
 	assetList := &sys.UAssets
 	for _, unitasset := range *assetList {
 		metaservice := ""
 		for key, values := range (*unitasset).GetDetails() {
 			metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
 		}
-		resourceURI := "<li><b><a href=\"http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + (*unitasset).GetName() + "/doc" + "\">" + (*unitasset).GetName() + "</a></b> with details " + metaservice + "</li>"
-		w.Write([]byte(resourceURI))
+		text += "<li><b><a href=\"http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + (*unitasset).GetName() + "/doc" + "\">" + (*unitasset).GetName() + "</a></b> with details " + metaservice + "</li>\n"
 	}
 
-	text = "</ul> having the following services:<ul>"
-	w.Write([]byte(text))
+	text += "</ul> having the following services:<ul>\n"
 	servicesList := getServicesList(getFirstAsset(*assetList)[0])
 	for _, service := range servicesList {
 		metaservice := ""
 		for key, values := range service.Details {
 			metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
 		}
-		serviceURI := "<li><b>" + service.Definition + "</b> with details: " + metaservice + "</li>"
-		w.Write([]byte(serviceURI))
+		text += "<li><b>" + service.Definition + "</b> with details: " + metaservice + "</li>\n"
 	}
 
-	text = "</ul> <p> The services can be accessed using the following protocols with their respective bound ports:</p><ul>"
-	w.Write([]byte(text))
+	text += "</ul> <p> The services can be accessed using the following protocols with their respective bound ports:</p><ul>\n"
 	for protocol, port := range sys.Husk.ProtoPort {
-		protoDoor := "<li> Protocol <b>" + protocol + "</b> using port <em>" + strconv.Itoa(port) + "</em></li>"
-		w.Write([]byte(protoDoor))
+		text += "<li> Protocol <b>" + protocol + "</b> using port <em>" + strconv.Itoa(port) + "</em></li>\n"
 	}
 
-	text = "</ul> <p> of the device whose IP addresses are (upon startup):</p><ul>"
-	w.Write([]byte(text))
+	text += "</ul> <p> of the device whose IP addresses are (upon startup):</p><ul>\n"
 	for _, IPAddre := range sys.Host.IPAddresses {
-		hostaddresses := "<li> " + IPAddre + "</em></li>"
-		w.Write([]byte(hostaddresses))
+		text += "<li> " + IPAddre + "</em></li>\n"
 	}
 
-	text = "</ul></body></html>"
-	w.Write([]byte(text))
+	text += "</ul></body></html>"
+	_, err := w.Write([]byte(text))
+	if err != nil {
+		log.Printf("Error while writing to response body for SysHateoas: %v", err)
+	}
 }
 
 // ResHateoas provides information about the unit asset(s) and each service and is accessed via the system's web server
 func ResHateoas(w http.ResponseWriter, req *http.Request, ua components.UnitAsset, sys components.System) {
-	text := "<!DOCTYPE html><html></head><body>"
-	w.Write([]byte(text))
-
-	text = "<h1>Unit Asset Description</h1>"
-	w.Write([]byte(text))
+	text := "<!DOCTYPE html><html></head><body>\n"
+	text += "<h1>Unit Asset Description</h1>\n"
 
 	uaName := ua.GetName()
 	metaservice := ""
 	for key, values := range ua.GetDetails() {
 		metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
 	}
-	text = "The resource <b>" + uaName + "</b> belongs to system <b>" + sys.Name + "</b> and has the details " + metaservice + " with the following services:" + "<ul>"
-	w.Write([]byte(text))
+	text += "The resource <b>" + uaName + "</b> belongs to system <b>" + sys.Name + "</b> and has the details " + metaservice + " with the following services:" + "<ul>\n"
+
 	services := ua.GetServices()
 	for _, service := range services {
 		metaservice := ""
 		for key, values := range service.Details {
 			metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
 		}
-		serviceURI := "<li><a href=\"http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + uaName + "/" + service.SubPath + "/doc\">" + service.Definition + "</a> with details: " + metaservice + "</li>"
-		w.Write([]byte(serviceURI))
+		text += "<li><a href=\"http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + uaName + "/" + service.SubPath + "/doc\">" + service.Definition + "</a> with details: " + metaservice + "</li>\n"
 	}
 
-	text = "</ul></body></html>"
-	w.Write([]byte(text))
+	text += "</ul></body></html>"
+	_, err := w.Write([]byte(text))
+	if err != nil {
+		log.Printf("Error while writing response body for ResHateoas: %v", err)
+	}
 }
 
 // ServiceHateoas provides information about the service and is accessed via the system's web server
 func ServiceHateoas(w http.ResponseWriter, req *http.Request, ser components.Service, sys components.System) {
 	parts := strings.Split(req.URL.Path, "/")
 	uaName := parts[2]
-	text := "<!DOCTYPE html><html></head><body>"
-	w.Write([]byte(text))
-
-	text = "<h1>Service Description</h1>"
-	w.Write([]byte(text))
+	text := "<!DOCTYPE html><html></head><body>\n"
+	text += "<h1>Service Description</h1>\n"
 
 	metaservice := ""
 	for key, values := range ser.Details {
 		metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
 	}
-	text = "The service <b><a href=\"http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + uaName + "/" + ser.SubPath + "\">" + ser.Definition + "</a> </b> " + ser.Description + " and has the details " + metaservice
-	w.Write([]byte(text))
+	text += "The service <b><a href=\"http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + uaName + "/" + ser.SubPath + "\">" + ser.Definition + "</a> </b> " + ser.Description + " and has the details " + metaservice
+	_, err := w.Write([]byte(text))
+	if err != nil {
+		log.Printf("Error while writing response body for ServiceHateoas: %v", err)
+	}
 }
 
 // // getFirstAsset returns the first key-value pair in the Assets map

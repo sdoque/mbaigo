@@ -73,13 +73,16 @@ func SetoutServers(sys *components.System) (err error) {
 			Certificates: []tls.Certificate{cert},
 			ClientAuth:   tls.RequireAndVerifyClientCert,
 			ClientCAs:    caCertPool,
+			MinVersion:   tls.VersionTLS12,
 		}
 
 		// Create a HTTPS server with the TLS config
 		httpsServer := &http.Server{
-			Addr:      ":" + strconv.Itoa(httpsPort),
-			TLSConfig: tlsConfig,
-			Handler:   nil,
+			Addr:         ":" + strconv.Itoa(httpsPort),
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 60 * time.Second,
+			TLSConfig:    tlsConfig,
+			Handler:      nil,
 		}
 
 		// Initiate graceful shutdown on signal reception
@@ -87,7 +90,10 @@ func SetoutServers(sys *components.System) (err error) {
 			<-sys.Ctx.Done()
 			time.Sleep(1 * time.Second) // this line is for the leading service registrar to deregister its own services
 			fmt.Printf("Initiating graceful shutdown of the HTTPS server.\n")
-			httpsServer.Shutdown(sys.Ctx)
+			err = httpsServer.Shutdown(sys.Ctx)
+			if err != nil {
+				log.Printf("Error occured during shutdown: %v", err)
+			}
 		}()
 
 		// Inform the user how to access the system's web server (black box documentation)
@@ -107,8 +113,10 @@ func SetoutServers(sys *components.System) (err error) {
 	if httpPort != 0 {
 		// Create a HTTP server
 		httpServer := &http.Server{
-			Addr:    ":" + strconv.Itoa(httpPort),
-			Handler: nil,
+			Addr:         ":" + strconv.Itoa(httpPort),
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 60 * time.Second,
+			Handler:      nil,
 		}
 
 		// Initiate graceful shutdown on signal reception
@@ -116,7 +124,10 @@ func SetoutServers(sys *components.System) (err error) {
 			<-sys.Ctx.Done()
 			time.Sleep(1 * time.Second) // this line is for the leading service registrar to deregister its own services
 			fmt.Printf("Initiating graceful shutdown of the HTTP server.\n")
-			httpServer.Shutdown(sys.Ctx)
+			err = httpServer.Shutdown(sys.Ctx)
+			if err != nil {
+				log.Printf("Error occured during shutdown: %v", err)
+			}
 		}()
 
 		// Inform the user how to access the system's web server (black box documentation)

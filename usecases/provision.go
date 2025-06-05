@@ -53,7 +53,11 @@ func HTTPProcessGetRequest(w http.ResponseWriter, r *http.Request, f forms.Form)
 
 	w.Header().Set("Content-Type", bestContentType)
 	w.WriteHeader(http.StatusOK)
-	w.Write(responseData)
+	_, err = w.Write(responseData)
+	if err != nil {
+		// TODO: More might need to happen here?
+		log.Printf("Error while writing response: %v", err)
+	}
 }
 
 // HTTPProcessSetRequest processes a SET request
@@ -108,7 +112,11 @@ func getBestContentType(acceptHeader string) string {
 
 		// Check for q-value in the MIME type
 		if len(parts) > 1 && strings.HasPrefix(parts[1], "q=") {
-			fmt.Sscanf(parts[1], "q=%f", &qValue)
+			_, err := fmt.Sscanf(parts[1], "q=%f", &qValue)
+			if err != nil {
+				// TODO: More might need to happen here?
+				log.Printf("Error while scanning parts of mimeType: %v", err)
+			}
 		}
 
 		// Update the best content type if this one has a higher q-value

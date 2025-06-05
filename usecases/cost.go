@@ -94,7 +94,10 @@ func ACServices(w http.ResponseWriter, r *http.Request, ua *components.UnitAsset
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(payload)
+		_, err = w.Write(payload)
+		if err != nil {
+			log.Printf("Error while writing to response body for ACServices: %v", err)
+		}
 		return
 	case "PUT":
 		defer r.Body.Close()
