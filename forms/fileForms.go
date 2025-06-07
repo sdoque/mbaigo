@@ -81,6 +81,10 @@ func TransferFile(w http.ResponseWriter, r *http.Request) {
 		contentType = "application/zip"
 	case ".txt":
 		contentType = "text/plain"
+	case ".owl":
+		contentType = "application/rdf+xml"
+	case ".ttl":
+		contentType = "text/turtle"
 	case ".html", ".htm":
 		contentType = "text/html"
 	case ".csv":
