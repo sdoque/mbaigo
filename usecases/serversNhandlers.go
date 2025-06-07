@@ -234,6 +234,7 @@ func handleFiveParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 	uAsset := *Resource
 	if servicePath == "files" {
 		forms.TransferFile(w, r)
+		// return
 	}
 
 	switch record {
@@ -270,6 +271,10 @@ func findServiceByPath(services map[string]*components.Service, path string) *co
 
 // findServiceByDefinition returns a service's pointer based on its definition
 func findServiceByDefinition(services map[string]*components.Service, definition string) *components.Service {
-	service := services[definition]
-	return service
+	for _, service := range services {
+		if service.Definition == definition {
+			return service
+		}
+	}
+	return nil
 }
