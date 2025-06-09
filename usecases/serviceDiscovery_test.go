@@ -2,6 +2,8 @@ package usecases
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -92,5 +94,74 @@ func TestFillQuestForm(t *testing.T) {
 		if detail != mua.GetDetails()["Details"][i] {
 			t.Errorf("Expected %s, got: %s", mua.GetDetails()["Details"][i], detail)
 		}
+	}
+}
+
+type testBodyHasProtocol struct {
+	Version  string `json:"version"`
+	Protocol int    `json:"protocol"`
+}
+
+type testBodyHasVersion struct {
+	Version string `json:"version"`
+}
+type testBodyNoVersion struct{}
+
+// Create a error reader to break json.unmarshal
+type errReader int
+
+var errBodyRead error = fmt.Errorf("bad body read")
+
+func (errReader) Read(p []byte) (n int, err error) {
+	return 0, errBodyRead
+}
+func (errReader) Close() error {
+	return nil
+}
+
+func TestExtractQuestForm(t *testing.T) {
+	body := testBodyHasVersion{
+		Version: "ServiceQuest_v1",
+	}
+	data, _ := json.Marshal(body)
+
+	// Everything passes, best outcome
+	rec, _ := ExtractQuestForm(data)
+	if rec.Version != body.Version {
+		t.Errorf("Expected version: %s, got: %s", rec.Version, body.Version)
+	}
+
+	// Can't unmarshal data
+	data, _ = json.Marshal(errReader(0))
+	rec, err := ExtractQuestForm(data)
+	if err == nil {
+		t.Errorf("Expected error during unmarshal")
+	}
+	// Missing version
+	noVersionBody := testBodyNoVersion{}
+	data, _ = json.Marshal(noVersionBody)
+	rec, err = ExtractQuestForm(data)
+	if rec.Version != "" {
+		t.Errorf("Expected no version, got %s", rec.Version)
+	}
+	// Error while writing to correct form
+	protocolBody := testBodyHasProtocol{
+		Version:  "ServiceQuest_v1",
+		Protocol: 123,
+	}
+	data, _ = json.Marshal(protocolBody)
+	rec, err = ExtractQuestForm(data)
+	if err == nil {
+		t.Errorf("Expected Error during unmarshal in switch case")
+	}
+
+	// Switch case: Unsupported service registration form
+	body = testBodyHasVersion{
+		Version: "",
+	}
+	data, _ = json.Marshal(body)
+	rec, err = ExtractQuestForm(data)
+	if err == nil {
+		t.Errorf("Expected error in switch case (Unsupported form version)")
 	}
 }
