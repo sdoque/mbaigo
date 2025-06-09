@@ -92,7 +92,7 @@ func SetoutServers(sys *components.System) (err error) {
 			fmt.Printf("Initiating graceful shutdown of the HTTPS server.\n")
 			err = httpsServer.Shutdown(sys.Ctx)
 			if err != nil {
-				log.Printf("Error occured during shutdown: %v", err)
+				log.Printf("Error occurred during shutdown: %v", err)
 			}
 		}()
 
@@ -126,7 +126,7 @@ func SetoutServers(sys *components.System) (err error) {
 			fmt.Printf("Initiating graceful shutdown of the HTTP server.\n")
 			err = httpServer.Shutdown(sys.Ctx)
 			if err != nil {
-				log.Printf("Error occured during shutdown: %v", err)
+				log.Printf("Error occurred during shutdown: %v", err)
 			}
 		}()
 

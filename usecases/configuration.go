@@ -30,7 +30,7 @@ import (
 	"github.com/sdoque/mbaigo/components"
 )
 
-// templateOut is the stuct used to prepare the systemconfig.json file
+// templateOut is the struct used to prepare the systemconfig.json file
 type templateOut struct {
 	CName      string                  `json:"systemname"`
 	UAsset     []components.UnitAsset  `json:"unit_assets"`
@@ -40,7 +40,7 @@ type templateOut struct {
 	CCoreS     []components.CoreSystem `json:"coreSystems"`
 }
 
-// configFileIn is used to extact out the information of the systemconfig.json file
+// configFileIn is used to extract out the information of the systemconfig.json file
 // Since it does not know about the details of the Thing, it does not unmarsahll this
 // information
 type configFileIn struct {
@@ -74,7 +74,7 @@ func Configure(sys *components.System) ([]json.RawMessage, []components.Service,
 	defaultConfig.PKIdetails.Organization = []string{"Luleaa University of Technology"}
 	defaultConfig.PKIdetails.OrganizationalUnit = []string{"CPS"}
 
-	serReg := components.CoreSystem{
+	servReg := components.CoreSystem{
 		Name:        "serviceregistrar",
 		Url:         "http://localhost:20102/serviceregistrar/registry",
 		Certificate: ".X509pubKey",
@@ -89,7 +89,7 @@ func Configure(sys *components.System) ([]json.RawMessage, []components.Service,
 		Url:         "http://localhost:20100/ca/certification",
 		Certificate: ".X509pubKey",
 	}
-	coreSystems := []components.CoreSystem{serReg, orches, ca}
+	coreSystems := []components.CoreSystem{servReg, orches, ca}
 	defaultConfig.CCoreS = coreSystems
 
 	// open the configuration file or create one with the default content prepared above

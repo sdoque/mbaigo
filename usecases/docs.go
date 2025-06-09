@@ -111,17 +111,17 @@ func ResHateoas(w http.ResponseWriter, req *http.Request, ua components.UnitAsse
 }
 
 // ServiceHateoas provides information about the service and is accessed via the system's web server
-func ServiceHateoas(w http.ResponseWriter, req *http.Request, ser components.Service, sys components.System) {
+func ServiceHateoas(w http.ResponseWriter, req *http.Request, serv components.Service, sys components.System) {
 	parts := strings.Split(req.URL.Path, "/")
 	uaName := parts[2]
 	text := "<!DOCTYPE html><html></head><body>\n"
 	text += "<h1>Service Description</h1>\n"
 
 	metaservice := ""
-	for key, values := range ser.Details {
+	for key, values := range serv.Details {
 		metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
 	}
-	text += "The service <b><a href=\"http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + uaName + "/" + ser.SubPath + "\">" + ser.Definition + "</a> </b> " + ser.Description + " and has the details " + metaservice
+	text += "The service <b><a href=\"http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + uaName + "/" + serv.SubPath + "\">" + serv.Definition + "</a> </b> " + serv.Description + " and has the details " + metaservice
 	_, err := w.Write([]byte(text))
 	if err != nil {
 		log.Printf("Error while writing response body for ServiceHateoas: %v", err)

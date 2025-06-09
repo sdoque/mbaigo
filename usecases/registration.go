@@ -135,11 +135,11 @@ func RegisterServices(sys *components.System) {
 }
 
 // registerService makes a POST or PUT request to register or register individual services
-func registerService(sys *components.System, ua *components.UnitAsset, ser *components.Service, registrar *components.CoreSystem) (delay time.Duration) {
+func registerService(sys *components.System, ua *components.UnitAsset, serv *components.Service, registrar *components.CoreSystem) (delay time.Duration) {
 
 	delay = 15 * time.Second
 	// Prepare request
-	reqPayload, err := serviceRegistrationForm(sys, ua, ser, "ServiceRecord_v1")
+	reqPayload, err := serviceRegistrationForm(sys, ua, serv, "ServiceRecord_v1")
 	if err != nil {
 		log.Println("Registration marshall error, ", err)
 		return
@@ -147,16 +147,16 @@ func registerService(sys *components.System, ua *components.UnitAsset, ser *comp
 	registrationurl := registrar.Url + "/register"
 
 	var req *http.Request // Declare req outside the blocks
-	if ser.ID == 0 {
+	if serv.ID == 0 {
 		req, err = http.NewRequest("POST", registrationurl, bytes.NewBuffer(reqPayload))
 		if err != nil {
-			log.Printf("unable to register service %s with lead registrar\n", ser.Definition)
+			log.Printf("unable to register service %s with lead registrar\n", serv.Definition)
 			return
 		}
 	} else {
 		req, err = http.NewRequest("PUT", registrationurl, bytes.NewBuffer(reqPayload))
 		if err != nil {
-			log.Printf("unable to confirm the %s service with lead registar", ser.Definition)
+			log.Printf("unable to confirm the %s service with lead registar", serv.Definition)
 			return
 		}
 	}
@@ -169,13 +169,13 @@ func registerService(sys *components.System, ua *components.UnitAsset, ser *comp
 			if err.Timeout() {
 				log.Printf("registry timeout with lead registrar %s\n", registrationurl)
 			} else {
-				log.Printf("unable to (re-)register service %s with lead registrar\n", ser.Definition)
+				log.Printf("unable to (re-)register service %s with lead registrar\n", serv.Definition)
 			}
 		default:
 			log.Printf("registration request error with %s, and error %s\n", registrationurl, err)
 		}
 		registrar = nil
-		ser.ID = 0 // if re-registration failed, a complete new one should be made (POST)
+		serv.ID = 0 // if re-registration failed, a complete new one should be made (POST)
 		return
 	}
 
@@ -202,9 +202,9 @@ func registerService(sys *components.System, ua *components.UnitAsset, ser *comp
 			return
 		}
 
-		ser.ID = rr.Id
-		ser.RegTimestamp = rr.Created
-		ser.RegExpiration = rr.EndOfValidity
+		serv.ID = rr.Id
+		serv.RegTimestamp = rr.Created
+		serv.RegExpiration = rr.EndOfValidity
 		parsedTime, err := time.Parse(time.RFC3339, rr.EndOfValidity)
 		if err != nil {
 			log.Printf("Error parsing input: %s", err)
@@ -217,12 +217,12 @@ func registerService(sys *components.System, ua *components.UnitAsset, ser *comp
 }
 
 // deregisterService deletes a service from the database based on its service id
-func deregisterService(registrar *components.CoreSystem, ser *components.Service) {
+func deregisterService(registrar *components.CoreSystem, serv *components.Service) {
 	if registrar == nil {
 		return // there is no need to deregister if there is no leading registrar
 	}
 	client := &http.Client{}
-	deRegServURL := registrar.Url + "/unregister/" + strconv.Itoa(ser.ID)
+	deRegServURL := registrar.Url + "/unregister/" + strconv.Itoa(serv.ID)
 	fmt.Printf("Trying to unregiseter %s\n", deRegServURL)
 	req, err := http.NewRequest("DELETE", deRegServURL, nil) // create a new request using http
 	if err != nil {
@@ -235,22 +235,22 @@ func deregisterService(registrar *components.CoreSystem, ser *components.Service
 		return
 	}
 	defer resp.Body.Close()
-	fmt.Printf("service %s deleted from the service registrar with HTTP Response Status: %d, %s\n", ser.Definition, resp.StatusCode, http.StatusText(resp.StatusCode))
+	fmt.Printf("service %s deleted from the service registrar with HTTP Response Status: %d, %s\n", serv.Definition, resp.StatusCode, http.StatusText(resp.StatusCode))
 }
 
 // serviceRegistrationForm returns a json data byte array with the data of the service to be registered
 // in the form of choice [Sending @ Application system]
-func serviceRegistrationForm(sys *components.System, ua *components.UnitAsset, ser *components.Service, version string) (payload []byte, err error) {
+func serviceRegistrationForm(sys *components.System, ua *components.UnitAsset, serv *components.Service, version string) (payload []byte, err error) {
 	var f forms.Form
 	switch version {
 	case "ServiceRecord_v1":
 		resName := (*ua).GetName()
 		var sr forms.ServiceRecord_v1 // declare a new service form
 		sr.NewForm()
-		sr.Id = ser.ID
-		sr.ServiceDefinition = ser.Definition
+		sr.Id = serv.ID
+		sr.ServiceDefinition = serv.Definition
 		sr.SystemName = sys.Name
-		sr.ServiceNode = sys.Host.Name + "_" + sys.Name + "_" + resName + "_" + ser.Definition
+		sr.ServiceNode = sys.Host.Name + "_" + sys.Name + "_" + resName + "_" + serv.Definition
 		sr.IPAddresses = sys.Host.IPAddresses
 		sr.ProtoPort = make(map[string]int) // initialize the map
 		for key, port := range sys.Husk.ProtoPort {
@@ -259,17 +259,17 @@ func serviceRegistrationForm(sys *components.System, ua *components.UnitAsset, s
 			}
 		}
 		sr.Details = deepCopyMap((*ua).GetDetails())
-		for key, valueSlice := range ser.Details {
+		for key, valueSlice := range serv.Details {
 			sr.Details[key] = append(sr.Details[key], valueSlice...)
 		}
-		sr.SubPath = resName + "/" + ser.SubPath
+		sr.SubPath = resName + "/" + serv.SubPath
 
-		if ser.RegPeriod != 0 {
-			sr.RegLife = ser.RegPeriod
+		if serv.RegPeriod != 0 {
+			sr.RegLife = serv.RegPeriod
 		} else {
 			sr.RegLife = 30
 		}
-		sr.Created = ser.RegTimestamp
+		sr.Created = serv.RegTimestamp
 		f = &sr
 	default:
 		err = errors.New("unsupported service registration form version")
