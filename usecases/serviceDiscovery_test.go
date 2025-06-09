@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/sdoque/mbaigo/components"
+	"github.com/sdoque/mbaigo/forms"
 )
 
 // mockTransport is used for replacing the default network Transport (used by
@@ -73,12 +76,19 @@ func createTestSystem(ctx context.Context) components.System {
 	// instantiate the System
 	sys := components.NewSystem("testSystem", ctx)
 
-	// Instatiate the Capusle
+	// Instantiate the Capsule
 	sys.Husk = &components.Husk{
 		Description: "A test system",
 		Details:     map[string][]string{"Developer": {"Test dev"}},
 		ProtoPort:   map[string]int{"https": 0, "http": 1234, "coap": 0},
 		InfoLink:    "https://for.testing.purposes",
+	}
+	orchestrator := &components.CoreSystem{
+		Name: "orchestrator",
+		Url:  "https://orchestator",
+	}
+	sys.CoreS = []*components.CoreSystem{
+		orchestrator,
 	}
 	return sys
 }
@@ -163,5 +173,47 @@ func TestExtractQuestForm(t *testing.T) {
 	rec, err = ExtractQuestForm(data)
 	if err == nil {
 		t.Errorf("Expected error in switch case (Unsupported form version)")
+	}
+}
+
+func createTestForm(f forms.ServiceQuest_v1) {
+	f.NewForm()
+	f.SysId = 999
+	f.RequesterName = "Requester"
+	f.ServiceDefinition = "TestService"
+	f.Protocol = ""
+	f.Details = map[string][]string{
+		"Details": {"detail_1", "detail_2"},
+	}
+	f.Version = "SignalA_v1a"
+}
+
+func TestSearch4Service(t *testing.T) {
+	// Best case, everything pass
+	var f forms.ServicePoint_v1
+	f.NewForm()
+	f.Version = "ServicePoint_v1"
+	f.ServLocation = "TestService"
+	// Create mock response from orchestrator
+	fakeBody, err := json.Marshal(f)
+	if err != nil {
+		t.Errorf("Fail Marshal at start of test")
+	}
+	resp := &http.Response{
+		Status:     "200 OK",
+		StatusCode: 200,
+		Body:       io.NopCloser(strings.NewReader(string(fakeBody))),
+	}
+	newMockTransport(resp)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	testSys := createTestSystem(ctx)
+	var qForm forms.ServiceQuest_v1
+	serviceForm, err := Search4Service(qForm, &testSys)
+	if err != nil {
+		t.Errorf("Expected no errors, got: %v", err)
+	}
+	if serviceForm.ServLocation != f.ServLocation {
+		t.Errorf("Expected %s, got: %s", f.ServLocation, serviceForm.ServLocation)
 	}
 }

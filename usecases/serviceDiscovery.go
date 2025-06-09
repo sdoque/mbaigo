@@ -110,8 +110,8 @@ func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocat
 	req = req.WithContext(ctx)                         // associate the cancellable context with the request
 
 	// Send the request /////////////////////////////////
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	//client := &http.Client{}
+	resp, err := http.DefaultClient.Do(req) // changed to DefaultClient to simplify testing
 	if err != nil {
 		return servLocation, err
 	}
