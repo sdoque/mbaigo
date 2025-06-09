@@ -57,7 +57,7 @@ func ExtractQuestForm(bodyBytes []byte) (rec forms.ServiceQuest_v1, err error) {
 	var jsonData map[string]interface{}
 	err = json.Unmarshal(bodyBytes, &jsonData)
 	if err != nil {
-		log.Printf("Error unmarshaling JSON data: %v", err)
+		log.Printf("Error unmarshalling JSON data: %v", err)
 		return
 	}
 	formVersion, ok := jsonData["version"].(string)
@@ -229,7 +229,7 @@ func ExtractDiscoveryForm(bodyBytes []byte) (sLoc forms.ServicePoint_v1, err err
 	var jsonData map[string]interface{}
 	err = json.Unmarshal(bodyBytes, &jsonData)
 	if err != nil {
-		log.Printf("Error unmarshaling JSON data: %v", err)
+		log.Printf("Error unmarshalling JSON data: %v", err)
 		return
 	}
 	formVersion, ok := jsonData["version"].(string)
