@@ -192,7 +192,7 @@ func registerService(sys *components.System, ua *components.UnitAsset, serv *com
 		headerContentTtype := resp.Header.Get("Content-Type")
 		rRecord, err := Unpack(bodyBytes, headerContentTtype)
 		if err != nil {
-			log.Printf("error extracting the registration record relpy %v\n", err)
+			log.Printf("error extracting the registration record reply %v\n", err)
 		}
 
 		// Perform a type assertion to convert the returned Form to ServiceRecord_v1
