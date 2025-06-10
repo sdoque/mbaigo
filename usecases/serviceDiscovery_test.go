@@ -232,7 +232,7 @@ func TestSendHttpReq(t *testing.T) {
 	qForm.NewForm()
 	jsonQF, err := json.MarshalIndent(qForm, "", "  ")
 	if err != nil {
-		t.Errorf("Error occured while Marshalling in test: %v", err)
+		t.Errorf("Error occurred while Marshalling in test: %v", err)
 	}
 	_, err = sendHttpReq(http.MethodPost, "https://test", jsonQF, ctx)
 	if err != nil {
@@ -418,7 +418,7 @@ func TestExtractDiscoveryForm(t *testing.T) {
 	spForm := createServicePointTestForm()
 	data, err := json.Marshal(spForm)
 	if err != nil {
-		t.Errorf("Error occured while marshaling the test form")
+		t.Errorf("Error occurred while marshaling the test form")
 	}
 	//form version: forms.ServicePoint_v1 expected
 	form, err := ExtractDiscoveryForm(data)
@@ -432,7 +432,7 @@ func TestExtractDiscoveryForm(t *testing.T) {
 	spForm.Version = ""
 	data, err = json.Marshal(spForm)
 	if err != nil {
-		t.Errorf("Error occured while marshaling the test form")
+		t.Errorf("Error occurred while marshaling the test form")
 	}
 	form, err = ExtractDiscoveryForm(data)
 	if err == nil {
