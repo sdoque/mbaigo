@@ -81,8 +81,8 @@ func ExtractQuestForm(bodyBytes []byte) (rec forms.ServiceQuest_v1, err error) {
 	return
 }
 
-func sendHttpReq(method string, oURL string, jsonQF []byte, ctx context.Context) (resp *http.Response, err error) {
-	req, err := http.NewRequest(method, oURL, bytes.NewBuffer(jsonQF))
+func sendHttpReq(method string, url string, jsonQF []byte, ctx context.Context) (resp *http.Response, err error) {
+	req, err := http.NewRequest(method, url, bytes.NewBuffer(jsonQF))
 	if err != nil {
 		return nil, err
 	}
@@ -90,6 +90,9 @@ func sendHttpReq(method string, oURL string, jsonQF []byte, ctx context.Context)
 	req = req.WithContext(ctx)                         // associate the cancellable context with the request
 
 	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
 	return
 }
 
@@ -98,35 +101,21 @@ func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocat
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Create a new context, with a 2-second timeout
 	defer cancel()
+
 	// Create a new HTTP request to the Orchestrator system (for now the Service Registrar)
-	var orchestratorPointer *components.CoreSystem
-	for _, cSys := range sys.CoreS {
-		if cSys.Name == "orchestrator" {
-			orchestratorPointer = cSys
-		}
+	orchestratorPointer, err := components.GetRunningCoreSystemURL(sys, "orchestrator")
+	if err != nil {
+		return servLocation, err
 	}
 
 	// prepare the payload to perform a service quest
-	oURL := orchestratorPointer.Url + "/squest"
+	oURL := orchestratorPointer + "/squest"
 	jsonQF, err := json.MarshalIndent(qf, "", "  ")
 	if err != nil {
-		log.Printf("problem encountered when marshalling the service quest to the Orchestrator at %s\n", oURL)
 		return servLocation, err
 	}
-	/*
-		// prepare the request
-		req, err := http.NewRequest(http.MethodPost, oURL, bytes.NewBuffer(jsonQF))
-		if err != nil {
-			return servLocation, err
-		}
-		req.Header.Set("Content-Type", "application/json") // set the Content-Type header
-		req = req.WithContext(ctx)                         // associate the cancellable context with the request
 
-		// Send the request /////////////////////////////////
-		//client := &http.Client{}
-		resp, err := http.DefaultClient.Do(req) // changed to DefaultClient to simplify testing
-	*/
-	resp, err := sendHttpReq(http.MethodPost, oURL, jsonQF, ctx) // Moved above codeblock into help function, to improve readability
+	resp, err := sendHttpReq(http.MethodPost, oURL, jsonQF, ctx)
 	if err != nil {
 		return servLocation, err
 	}
@@ -163,17 +152,15 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 	}
 
 	// Search for an Orchestrator system within the local cloud
-	var orchestratorPointer *components.CoreSystem
-	for _, cSys := range sys.CoreS {
-		if cSys.Name == "orchestrator" {
-			orchestratorPointer = cSys
-		}
+	orchestratorPointer, err := components.GetRunningCoreSystemURL(sys, "orchestrator")
+	if err != nil {
+		return err
 	}
-	if orchestratorPointer == nil {
+	if orchestratorPointer == "" {
 		err = errors.New("failed to locate an Orchestrator")
 		return err
 	}
-	oURL := orchestratorPointer.Url + "/squest"
+	oURL := orchestratorPointer + "/squest"
 
 	// Prepare the request to the Orchestrator
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Create a new context, with a 2-second timeout
@@ -249,7 +236,7 @@ func ExtractDiscoveryForm(bodyBytes []byte) (sLoc forms.ServicePoint_v1, err err
 	}
 	formVersion, ok := jsonData["version"].(string)
 	if !ok {
-		log.Printf("Error: 'version' key not found in JSON data")
+		err = errors.New("Error: 'version' key not found in JSON data")
 		return
 	}
 	switch formVersion {

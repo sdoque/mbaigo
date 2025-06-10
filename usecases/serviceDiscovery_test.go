@@ -76,6 +76,7 @@ func (mua mockUnitAsset) Serving(w http.ResponseWriter, r *http.Request, service
 }
 
 // Tests the output from ServQuestForms() to ensure expected outcome
+
 func TestServQuestForms(t *testing.T) {
 	expectedForms := []string{"ServiceQuest_v1", "ServicePoint_v1"}
 	lst := ServQuestForms()
@@ -140,6 +141,7 @@ type testBodyHasProtocol struct {
 type testBodyHasVersion struct {
 	Version string `json:"version"`
 }
+
 type testBodyNoVersion struct{}
 
 func TestExtractQuestForm(t *testing.T) {
@@ -215,18 +217,60 @@ func (errReader) Close() error {
 
 var brokenUrl = string([]byte{0x7f})
 
-/*
-type ServiceQuest_v1 struct {
-	SysId             int                 `json:"systemId"`
-	RequesterName     string              `json:"requesterName"`
-	ServiceDefinition string              `json:"serrviceDefinition"`
-	Protocol          string              `json:"protocol"`
-	Details           map[string][]string `json:"details"`
-	Version           string              `json:"version"`
-	Break             any                 `json:"break"`
-}
-*/
+// sendHttpReq(method string, url string, jsonQF []byte, ctx context.Context) (resp *http.Response, err error)
+func TestSendHttpReq(t *testing.T) {
+	// Good case: everything passes
+	resp := &http.Response{
+		Status:     "200 OK",
+		StatusCode: 200,
+		Body:       io.NopCloser(strings.NewReader(string("test body"))),
+	}
+	newMockTransport(resp, false, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var qForm forms.ServiceQuest_v1
+	qForm.NewForm()
+	jsonQF, err := json.MarshalIndent(qForm, "", "  ")
+	if err != nil {
+		t.Errorf("Error occured while Marshalling in test: %v", err)
+	}
+	_, err = sendHttpReq(http.MethodPost, "https://test", jsonQF, ctx)
+	if err != nil {
+		t.Errorf("Expected no errors, got: %v", err)
+	}
+	cancel()
 
+	// Bad case: url broken, cant make request
+	ctx, cancel = context.WithCancel(context.Background())
+	qForm.NewForm()
+	_, err = sendHttpReq(http.MethodPost, brokenUrl, jsonQF, ctx)
+	if err == nil {
+		t.Errorf("Expected errors while sending http request")
+	}
+	cancel()
+
+	// Bad case: response returns error
+	newMockTransport(resp, true, errHTTP)
+	ctx, cancel = context.WithCancel(context.Background())
+	qForm.NewForm()
+	_, err = sendHttpReq(http.MethodPost, "https://test", jsonQF, ctx)
+	if err == nil {
+		t.Errorf("Expected errors while sending http request")
+	}
+	cancel()
+}
+
+/*
+	type ServiceQuest_v1 struct {
+		SysId             int                 `json:"systemId"`
+		RequesterName     string              `json:"requesterName"`
+		ServiceDefinition string              `json:"serrviceDefinition"`
+		Protocol          string              `json:"protocol"`
+		Details           map[string][]string `json:"details"`
+		Version           string              `json:"version"`
+		Break             any                 `json:"break"`
+	}
+*/
 func TestSearch4Service(t *testing.T) {
 	// Best case, everything pass
 	f := createServicePointTestForm()
@@ -244,6 +288,7 @@ func TestSearch4Service(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	testSys := createTestSystem(ctx, false)
 	var qForm forms.ServiceQuest_v1
+
 	serviceForm, err := Search4Service(qForm, &testSys)
 	if err != nil {
 		t.Errorf("Expected no errors, got: %v", err)
@@ -251,33 +296,25 @@ func TestSearch4Service(t *testing.T) {
 	if serviceForm.ServLocation != f.ServLocation {
 		t.Errorf("Expected %s, got: %s", f.ServLocation, serviceForm.ServLocation)
 	}
+
 	cancel()
 
 	// Error at "prepare the payload to perform a service quest"
 	// Untested because I found no way of breaking json.Marshal, without making big changes to the form
 
-	// "prepare the request" and "Send the request" codeblocks have been moved into a helpfunction, still gets tested though
-	// Error at "prepare the request" part of sendHttpReq()
-	newMockTransport(resp, false, nil)
-	ctx, cancel = context.WithCancel(context.Background())
-	testSys = createTestSystem(ctx, true)
-	qForm.NewForm()
-	serviceForm, err = Search4Service(qForm, &testSys)
-	if err == nil {
-		t.Errorf("Expected error on first marshal, got none")
-	}
-	cancel()
-
-	// Error at "Send the request" part of sendHttpReq()
+	// Error while getting core system url
 	newMockTransport(resp, true, errHTTP)
 	ctx, cancel = context.WithCancel(context.Background())
 	testSys = createTestSystem(ctx, false)
 	qForm.NewForm()
-	serviceForm, err = Search4Service(qForm, &testSys)
+	_, err = Search4Service(qForm, &testSys)
 	if err == nil {
-		t.Errorf("Expected error on first marshal, got none")
+		t.Errorf("Expected error at GetRunningCoreSystemURL()")
 	}
 	cancel()
+
+	// Error at sendHttpRequest
+	// Can't be tested
 
 	// Error at "Read the response", io.ReadAll()
 	f = createServicePointTestForm()
@@ -288,7 +325,7 @@ func TestSearch4Service(t *testing.T) {
 	qForm.NewForm()
 	serviceForm, err = Search4Service(qForm, &testSys)
 	if err == nil {
-		t.Errorf("Expected error on first marshal, got none")
+		t.Errorf("Expected error")
 	}
 	cancel()
 
@@ -301,19 +338,125 @@ func TestSearch4Service(t *testing.T) {
 	qForm.NewForm()
 	serviceForm, err = Search4Service(qForm, &testSys)
 	if err == nil {
-		t.Errorf("Expected error on first marshal, got none")
+		t.Errorf("Expected error")
 	}
 	cancel()
+
 }
 
 func TestSearch4Services(t *testing.T) {
 	return
 }
 
-func TestFillDiscoveredServices(t *testing.T) {
+/*
+   Id                int                 `json:"registryID"`
+   ServiceDefinition string              `json:"definition"`
+   SystemName        string              `json:"systemName"`
+   ServiceNode       string              `json:"serviceNode"`
+   IPAddresses       []string            `json:"ipAddresses"`
+   ProtoPort         map[string]int      `json:"protoPort"`
+   Details           map[string][]string `json:"details"`
+   Certificate       string              `json:"certificate"`
+   SubPath           string              `json:"subpath"`
+   RegLife           int                 `json:"registrationLife"`
+   Version           string              `json:"version"`
+   Created           string              `json:"created"`
+   Updated           string              `json:"updated"`
+   EndOfValidity     string              `json:"endOfValidity"`
+   SubscribeAble     bool                `json:"subscribeAble"`
+   ACost             float64             `json:"activityCost"`
+   CUnit             string              `json:"costUnit"`
+*/
+
+func createTestServiceRecord(number int) (f forms.ServiceRecord_v1) {
+	f.Id = number
+	f.ServiceDefinition = fmt.Sprintf("testDefinition%d", number)
+	f.SystemName = fmt.Sprintf("testSystem%d", number)
+	f.ServiceNode = fmt.Sprintf("test%d", number)
+	f.IPAddresses = []string{fmt.Sprintf("test%d", number), fmt.Sprintf("test%d", number+1)}
+	f.ProtoPort = map[string]int{"test": 1}
+	f.Details = map[string][]string{"Details": {fmt.Sprintf("Detail%d", number), fmt.Sprintf("Detail%d", number+1)}}
+	f.Certificate = fmt.Sprintf("Certificate%d", number)
+	f.SubPath = fmt.Sprintf("Subpath%d", number)
+	f.RegLife = number
+	f.Version = "ServiceRecord_v1"
+	f.Created = fmt.Sprintf("Created%d", number)
+	f.Updated = fmt.Sprintf("Updated%d", number)
+	f.EndOfValidity = fmt.Sprintf("EoV%d", number)
+	f.SubscribeAble = true
+	f.ACost = float64(number)
+	f.CUnit = fmt.Sprintf("CUnit%d", number)
 	return
 }
 
+// FillDiscoveredServices(dsList []forms.ServiceRecord_v1, version string) (f forms.Form, err error)
+func TestFillDiscoveredServices(t *testing.T) {
+	// Create a bunch of service records contained in a list
+	dsList := []forms.ServiceRecord_v1{}
+	for i := range 10 {
+		record := createTestServiceRecord(i)
+		dsList = append(dsList, record)
+	}
+	versionList := []string{"ServiceRecordList_v1", "default"}
+	for _, version := range versionList {
+		_, err := FillDiscoveredServices(dsList, version)
+		if version != "ServiceRecordList_v1" {
+			if err == nil {
+				t.Errorf("Expected error in default case")
+			}
+		} else {
+			if err != nil {
+				t.Errorf("Unexpected error during testing: %v", err)
+			}
+		}
+	}
+}
+
+// ExtractDiscoveryForm(bodyBytes []byte) (sLoc forms.ServicePoint_v1, err error)
 func TestExtractDiscoveryForm(t *testing.T) {
-	return
+	// Best case: everything passes
+	spForm := createServicePointTestForm()
+	data, err := json.Marshal(spForm)
+	if err != nil {
+		t.Errorf("Error occured while marshaling the test form")
+	}
+	//form version: forms.ServicePoint_v1 expected
+	form, err := ExtractDiscoveryForm(data)
+	if err != nil {
+		t.Errorf("Expected no errors")
+	}
+	if form.ServLocation != "TestService" {
+		t.Errorf("Expected service location: %s, got %s", "TestService", form.ServLocation)
+	}
+	// Bad case: wrong form version
+	spForm.Version = ""
+	data, err = json.Marshal(spForm)
+	if err != nil {
+		t.Errorf("Error occured while marshaling the test form")
+	}
+	form, err = ExtractDiscoveryForm(data)
+	if err == nil {
+		t.Errorf("Expected error because of wrong form version")
+	}
+
+	// Bad case: error when unmarshalling body
+	data, err = json.Marshal("Test")
+	if err != nil {
+		t.Errorf("Error when marshalling in test")
+	}
+	form, err = ExtractDiscoveryForm(data)
+	if err == nil {
+		t.Errorf("Expected errors for broken unmarshal")
+	}
+
+	// Bad case: error when unmarshalling body
+	var emptyForm forms.Form
+	data, err = json.Marshal(emptyForm)
+	if err != nil {
+		t.Errorf("Error when marshalling in test")
+	}
+	form, err = ExtractDiscoveryForm(data)
+	if err == nil {
+		t.Errorf("Expected errors for missing form")
+	}
 }
