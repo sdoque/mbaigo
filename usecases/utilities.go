@@ -79,12 +79,12 @@ func Unpack(data []byte, contentType string) (forms.Form, error) {
 	switch {
 	case strings.Contains(contentType, "application/json"):
 		if err := json.Unmarshal(data, &rawData); err != nil {
-			log.Printf("Error unmarshaling JSON: %v", err)
+			log.Printf("Error unmarshalling JSON: %v", err)
 			return nil, err
 		}
 	case strings.Contains(contentType, "application/xml"):
 		if err := xml.Unmarshal(data, &rawData); err != nil {
-			log.Printf("Error unmarshaling XML: %v", err)
+			log.Printf("Error unmarshalling XML: %v", err)
 			return nil, err
 		}
 	default:
@@ -110,12 +110,12 @@ func Unpack(data []byte, contentType string) (forms.Form, error) {
 	switch {
 	case strings.Contains(contentType, "application/json"):
 		if err := json.Unmarshal(data, formInstance); err != nil {
-			log.Printf("Error unmarshaling JSON into form: %v", err)
+			log.Printf("Error unmarshalling JSON into form: %v", err)
 			return nil, err
 		}
 	case strings.Contains(contentType, "application/xml"):
 		if err := xml.Unmarshal(data, formInstance); err != nil {
-			log.Printf("Error unmarshaling XML into form: %v", err)
+			log.Printf("Error unmarshalling XML into form: %v", err)
 			return nil, err
 		}
 	}

@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -71,17 +72,25 @@ func GetRunningCoreSystemURL(sys *System, systemType string) (string, error) {
 		if core.Name == systemType {
 			// Special logic for the service registrar: check the status endpoint
 			if systemType == "serviceregistrar" {
-				statusURL := core.Url + "/status"
-				resp, err := http.Get(statusURL)
+				// statusURL := core.Url + "/status"
+				statusURL, err := url.Parse(core.Url + "/status")
+				if err != nil {
+					fmt.Printf("error parsing core URL for the service registrar: %s\n", err)
+					continue
+				}
+				resp, err := http.Get(statusURL.String())
 				if err != nil {
 					fmt.Printf("error checking service registrar status at %s: %v\n", statusURL, err)
 					continue // Try the next core system instance, if any.
 				}
 				bodyBytes, err := io.ReadAll(resp.Body)
-				resp.Body.Close() // Always close the response body when done.
+				errClose := resp.Body.Close() // Always close the response body when done.
 				if err != nil {
 					fmt.Printf("error reading response from %s: %v\n", statusURL, err)
 					continue
+				}
+				if errClose != nil {
+					fmt.Printf("error closing response body: %s\n", errClose)
 				}
 				// Verify status response
 				if strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
@@ -95,7 +104,9 @@ func GetRunningCoreSystemURL(sys *System, systemType string) (string, error) {
 					fmt.Printf("error checking %s at %s: %v\n", systemType, core.Url, err)
 					continue
 				}
-				resp.Body.Close()
+				if err = resp.Body.Close(); err != nil {
+					fmt.Printf("error while closing response body: %s\n", err)
+				}
 				return core.Url, nil
 			}
 		}

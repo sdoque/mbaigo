@@ -38,7 +38,7 @@ type ConfigurableAsset struct {
 	Traits   []json.RawMessage    `json:"traits"`
 }
 
-// templateOut is the stuct used to prepare the systemconfig.json file
+// templateOut is the struct used to prepare the systemconfig.json file
 type templateOut struct {
 	CName     string                  `json:"systemname"`
 	Assets    []ConfigurableAsset     `json:"unit_assets"`
