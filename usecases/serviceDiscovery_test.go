@@ -305,3 +305,15 @@ func TestSearch4Service(t *testing.T) {
 	}
 	cancel()
 }
+
+func TestSearch4Services(t *testing.T) {
+	return
+}
+
+func TestFillDiscoveredServices(t *testing.T) {
+	return
+}
+
+func TestExtractDiscoveryForm(t *testing.T) {
+	return
+}
