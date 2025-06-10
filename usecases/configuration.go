@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2024 Synecdoque
+ * Copyright (c) 2025 Synecdoque
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,7 +22,6 @@
 package usecases
 
 import (
-	"crypto/x509/pkix"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -30,14 +29,21 @@ import (
 	"github.com/sdoque/mbaigo/components"
 )
 
+// configurableAsset is a struct that contains the name of the asset and its
+// configurable details and services
+type ConfigurableAsset struct {
+	Name     string               `json:"name"`
+	Details  map[string][]string  `json:"details"`
+	Services []components.Service `json:"services"`
+	Traits   []json.RawMessage    `json:"traits"`
+}
+
 // templateOut is the struct used to prepare the systemconfig.json file
 type templateOut struct {
-	CName      string                  `json:"systemname"`
-	UAsset     []components.UnitAsset  `json:"unit_assets"`
-	CServices  []components.Service    `json:"services"`
-	Protocols  map[string]int          `json:"protocolsNports"`
-	PKIdetails pkix.Name               `json:"distinguishedName"`
-	CCoreS     []components.CoreSystem `json:"coreSystems"`
+	CName     string                  `json:"systemname"`
+	Assets    []ConfigurableAsset     `json:"unit_assets"`
+	Protocols map[string]int          `json:"protocolsNports"`
+	CCoreS    []components.CoreSystem `json:"coreSystems"`
 }
 
 // configFileIn is used to extract out the information of the systemconfig.json file
@@ -46,51 +52,69 @@ type templateOut struct {
 type configFileIn struct {
 	CName        string                  `json:"systemname"`
 	rawResources []json.RawMessage       `json:"-"`
-	CServices    []components.Service    `json:"services"`
 	Protocols    map[string]int          `json:"protocolsNports"`
-	PKIdetails   pkix.Name               `json:"distinguishedName"`
 	CCoreS       []components.CoreSystem `json:"coreSystems"`
 }
 
-// Configure read the system configuration JSON file to get the deployment details.
+// Configure reads the system configuration JSON file to get the deployment details.
 // If the file is missing, it generates a default systemconfig.json file and shuts down the system
-func Configure(sys *components.System) ([]json.RawMessage, []components.Service, error) {
-
-	var rawBytes []json.RawMessage        // the mbaigo library does not know about the unit asset's structure (defined in the file thing.go and not part of the library)
-	var servicesList []components.Service // this is the list of services for each unit asset
+func Configure(sys *components.System) ([]json.RawMessage, error) {
 	// prepare content of configuration file
 	var defaultConfig templateOut
 
+	// var servicesList []components.Service // this is the list of services for each unit asset
+
+	var assetTemplate components.UnitAsset
+	for _, ua := range sys.UAssets {
+		assetTemplate = *ua // this creates a copy (value, not reference)
+		break               // stop after the first entry
+	}
+	servicesTemplate := getServicesList(assetTemplate)
+
+	confAsset := ConfigurableAsset{
+		Name:     assetTemplate.GetName(),
+		Details:  assetTemplate.GetDetails(),
+		Services: servicesTemplate,
+	}
+
+	// If the asset exposes traits, serialize them and store as raw JSON
+	if assetWithTraits, ok := assetTemplate.(components.HasTraits); ok {
+		if traits := assetWithTraits.GetTraits(); traits != nil {
+			traitJSON, err := json.Marshal(traits)
+			if err == nil {
+				confAsset.Traits = []json.RawMessage{traitJSON}
+			} else {
+				fmt.Println("Warning: could not marshal traits:", err)
+			}
+		}
+	}
+
 	defaultConfig.CName = sys.Name
 	defaultConfig.Protocols = sys.Husk.ProtoPort
-	defaultConfig.UAsset = getFirstAsset(sys.UAssets)
-	originalSs := getServicesList(defaultConfig.UAsset[0])
-	defaultConfig.CServices = originalSs
-
-	defaultConfig.PKIdetails.CommonName = "arrowhead.eu"
-	defaultConfig.PKIdetails.Country = []string{"SE"}
-	defaultConfig.PKIdetails.Province = []string{"Norrbotten"}
-	defaultConfig.PKIdetails.Locality = []string{"Luleaa"}
-	defaultConfig.PKIdetails.Organization = []string{"Luleaa University of Technology"}
-	defaultConfig.PKIdetails.OrganizationalUnit = []string{"CPS"}
+	defaultConfig.Assets = []ConfigurableAsset{confAsset} // this is a list of unit assets
 
 	servReg := components.CoreSystem{
-		Name:        "serviceregistrar",
-		Url:         "http://localhost:20102/serviceregistrar/registry",
-		Certificate: ".X509pubKey",
+		Name: "serviceregistrar",
+		Url:  "http://localhost:20102/serviceregistrar/registry",
 	}
 	orches := components.CoreSystem{
-		Name:        "orchestrator",
-		Url:         "http://localhost:20103/orchestrator/orchestration",
-		Certificate: ".X509pubKey",
+		Name: "orchestrator",
+		Url:  "http://localhost:20103/orchestrator/orchestration",
 	}
 	ca := components.CoreSystem{
-		Name:        "ca",
-		Url:         "http://localhost:20100/ca/certification",
-		Certificate: ".X509pubKey",
+		Name: "ca",
+		Url:  "http://localhost:20100/ca/certification",
 	}
-	coreSystems := []components.CoreSystem{servReg, orches, ca}
+	maitreD := components.CoreSystem{
+		Name: "maitreD",
+		Url:  "http://localhost:20101/maitreD/maitreD",
+	}
+	// add the core systems to the configuration file
+	// the system is part of a local cloud with mandatory core systems
+	coreSystems := []components.CoreSystem{servReg, orches, ca, maitreD}
 	defaultConfig.CCoreS = coreSystems
+
+	var rawBytes []json.RawMessage // the mbaigo library does not know about the unit asset's structure (defined in the file thing.go and not part of the library)
 
 	// open the configuration file or create one with the default content prepared above
 	systemConfigFile, err := os.Open("systemconfig.json")
@@ -98,25 +122,25 @@ func Configure(sys *components.System) ([]json.RawMessage, []components.Service,
 	if err != nil { // could not find the systemconfig.json so a default one is being created
 		defaultConfigFile, err := os.Create("systemconfig.json")
 		if err != nil {
-			return rawBytes, servicesList, err
+			return rawBytes, err
 		}
 		defer defaultConfigFile.Close()
-		systemconfigjson, err := json.MarshalIndent(defaultConfig, "", "   ")
+		systemconfigjson, err := json.MarshalIndent(defaultConfig, "", "     ")
 		if err != nil {
-			return rawBytes, servicesList, err
+			return rawBytes, err
 		}
 		nBytes, err := defaultConfigFile.Write(systemconfigjson)
 		if err != nil {
-			return rawBytes, servicesList, err
+			return rawBytes, err
 		}
-		return rawBytes, servicesList, fmt.Errorf("a new configuration file has been written with %d bytes. Please update it and restart the system", nBytes)
+		return rawBytes, fmt.Errorf("a new configuration file has been written with %d bytes. Please update it and restart the system", nBytes)
 	}
 
 	// the system configuration file could be open, read the configurations and pass them on to the system
 	defer systemConfigFile.Close()
 	configBytes, err := os.ReadFile("systemconfig.json")
 	if err != nil {
-		return rawBytes, servicesList, err
+		return rawBytes, err
 	}
 
 	// the challenge is that the definition of the unit asset is unknown to the mbaigo library and only known to the system that invokes the library
@@ -130,13 +154,13 @@ func Configure(sys *components.System) ([]json.RawMessage, []components.Service,
 		Alias: (*Alias)(&configurationIn),
 	}
 	if err := json.Unmarshal(configBytes, aux); err != nil {
-		return rawBytes, servicesList, err
+		return rawBytes, err
 	}
 	if len(aux.Resources) > 0 {
 		configurationIn.rawResources = aux.Resources
 	} else {
 		var rawMessages []json.RawMessage
-		for _, s := range defaultConfig.UAsset {
+		for _, s := range defaultConfig.Assets {
 			// convert the struct to JSON-encoded byte array
 			jsonBytes, err := json.Marshal(s)
 			if err != nil {
@@ -148,34 +172,13 @@ func Configure(sys *components.System) ([]json.RawMessage, []components.Service,
 	}
 
 	sys.Name = configurationIn.CName
-	sys.Husk.DName = configurationIn.PKIdetails
 	sys.Husk.ProtoPort = configurationIn.Protocols
 	for _, ccore := range configurationIn.CCoreS {
 		newCore := ccore
 		sys.CoreS = append(sys.CoreS, &newCore)
 	}
 
-	// update the services (e.g., re-registration period, costs, or units)
-	for i := range configurationIn.CServices {
-		for _, originalService := range originalSs {
-			if originalService.Definition == configurationIn.CServices[i].Definition {
-				configurationIn.CServices[i].Merge(&originalService) // keep the original definition and subpath as the original ones
-			}
-		}
-	}
-	servicesList = configurationIn.CServices
-
-	return configurationIn.rawResources, servicesList, nil
-}
-
-// getFirstAsset returns the first key-value pair in the Assets map
-func getFirstAsset(assetMap map[string]*components.UnitAsset) []components.UnitAsset {
-	var assetList []components.UnitAsset
-	for key := range assetMap {
-		assetList = append(assetList, *assetMap[key])
-		return assetList
-	}
-	return assetList
+	return configurationIn.rawResources, nil
 }
 
 // getServicesList() returns the original list of services
@@ -186,4 +189,15 @@ func getServicesList(uat components.UnitAsset) []components.Service {
 		serviceList = append(serviceList, *services[s])
 	}
 	return serviceList
+}
+
+// MakeServiceMap() creates a map of services from a slice of services
+// The map is indexed by the service subpath
+func MakeServiceMap(services []components.Service) map[string]*components.Service {
+	serviceMap := make(map[string]*components.Service)
+	for i := range services {
+		svc := services[i] // take the address of the element in the slice
+		serviceMap[svc.SubPath] = &svc
+	}
+	return serviceMap
 }

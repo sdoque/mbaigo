@@ -33,3 +33,8 @@ type UnitAsset interface {
 	GetDetails() map[string][]string
 	Serving(w http.ResponseWriter, r *http.Request, servicePath string)
 }
+
+// HasTraits is an interface that defines a method to get traits of a UnitAsset.
+type HasTraits interface {
+	GetTraits() any // or interface{} in older Go
+}
