@@ -55,15 +55,19 @@ func SysHateoas(w http.ResponseWriter, req *http.Request, sys components.System)
 		text += "<li><b><a href=\"http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + (*unitasset).GetName() + "/doc" + "\">" + (*unitasset).GetName() + "</a></b> with details " + metaservice + "</li>\n"
 	}
 
-	text += "</ul> having the following services:<ul>\n"
-	servicesList := getServicesList(getFirstAsset(*assetList)[0])
-	for _, service := range servicesList {
-		metaservice := ""
-		for key, values := range service.Details {
-			metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
-		}
-		text += "<li><b>" + service.Definition + "</b> with details: " + metaservice + "</li>\n"
-	}
+	// This part of the code is commented out because it is not used in the current implementation because the assets on a PLC might have different services
+	// ======================================
+	// text = "</ul> having the following services:<ul>"
+	// w.Write([]byte(text))
+	// servicesList := getServicesList(getFirstAsset(*assetList)[0])
+	// for _, service := range servicesList {
+	// 	metaservice := ""
+	// 	for key, values := range service.Details {
+	// 		metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
+	// 	}
+	// 	serviceURI := "<li><b>" + service.Definition + "</b> with details: " + metaservice + "</li>"
+	// 	w.Write([]byte(serviceURI))
+	// }
 
 	text += "</ul> <p> The services can be accessed using the following protocols with their respective bound ports:</p><ul>\n"
 	for protocol, port := range sys.Husk.ProtoPort {
