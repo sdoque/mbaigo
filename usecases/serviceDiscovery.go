@@ -81,6 +81,18 @@ func ExtractQuestForm(bodyBytes []byte) (rec forms.ServiceQuest_v1, err error) {
 	return
 }
 
+func sendHttpReq(method string, oURL string, jsonQF []byte, ctx context.Context) (resp *http.Response, err error) {
+	req, err := http.NewRequest(method, oURL, bytes.NewBuffer(jsonQF))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json") // set the Content-Type header
+	req = req.WithContext(ctx)                         // associate the cancellable context with the request
+
+	resp, err = http.DefaultClient.Do(req)
+	return
+}
+
 // Search4Service requests from the core systems the address of resources's services that meet the need
 func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocation forms.ServicePoint_v1, err error) {
 
@@ -101,17 +113,20 @@ func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocat
 		log.Printf("problem encountered when marshalling the service quest to the Orchestrator at %s\n", oURL)
 		return servLocation, err
 	}
-	// prepare the request
-	req, err := http.NewRequest(http.MethodPost, oURL, bytes.NewBuffer(jsonQF))
-	if err != nil {
-		return servLocation, err
-	}
-	req.Header.Set("Content-Type", "application/json") // set the Content-Type header
-	req = req.WithContext(ctx)                         // associate the cancellable context with the request
+	/*
+		// prepare the request
+		req, err := http.NewRequest(http.MethodPost, oURL, bytes.NewBuffer(jsonQF))
+		if err != nil {
+			return servLocation, err
+		}
+		req.Header.Set("Content-Type", "application/json") // set the Content-Type header
+		req = req.WithContext(ctx)                         // associate the cancellable context with the request
 
-	// Send the request /////////////////////////////////
-	//client := &http.Client{}
-	resp, err := http.DefaultClient.Do(req) // changed to DefaultClient to simplify testing
+		// Send the request /////////////////////////////////
+		//client := &http.Client{}
+		resp, err := http.DefaultClient.Do(req) // changed to DefaultClient to simplify testing
+	*/
+	resp, err := sendHttpReq(http.MethodPost, oURL, jsonQF, ctx) // Moved above codeblock into help function, to improve readability
 	if err != nil {
 		return servLocation, err
 	}
