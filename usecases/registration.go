@@ -36,6 +36,8 @@ import (
 	"github.com/sdoque/mbaigo/forms"
 )
 
+/*
+
 // RegisterServices keeps track of the leading Service Registrar and keeps all services registered
 func RegisterServices(sys *components.System) {
 
@@ -136,18 +138,14 @@ func RegisterServices(sys *components.System) {
 	}
 }
 
-func DiscoverLeadingRegistrar(sys *components.System, url string, manualTicker time.Duration, leadingRegistrarTest bool) {
+*/
+
+func DiscoverLeadingRegistrar(sys *components.System, manualTicker time.Duration) *components.CoreSystem {
 	var leadingRegistrar *components.CoreSystem
-	if leadingRegistrarTest == true {
-		leadingRegistrar = &components.CoreSystem{
-			Name:        "leadingregistrar",
-			Url:         "https://leadingregistrar",
-			Certificate: "",
-		}
-	}
 	// Create a buffered channel for the pointer to the leading service registrar
 	registrarStream := make(chan *components.CoreSystem, 1)
 	defer close(registrarStream)
+	// ticker := time.NewTicker(5 * time.Second)
 	ticker := time.NewTicker(manualTicker)
 	defer ticker.Stop()
 	for {
@@ -206,48 +204,44 @@ func DiscoverLeadingRegistrar(sys *components.System, url string, manualTicker t
 		select {
 		case <-ticker.C:
 		case <-sys.Ctx.Done():
-			return
+			return leadingRegistrar
 		}
 	}
 }
 
-func HandleLeadingRegistrar(sys *components.System, leadingRegistrarTest bool) (test int) {
+func HandleLeadingRegistrar(sys *components.System, manualTicker time.Duration, leadingRegistrarTest bool) {
 
 	var leadingRegistrar *components.CoreSystem
 	if leadingRegistrarTest == true {
-		leadingRegistrar = &components.CoreSystem{
-			Name:        "leadingregistrar",
-			Url:         "https://leadingregistrar",
-			Certificate: "",
-		}
+		leadingRegistrar = sys.CoreS[1]
 	}
+	// Create a buffered channel for the pointer to the leading service registrar
+	registrarStream := make(chan *components.CoreSystem, 1)
+	defer close(registrarStream)
 
 	assetList := &sys.UAssets
 	for _, aResource := range *assetList {
 		servs := (*aResource).GetServices()
 		for _, service := range servs {
 			// service := (*servs)[j] // Correctly dereference the slice pointer and access the element
-			delay := 1 * time.Second
-			timer := time.NewTimer(delay)
+			// delay := 1 * time.Second
+			delay := manualTicker
 			for {
+				timer := time.NewTimer(delay)
 				select {
 				case <-timer.C:
 					if leadingRegistrar != nil {
-						// delay = registerService(sys, aResource, service, leadingRegistrar)
-						_ = service
-						return int(0)
+						delay = registerService(sys, aResource, service, leadingRegistrar)
 					} else {
-						delay = 15
-						return int(delay)
+						delay = 15 * time.Second
 					}
 				case <-sys.Ctx.Done():
-					// deregisterService(leadingRegistrar, service)
-					return -1
+					deregisterService(leadingRegistrar, service)
+					return
 				}
 			}
 		}
 	}
-	return -1
 }
 
 // registerService makes a POST or PUT request to register or register individual services

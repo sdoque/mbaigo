@@ -3,12 +3,12 @@ package usecases
 import (
 	//"bytes"
 	"context"
-	"sync"
+	//"sync"
 	"time"
 
 	//"encoding/json"
 	//"errors"
-	//"fmt"
+	"fmt"
 	//"io"
 	//"log"
 	//"net"
@@ -71,6 +71,12 @@ func (mua *UnitAsset) Serving(w http.ResponseWriter, r *http.Request, servicePat
 	return
 }
 
+type errorReader struct{}
+
+func (errorReader) Read(p []byte) (int, error) {
+	return 0, fmt.Errorf("forced read error")
+}
+
 func createTestSystem(ctx context.Context) components.System {
 	sys := components.NewSystem("testSystem", ctx)
 
@@ -82,19 +88,16 @@ func createTestSystem(ctx context.Context) components.System {
 	}
 
 	orchestrator := &components.CoreSystem{
-		Name:        "orchestrator",
-		Url:         "https://orchestrator",
-		Certificate: "",
+		Name: "orchestrator",
+		Url:  "https://orchestrator",
 	}
 	leadingRegistrar := &components.CoreSystem{
-		Name:        "serviceregistrar",
-		Url:         "https://leadingregistrar",
-		Certificate: "",
+		Name: "serviceregistrar",
+		Url:  "https://leadingregistrar",
 	}
 	test := &components.CoreSystem{
-		Name:        "test",
-		Url:         "https://test",
-		Certificate: "",
+		Name: "test",
+		Url:  "https://test",
 	}
 	sys.CoreS = []*components.CoreSystem{
 		orchestrator,
@@ -137,26 +140,61 @@ func TestDiscoverLeadingRegistrar(t *testing.T) {
 	defer cancel()
 	testSys := createTestSystem(ctx)
 
-	manualTicker := 10 * time.Millisecond
+	testSys.CoreS[1].Url = testURL
 
-	var wg sync.WaitGroup
+	manualTicker := 10 * time.Millisecond
 
 	resultCh := make(chan *components.CoreSystem, 1)
 	defer close(resultCh)
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
-		DiscoverLeadingRegistrar(&testSys, testURL, manualTicker, true)
+		resultCh <- DiscoverLeadingRegistrar(&testSys, manualTicker)
 	}()
+	time.Sleep(5 * manualTicker)
 	cancel()
-	wg.Wait()
 	select {
 	case res := <-resultCh:
 		if res.Name != "serviceregistrar" {
 			t.Errorf("Expected %s, got: %s", "serviceregistrar", res.Name)
 		}
 	case <-time.After(200 * time.Millisecond):
-		t.Error("Timeout waiting for HandleLeadingRegistrar result")
+		t.Error("Timeout waiting for DiscoverLeadingRegistrar result")
+	}
+
+	statusCode = http.StatusOK
+	responseBody = "wrong response"
+	testURL = ts.URL
+	testSys.CoreS[1].Url = testURL
+	go func() {
+		resultCh <- DiscoverLeadingRegistrar(&testSys, manualTicker)
+	}()
+	time.Sleep(5 * manualTicker)
+	cancel()
+	select {
+	case res := <-resultCh:
+		if res != nil {
+			t.Errorf("Expected %s, got: %s", "leadingRegistrar be nil", res.Name)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Error("Timeout waiting for DiscoverLeadingRegistrar result")
+	}
+
+	statusCode = http.StatusOK
+	responseBody = "lead Service Registrar since"
+	testURL = ts.URL
+	testSys.CoreS[1].Url = testURL
+	ts.Close()
+	go func() {
+		resultCh <- DiscoverLeadingRegistrar(&testSys, manualTicker)
+	}()
+	time.Sleep(5 * manualTicker)
+	cancel()
+	select {
+	case res := <-resultCh:
+		if res != nil {
+			t.Errorf("Expected %s, got: %s", "leadingRegistrar be nil since Get() error", res.Name)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Error("Timeout waiting for DiscoverLeadingRegistrar result")
 	}
 
 	/*
@@ -230,32 +268,32 @@ func TestDiscoverLeadingRegistrar(t *testing.T) {
 }
 
 func TestHandleLeadingRegistrar(t *testing.T) {
+	statusCode := http.StatusOK
+	responseBody := "lead Service Registrar since"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(statusCode)
+		w.Write([]byte(responseBody))
+	}))
+	defer ts.Close()
+	testURL := ts.URL
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	testSys := createTestSystem(ctx)
 
-	result := HandleLeadingRegistrar(&testSys, false)
-	if result != 15 {
-		t.Errorf("Expected %d, got: %d", 15, result)
-	}
+	testSys.CoreS[1].Url = testURL
 
-	result = HandleLeadingRegistrar(&testSys, true)
-	if result != 0 {
-		t.Errorf("Expected %d, got: %d", 0, result)
-	}
+	manualTicker := 10 * time.Millisecond
 
-	resultCh := make(chan int)
 	go func() {
-		resultCh <- HandleLeadingRegistrar(&testSys, true)
+		HandleLeadingRegistrar(&testSys, manualTicker, false)
 	}()
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	cancel()
-	select {
-	case res := <-resultCh:
-		if res != -1 {
-			t.Errorf("Expected %d, got: %d", -1, res)
-		}
-	case <-time.After(200 * time.Millisecond):
-		t.Error("Timeout waiting for HandleLeadingRegistrar result")
-	}
+
+	go func() {
+		HandleLeadingRegistrar(&testSys, manualTicker, true)
+	}()
+	time.Sleep(100 * time.Millisecond)
+	cancel()
 }
