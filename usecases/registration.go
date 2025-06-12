@@ -140,8 +140,11 @@ func RegisterServices(sys *components.System) {
 
 */
 
-func DiscoverLeadingRegistrar(sys *components.System, manualTicker time.Duration) *components.CoreSystem {
+func DiscoverLeadingRegistrar(sys *components.System, manualTicker time.Duration, leadingRegistrarTest bool) *components.CoreSystem {
 	var leadingRegistrar *components.CoreSystem
+	if leadingRegistrarTest == true {
+		leadingRegistrar = sys.CoreS[1]
+	}
 	// Create a buffered channel for the pointer to the leading service registrar
 	registrarStream := make(chan *components.CoreSystem, 1)
 	defer close(registrarStream)
@@ -209,7 +212,7 @@ func DiscoverLeadingRegistrar(sys *components.System, manualTicker time.Duration
 	}
 }
 
-func HandleLeadingRegistrar(sys *components.System, manualTicker time.Duration, leadingRegistrarTest bool) {
+func HandleLeadingRegistrar(sys *components.System, manualTicker time.Duration, leadingRegistrarTest bool) (delay time.Duration, err error) {
 
 	var leadingRegistrar *components.CoreSystem
 	if leadingRegistrarTest == true {
@@ -240,11 +243,12 @@ func HandleLeadingRegistrar(sys *components.System, manualTicker time.Duration, 
 					if err != nil {
 						fmt.Println("Something went wrong with deregistration of service:", err)
 					}
-					return
+					return delay, err
 				}
 			}
 		}
 	}
+	return delay, err
 }
 
 // registerService makes a POST or PUT request to register or register individual services
