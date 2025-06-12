@@ -3,6 +3,7 @@ package usecases
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -163,53 +164,81 @@ type testBodyHasVersion struct {
 
 type testBodyNoVersion struct{}
 
+func createTestData(bodyType string, proto int, version string, errRead bool) (data []byte, err error) {
+	if errRead == true {
+		return json.Marshal(errReader(0))
+	}
+	switch bodyType {
+	case "testBodyHasProtocol":
+		body := testBodyHasProtocol{
+			Protocol: proto,
+			Version:  version,
+		}
+		data, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		return data, nil
+	case "testBodyHasVersion":
+		body := testBodyHasVersion{
+			Version: version,
+		}
+		data, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		return data, nil
+	case "testBodyNoVersion":
+		body := testBodyNoVersion{}
+		data, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		return data, nil
+	default:
+		return nil, errors.New("Body type not supported")
+	}
+}
+
+type params struct {
+	testCase      string
+	bodyType      string
+	protocol      int
+	version       string
+	errRead       bool
+	expectedError bool
+}
+
 func TestExtractQuestForm(t *testing.T) {
-	body := testBodyHasVersion{
-		Version: "ServiceQuest_v1",
+	// A list holding structs containing the parameters used for the test
+	testParams := []params{
+		// {"testCase", "bodyType", "protocol", "version", "errRead", "expectedError"}
+		{"No errors", "testBodyHasVersion", -1, "ServiceQuest_v1", false, false},
+		{"Error during Unmarshal", "testBodyHasVersion", -1, "ServiceQuest_v1", true, true},
+		{"Missing version", "testBodyNoVersion", -1, "", false, false},
+		{"Error while writing to correct form", "testBodyHasProtocol", 123, "ServiceQuest_v1", false, true},
+		{"Error Unsupported version", "testBodyHasVersion", -1, "", false, true},
 	}
-	data, _ := json.Marshal(body)
-
-	// Everything passes, best outcome
-	rec, _ := ExtractQuestForm(data)
-	if rec.Version != body.Version {
-		t.Errorf("Expected version: %s, got: %s", rec.Version, body.Version)
-	}
-
-	// Can't unmarshal data
-	data, _ = json.Marshal(errReader(0))
-	rec, err := ExtractQuestForm(data)
-	if err == nil {
-		t.Errorf("Expected error during unmarshal")
-	}
-	// Missing version
-	noVersionBody := testBodyNoVersion{}
-	data, _ = json.Marshal(noVersionBody)
-	rec, err = ExtractQuestForm(data)
-	if err != nil {
-		t.Errorf("Expected no errors")
-	}
-	if rec.Version != "" {
-		t.Errorf("Expected no version, got %s", rec.Version)
-	}
-	// Error while writing to correct form
-	protocolBody := testBodyHasProtocol{
-		Version:  "ServiceQuest_v1",
-		Protocol: 123,
-	}
-	data, _ = json.Marshal(protocolBody)
-	rec, err = ExtractQuestForm(data)
-	if err == nil {
-		t.Errorf("Expected Error during unmarshal in switch case")
-	}
-
-	// Switch case: Unsupported service registration form
-	body = testBodyHasVersion{
-		Version: "",
-	}
-	data, _ = json.Marshal(body)
-	rec, err = ExtractQuestForm(data)
-	if err == nil {
-		t.Errorf("Expected error in switch case (Unsupported form version)")
+	for _, x := range testParams {
+		// Create the data []byte that will be sent into the function
+		data, err := createTestData(x.bodyType, x.protocol, x.version, x.errRead)
+		if err != nil {
+			t.Errorf("---\tError occured while creating test data")
+		}
+		// Do the test
+		rec, err := ExtractQuestForm(data)
+		if x.testCase == "No errors" || x.testCase == "Missing version" {
+			if err != nil {
+				t.Errorf("Test case: '%s' got error: %e", x.testCase, err)
+			}
+			if x.testCase == "Missing version" && rec.Version != "" {
+				t.Errorf("---\tExpected no version, got %s", rec.Version)
+			}
+		} else {
+			if err == nil {
+				t.Errorf("---\tTest case: Expected errors in '%s', got none", x.testCase)
+			}
+		}
 	}
 }
 
