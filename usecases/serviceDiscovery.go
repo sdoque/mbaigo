@@ -81,8 +81,8 @@ func ExtractQuestForm(bodyBytes []byte) (rec forms.ServiceQuest_v1, err error) {
 	return
 }
 
-func sendHttpReq(method string, url string, jsonQF []byte, ctx context.Context) (resp *http.Response, err error) {
-	req, err := http.NewRequest(method, url, bytes.NewBuffer(jsonQF))
+func sendHttpReq(method string, url string, data []byte, ctx context.Context) (resp *http.Response, err error) {
+	req, err := http.NewRequest(method, url, bytes.NewBuffer(data))
 	if err != nil {
 		return nil, err
 	}
@@ -165,20 +165,11 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 	// Prepare the request to the Orchestrator
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Create a new context, with a 2-second timeout
 	defer cancel()
-	req, err := http.NewRequest(http.MethodPost, oURL, bytes.NewBuffer(qf))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json") // set the Content-Type header
-	req = req.WithContext(ctx)                         // associate the cancellable context with the request
 
-	// Send the request to the Orchestrator /////////////////////////////////
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := sendHttpReq(http.MethodPost, oURL, qf, ctx)
 	if err != nil {
-		return err
+		return
 	}
-
 	defer resp.Body.Close()
 
 	// Check if the status code indicates an error (anything outside the 200–299 range)
@@ -236,7 +227,7 @@ func ExtractDiscoveryForm(bodyBytes []byte) (sLoc forms.ServicePoint_v1, err err
 	}
 	formVersion, ok := jsonData["version"].(string)
 	if !ok {
-		err = errors.New("Error: 'version' key not found in JSON data")
+		err = errors.New("error: 'version' key not found in JSON data")
 		return
 	}
 	switch formVersion {

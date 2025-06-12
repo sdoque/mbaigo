@@ -16,17 +16,16 @@ import (
 // mockTransport is used for replacing the default network Transport (used by
 // http.DefaultClient) and it will intercept network requests.
 type mockTransport struct {
-	returnError bool
-	resp        *http.Response
-	hits        map[string]int
-	err         error
+	resp *http.Response
+	hits int
+	err  error
 }
 
-func newMockTransport(resp *http.Response, retErr bool, err error) mockTransport {
-	t := mockTransport{
-		returnError: retErr,
-		resp:        resp,
-		err:         err,
+func newMockTransport(resp *http.Response, v int, err error) *mockTransport {
+	t := &mockTransport{
+		resp: resp,
+		hits: v,
+		err:  err,
 	}
 	// Hijack the default http client so no actual http requests are sent over the network
 	http.DefaultClient.Transport = t
@@ -34,46 +33,19 @@ func newMockTransport(resp *http.Response, retErr bool, err error) mockTransport
 }
 
 // RoundTrip method is required to fulfil the RoundTripper interface (as required by the DefaultClient).
-// It prevents the request from being sent over the network and count how many times
-// a domain was requested.
-func (t mockTransport) RoundTrip(req *http.Request) (resp *http.Response, err error) {
-	if t.err != nil {
+// It prevents the request from being sent over the network, and count how many times
+// a http request was sent
+func (t *mockTransport) RoundTrip(req *http.Request) (resp *http.Response, err error) {
+	t.hits -= 1
+	//log.Printf("hits: %d", t.hits)
+	if t.hits == 0 {
 		return nil, t.err
-	}
-	if t.returnError != false {
-		req.GetBody = func() (io.ReadCloser, error) {
-			return nil, errHTTP
-		}
 	}
 	t.resp.Request = req
 	return t.resp, nil
 }
 
 var errHTTP error = fmt.Errorf("bad http request")
-
-type mockUnitAsset struct {
-}
-
-func (mua mockUnitAsset) GetName() string {
-	return "Test UnitAsset"
-}
-
-func (mua mockUnitAsset) GetServices() components.Services {
-	return nil
-}
-func (mua mockUnitAsset) GetCervices() components.Cervices {
-	return nil
-}
-
-func (mua mockUnitAsset) GetDetails() map[string][]string {
-	return map[string][]string{
-		"Details": []string{"test1", "test2"},
-	}
-}
-
-func (mua mockUnitAsset) Serving(w http.ResponseWriter, r *http.Request, servicePath string) {
-	return
-}
 
 // Tests the output from ServQuestForms() to ensure expected outcome
 
@@ -88,6 +60,32 @@ func TestServQuestForms(t *testing.T) {
 	}
 }
 
+type UnitAsset struct {
+	Name        string              `json:"name"`    // Must be a unique name, ie. a sensor ID
+	Owner       *components.System  `json:"-"`       // The parent system this UA is part of
+	Details     map[string][]string `json:"details"` // Metadata or details about this UA
+	ServicesMap components.Services `json:"-"`
+	CervicesMap components.Cervices `json:"-"`
+}
+
+func (mua UnitAsset) GetName() string {
+	return mua.Name
+}
+
+func (mua UnitAsset) GetServices() components.Services {
+	return mua.ServicesMap
+}
+
+func (mua UnitAsset) GetCervices() components.Cervices {
+	return mua.CervicesMap
+}
+
+func (mua UnitAsset) GetDetails() map[string][]string {
+	return mua.Details
+}
+
+func (mua UnitAsset) Serving(w http.ResponseWriter, r *http.Request, servicePath string) {}
+
 func createTestSystem(ctx context.Context, broken bool) components.System {
 	// instantiate the System
 	sys := components.NewSystem("testSystem", ctx)
@@ -99,6 +97,27 @@ func createTestSystem(ctx context.Context, broken bool) components.System {
 		ProtoPort:   map[string]int{"https": 0, "http": 1234, "coap": 0},
 		InfoLink:    "https://for.testing.purposes",
 	}
+
+	testCerv := &components.Cervice{
+		Definition: "testCerv",
+		Details:    map[string][]string{"Forms": {"SignalA_v1a"}},
+		Nodes:      map[string][]string{},
+	}
+
+	CervicesMap := &components.Cervices{
+		testCerv.Definition: testCerv,
+	}
+
+	mua := &UnitAsset{
+		Name:        "testUnitAsset",
+		Details:     map[string][]string{"Test": {"Test"}},
+		CervicesMap: *CervicesMap,
+	}
+
+	sys.UAssets = make(map[string]*components.UnitAsset)
+	var muaInterface components.UnitAsset = mua
+	sys.UAssets[mua.GetName()] = &muaInterface
+
 	if broken == false {
 		orchestrator := &components.CoreSystem{
 			Name: "orchestrator",
@@ -123,9 +142,9 @@ func TestFillQuestForm(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	testSys := createTestSystem(ctx, false)
-	mua := mockUnitAsset{}
+	mua := UnitAsset{}
 	questForm := FillQuestForm(&testSys, mua, "TestDef", "TestProtocol")
-	// Loop through the details in questForm and mua (mockUnitAsset), error if they're same
+	// Loop through the details in questForm and mua (mockUnitAsset), error if they're not the same
 	for i, detail := range questForm.Details["Details"] {
 		if detail != mua.GetDetails()["Details"][i] {
 			t.Errorf("Expected %s, got: %s", mua.GetDetails()["Details"][i], detail)
@@ -166,6 +185,9 @@ func TestExtractQuestForm(t *testing.T) {
 	noVersionBody := testBodyNoVersion{}
 	data, _ = json.Marshal(noVersionBody)
 	rec, err = ExtractQuestForm(data)
+	if err != nil {
+		t.Errorf("Expected no errors")
+	}
 	if rec.Version != "" {
 		t.Errorf("Expected no version, got %s", rec.Version)
 	}
@@ -225,7 +247,7 @@ func TestSendHttpReq(t *testing.T) {
 		StatusCode: 200,
 		Body:       io.NopCloser(strings.NewReader(string("test body"))),
 	}
-	newMockTransport(resp, false, nil)
+	newMockTransport(resp, 0, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var qForm forms.ServiceQuest_v1
@@ -250,7 +272,7 @@ func TestSendHttpReq(t *testing.T) {
 	cancel()
 
 	// Bad case: response returns error
-	newMockTransport(resp, true, errHTTP)
+	newMockTransport(resp, 1, errHTTP)
 	ctx, cancel = context.WithCancel(context.Background())
 	qForm.NewForm()
 	_, err = sendHttpReq(http.MethodPost, "https://test", jsonQF, ctx)
@@ -260,17 +282,6 @@ func TestSendHttpReq(t *testing.T) {
 	cancel()
 }
 
-/*
-	type ServiceQuest_v1 struct {
-		SysId             int                 `json:"systemId"`
-		RequesterName     string              `json:"requesterName"`
-		ServiceDefinition string              `json:"serrviceDefinition"`
-		Protocol          string              `json:"protocol"`
-		Details           map[string][]string `json:"details"`
-		Version           string              `json:"version"`
-		Break             any                 `json:"break"`
-	}
-*/
 func TestSearch4Service(t *testing.T) {
 	// Best case, everything pass
 	f := createServicePointTestForm()
@@ -284,7 +295,7 @@ func TestSearch4Service(t *testing.T) {
 		StatusCode: 200,
 		Body:       io.NopCloser(strings.NewReader(string(fakeBody))),
 	}
-	newMockTransport(resp, false, nil)
+	newMockTransport(resp, 0, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	testSys := createTestSystem(ctx, false)
 	var qForm forms.ServiceQuest_v1
@@ -296,14 +307,13 @@ func TestSearch4Service(t *testing.T) {
 	if serviceForm.ServLocation != f.ServLocation {
 		t.Errorf("Expected %s, got: %s", f.ServLocation, serviceForm.ServLocation)
 	}
-
 	cancel()
 
 	// Error at "prepare the payload to perform a service quest"
 	// Untested because I found no way of breaking json.Marshal, without making big changes to the form
 
 	// Error while getting core system url
-	newMockTransport(resp, true, errHTTP)
+	newMockTransport(resp, 1, errHTTP)
 	ctx, cancel = context.WithCancel(context.Background())
 	testSys = createTestSystem(ctx, false)
 	qForm.NewForm()
@@ -314,12 +324,20 @@ func TestSearch4Service(t *testing.T) {
 	cancel()
 
 	// Error at sendHttpRequest
-	// Can't be tested
+	newMockTransport(resp, 2, errHTTP)
+	ctx, cancel = context.WithCancel(context.Background())
+	testSys = createTestSystem(ctx, false)
+	qForm.NewForm()
+	_, err = Search4Service(qForm, &testSys)
+	if err == nil {
+		t.Errorf("Expected error at GetRunningCoreSystemURL()")
+	}
+	cancel()
 
 	// Error at "Read the response", io.ReadAll()
 	f = createServicePointTestForm()
 	resp.Body = errReader(0)
-	newMockTransport(resp, false, nil)
+	newMockTransport(resp, 0, nil)
 	ctx, cancel = context.WithCancel(context.Background())
 	testSys = createTestSystem(ctx, false)
 	qForm.NewForm()
@@ -332,7 +350,7 @@ func TestSearch4Service(t *testing.T) {
 	// Error at "Read the response", ExtractDiscoveryForm()
 	f = createServicePointTestForm()
 	resp.Body = io.NopCloser(strings.NewReader(string("test")))
-	newMockTransport(resp, false, nil)
+	newMockTransport(resp, 0, nil)
 	ctx, cancel = context.WithCancel(context.Background())
 	testSys = createTestSystem(ctx, false)
 	qForm.NewForm()
@@ -344,29 +362,126 @@ func TestSearch4Service(t *testing.T) {
 
 }
 
-func TestSearch4Services(t *testing.T) {
+// Search4Services(cer *components.Cervice, sys *components.System) (err error)
+// *forms.ServicePoint_v1
+/*
+   ServiceID         int                 `json:"serviceId"`
+   ProviderName      string              `json:"providerName"`
+   ServiceDefinition string              `json:"definition"`
+   Details           map[string][]string `json:"details"`
+   ServLocation      string              `json:"serviceURL"`
+   ServNode          string              `json:"serviceNode"`
+   Token             string              `json:"token"`
+   Version           string              `json:"version"`
+*/
+
+func createTestServicePoint() (f forms.ServicePoint_v1) {
+	f.ProviderName = "testProvider"
+	f.ServiceDefinition = "testDef"
+	f.Details = map[string][]string{
+		"Details": {"detail1", "detail2"},
+	}
+	f.Version = "ServicePoint_v1"
 	return
 }
 
-/*
-   Id                int                 `json:"registryID"`
-   ServiceDefinition string              `json:"definition"`
-   SystemName        string              `json:"systemName"`
-   ServiceNode       string              `json:"serviceNode"`
-   IPAddresses       []string            `json:"ipAddresses"`
-   ProtoPort         map[string]int      `json:"protoPort"`
-   Details           map[string][]string `json:"details"`
-   Certificate       string              `json:"certificate"`
-   SubPath           string              `json:"subpath"`
-   RegLife           int                 `json:"registrationLife"`
-   Version           string              `json:"version"`
-   Created           string              `json:"created"`
-   Updated           string              `json:"updated"`
-   EndOfValidity     string              `json:"endOfValidity"`
-   SubscribeAble     bool                `json:"subscribeAble"`
-   ACost             float64             `json:"activityCost"`
-   CUnit             string              `json:"costUnit"`
-*/
+func TestSearch4Services(t *testing.T) {
+	// Best case: everything passes
+	fakeBody := createTestServicePoint()
+	data, err := json.Marshal(fakeBody)
+	if err != nil {
+		t.Error("Error in test during json.Marshal()")
+	}
+	resp := &http.Response{
+		Status:     "200 OK",
+		StatusCode: 200,
+		Body:       io.NopCloser(strings.NewReader(string(data))),
+	}
+	resp.Header = make(http.Header)
+	resp.Header.Set("Content-Type", "application/json")
+	newMockTransport(resp, 0, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	testSys := createTestSystem(ctx, false)
+	cer := (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+	err = Search4Services(cer, &testSys)
+	if err != nil {
+		t.Errorf("Expected no errors, got %v", err)
+	}
+	cancel()
+
+	// Bad case: GetRunningCoreSystemURL() returns error
+	newMockTransport(resp, 1, errHTTP)
+	ctx, cancel = context.WithCancel(context.Background())
+	testSys = createTestSystem(ctx, true) // true sets orchestrator url to a brokenURL
+	err = Search4Services(cer, &testSys)
+	if err == nil {
+		t.Errorf("Expected errors")
+	}
+	cancel()
+
+	// Bad case: Orchestrator url is ""
+	newMockTransport(resp, 0, nil)
+	ctx, cancel = context.WithCancel(context.Background())
+	testSys = createTestSystem(ctx, false)
+	(*testSys.CoreS[0]).Url = ""
+	cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+	err = Search4Services(cer, &testSys)
+	if err == nil {
+		t.Errorf("Expected errors")
+	}
+	cancel()
+
+	// Bad case: sendHttpReq() returns an error
+	// TODO: Fix this, maybe change the mockTransport to count number of times it's been called
+	// and then change the retError to true and it should fail.
+	newMockTransport(resp, 2, nil)
+	ctx, cancel = context.WithCancel(context.Background())
+	testSys = createTestSystem(ctx, false)
+	cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+	err = Search4Services(cer, &testSys)
+	if err == nil {
+		t.Errorf("Expected errors")
+	}
+	cancel()
+
+	// Bad case: Response status code is < 200 or >= 300
+	resp.StatusCode = 199
+	newMockTransport(resp, 4, errHTTP)
+	ctx, cancel = context.WithCancel(context.Background())
+	testSys = createTestSystem(ctx, false)
+	cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+	err = Search4Services(cer, &testSys)
+	if err == nil {
+		t.Errorf("Expected errors")
+	}
+	cancel()
+
+	// Bad case: io.ReadAll() return an error
+	resp.StatusCode = 200
+	resp.Body = errReader(0)
+	newMockTransport(resp, 0, nil)
+	ctx, cancel = context.WithCancel(context.Background())
+	testSys = createTestSystem(ctx, false)
+	cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+	err = Search4Services(cer, &testSys)
+	if err == nil {
+		t.Errorf("Expected errors")
+	}
+	cancel()
+
+	// Bad case: Unpack() returns an error
+	resp.Body = io.NopCloser(strings.NewReader(string(data)))
+	resp.Header.Set("Content-Type", "Error")
+	newMockTransport(resp, 0, nil)
+	ctx, cancel = context.WithCancel(context.Background())
+	testSys = createTestSystem(ctx, false)
+	cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+	err = Search4Services(cer, &testSys)
+	if err == nil {
+		t.Errorf("Expected errors")
+	}
+	cancel()
+}
 
 func createTestServiceRecord(number int) (f forms.ServiceRecord_v1) {
 	f.Id = number
@@ -428,7 +543,8 @@ func TestExtractDiscoveryForm(t *testing.T) {
 	if form.ServLocation != "TestService" {
 		t.Errorf("Expected service location: %s, got %s", "TestService", form.ServLocation)
 	}
-	// Bad case: wrong form version
+
+	// Bad case: Default switch case, wrong form version
 	spForm.Version = ""
 	data, err = json.Marshal(spForm)
 	if err != nil {
@@ -439,24 +555,28 @@ func TestExtractDiscoveryForm(t *testing.T) {
 		t.Errorf("Expected error because of wrong form version")
 	}
 
-	// Bad case: error when unmarshalling body
-	data, err = json.Marshal("Test")
-	if err != nil {
-		t.Errorf("Error when marshalling in test")
-	}
-	form, err = ExtractDiscoveryForm(data)
-	if err == nil {
-		t.Errorf("Expected errors for broken unmarshal")
-	}
-
-	// Bad case: error when unmarshalling body
-	var emptyForm forms.Form
-	data, err = json.Marshal(emptyForm)
+	// Bad case: version key not found
+	data, err = json.Marshal(nil)
 	if err != nil {
 		t.Errorf("Error when marshalling in test")
 	}
 	form, err = ExtractDiscoveryForm(data)
 	if err == nil {
 		t.Errorf("Expected errors for missing form")
+	}
+
+	// Bad case: Unmarshalling body bytes to forms.ServicePoint_v1
+	// Needed to create my own map, with the correct version but a field that had a different type
+	// than the target field in order to break unmarshal
+	wrongForm := make(map[string]any)
+	wrongForm["version"] = "ServicePoint_v1"
+	wrongForm["serviceId"] = false // Target field is an int
+	data, err = json.Marshal(wrongForm)
+	if err != nil {
+		t.Errorf("Error when marshalling in test")
+	}
+	form, err = ExtractDiscoveryForm(data)
+	if err == nil {
+		t.Errorf("Expected errors for wrong form")
 	}
 }
