@@ -398,7 +398,7 @@ func TestServiceRegistrationForm(t *testing.T) {
 	}
 
 	// Set the first part to your Hosts name
-	expectedNode := "Gabriel-HP_testSystem_mockUnitAsset_test"
+	expectedNode := testSys.Host.Name + "_" + testSys.Name + "_" + (*testSys.UAssets["mockUnitAsset"]).GetName() + "_" + (*testSys.UAssets["mockUnitAsset"]).GetServices()["test"].Definition
 	if sr.ServiceNode != expectedNode {
 		t.Errorf("Expected ServiceNode %q, got: %q", expectedNode, sr.ServiceNode)
 	}
