@@ -223,7 +223,7 @@ func TestExtractQuestForm(t *testing.T) {
 		// Create the data []byte that will be sent into the function
 		data, err := createTestData(x.bodyType, x.protocol, x.version, x.errRead)
 		if err != nil {
-			t.Errorf("---\tError occured while creating test data")
+			t.Errorf("---\tError occurred while creating test data")
 		}
 		// Do the test
 		rec, err := ExtractQuestForm(data)
@@ -242,6 +242,7 @@ func TestExtractQuestForm(t *testing.T) {
 	}
 }
 
+// Creates a ServicePoint_v1 form with test values
 func createServicePointTestForm() forms.ServicePoint_v1 {
 	var f forms.ServicePoint_v1
 	f.NewForm()
