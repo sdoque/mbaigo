@@ -234,12 +234,12 @@ func HandleLeadingRegistrar(sys *components.System, manualTicker time.Duration, 
 				select {
 				case <-timer.C:
 					if leadingRegistrar != nil {
-						delay = RegisterService(sys, aResource, service, leadingRegistrar)
+						delay = registerService(sys, aResource, service, leadingRegistrar)
 					} else {
 						delay = 15 * time.Second
 					}
 				case <-sys.Ctx.Done():
-					err := DeregisterService(leadingRegistrar, service)
+					err := deregisterService(leadingRegistrar, service)
 					if err != nil {
 						fmt.Println("Something went wrong with deregistration of service:", err)
 					}
@@ -252,11 +252,11 @@ func HandleLeadingRegistrar(sys *components.System, manualTicker time.Duration, 
 }
 
 // registerService makes a POST or PUT request to register or register individual services
-func RegisterService(sys *components.System, ua *components.UnitAsset, serv *components.Service, registrar *components.CoreSystem) (delay time.Duration) {
+func registerService(sys *components.System, ua *components.UnitAsset, serv *components.Service, registrar *components.CoreSystem) (delay time.Duration) {
 
 	delay = 15 * time.Second
 	// Prepare request
-	reqPayload, err := ServiceRegistrationForm(sys, ua, serv, "ServiceRecord_v1")
+	reqPayload, err := serviceRegistrationForm(sys, ua, serv, "ServiceRecord_v1")
 	if err != nil {
 		log.Println("Registration marshall error, ", err)
 		return
@@ -335,7 +335,7 @@ func RegisterService(sys *components.System, ua *components.UnitAsset, serv *com
 }
 
 // deregisterService deletes a service from the database based on its service id
-func DeregisterService(registrar *components.CoreSystem, serv *components.Service) error {
+func deregisterService(registrar *components.CoreSystem, serv *components.Service) error {
 	if registrar == nil {
 		return nil // there is no need to deregister if there is no leading registrar
 	}
@@ -358,7 +358,7 @@ func DeregisterService(registrar *components.CoreSystem, serv *components.Servic
 
 // serviceRegistrationForm returns a json data byte array with the data of the service to be registered
 // in the form of choice [Sending @ Application system]
-func ServiceRegistrationForm(sys *components.System, ua *components.UnitAsset, serv *components.Service, version string) (payload []byte, err error) {
+func serviceRegistrationForm(sys *components.System, ua *components.UnitAsset, serv *components.Service, version string) (payload []byte, err error) {
 	var f forms.Form
 	switch version {
 	case "ServiceRecord_v1":
@@ -376,7 +376,7 @@ func ServiceRegistrationForm(sys *components.System, ua *components.UnitAsset, s
 				sr.ProtoPort[key] = port
 			}
 		}
-		sr.Details = DeepCopyMap((*ua).GetDetails())
+		sr.Details = deepCopyMap((*ua).GetDetails())
 		for key, valueSlice := range serv.Details {
 			sr.Details[key] = append(sr.Details[key], valueSlice...)
 		}
@@ -398,7 +398,7 @@ func ServiceRegistrationForm(sys *components.System, ua *components.UnitAsset, s
 }
 
 // deepCopyMap is necessary to prevent adding values to the original map at every re-registration
-func DeepCopyMap(m map[string][]string) map[string][]string {
+func deepCopyMap(m map[string][]string) map[string][]string {
 	newMap := make(map[string][]string)
 	for k, v := range m {
 		newValue := make([]string, len(v))

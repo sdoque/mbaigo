@@ -440,7 +440,7 @@ func TestHandleLeadingRegistrar(t *testing.T) {
 	mua1 := testSys1.UAssets["mockUnitAsset"]
 	serv1 := (*testSys1.UAssets["mockUnitAsset"]).GetServices()["test"]
 
-	payload1, err1 := ServiceRegistrationForm(&testSys1, mua1, serv1, "ServiceRecord_v1")
+	payload1, err1 := serviceRegistrationForm(&testSys1, mua1, serv1, "ServiceRecord_v1")
 
 	if err1 != nil {
 		t.Fatalf("The Service Record version was wrong.")
@@ -498,7 +498,7 @@ func TestHandleLeadingRegistrar(t *testing.T) {
 	mua2 := testSys2.UAssets["mockUnitAsset"]
 	serv2 := (*testSys2.UAssets["mockUnitAsset"]).GetServices()["test"]
 
-	payload2, err2 := ServiceRegistrationForm(&testSys2, mua2, serv2, "ServiceRecord_v1")
+	payload2, err2 := serviceRegistrationForm(&testSys2, mua2, serv2, "ServiceRecord_v1")
 
 	if err2 != nil {
 		t.Fatalf("The Service Record version was wrong.")
@@ -554,7 +554,7 @@ func TestHandleLeadingRegistrar(t *testing.T) {
 	mua3 := testSys3.UAssets["mockUnitAsset"]
 	serv3 := (*testSys3.UAssets["mockUnitAsset"]).GetServices()["test"]
 
-	payload3, err3 := ServiceRegistrationForm(&testSys3, mua3, serv3, "ServiceRecord_v1")
+	payload3, err3 := serviceRegistrationForm(&testSys3, mua3, serv3, "ServiceRecord_v1")
 
 	if err3 != nil {
 		t.Fatalf("The Service Record version was wrong.")
@@ -620,7 +620,7 @@ func TestHandleLeadingRegistrar(t *testing.T) {
 	}
 }
 
-func TestDeepCopyMap(t *testing.T) {
+func TestFordeepCopyMap(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	testSys := createTestSystem(ctx)
@@ -631,7 +631,7 @@ func TestDeepCopyMap(t *testing.T) {
 	// Create a Deep Copy Map of the mockUnitAsset's Details
 	// -- -- -- -- -- -- -- -- -- -- //
 
-	test := DeepCopyMap((*mua).GetDetails())
+	test := deepCopyMap((*mua).GetDetails())
 
 	// -- -- -- -- -- -- -- -- -- -- //
 	// If they are not equal from the beginning then the copy was not successful
@@ -661,7 +661,7 @@ func TestDeepCopyMap(t *testing.T) {
 	}
 }
 
-func TestServiceRegistrationForm(t *testing.T) {
+func TestForserviceRegistrationForm(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	testSys := createTestSystem(ctx)
@@ -673,7 +673,7 @@ func TestServiceRegistrationForm(t *testing.T) {
 	// Call the ServiceRegistrationForm with the correct parameters
 	// -- -- -- -- -- -- -- -- -- -- //
 
-	payload, err := ServiceRegistrationForm(&testSys, mua, serv, version)
+	payload, err := serviceRegistrationForm(&testSys, mua, serv, version)
 
 	// -- -- -- -- -- -- -- -- -- -- //
 	// Check that there was no error in the function (can only be when wrong Service Record version is sent in)
@@ -726,7 +726,7 @@ func TestServiceRegistrationForm(t *testing.T) {
 	// -- -- -- -- -- -- -- -- -- -- //
 
 	version = "UnknownVersion"
-	_, err = ServiceRegistrationForm(&testSys, mua, serv, version)
+	_, err = serviceRegistrationForm(&testSys, mua, serv, version)
 	if err == nil {
 		t.Fatal("expected error for unsupported version, got nil")
 	}
@@ -740,7 +740,7 @@ func TestServiceRegistrationForm(t *testing.T) {
 
 	(*testSys.UAssets["mockUnitAsset"]).GetServices()["test"].RegPeriod = 0
 	version = "ServiceRecord_v1"
-	payload, err = ServiceRegistrationForm(&testSys, mua, serv, version)
+	payload, err = serviceRegistrationForm(&testSys, mua, serv, version)
 	if err != nil {
 		t.Fatalf("The Service Record version was wrong.")
 	}
@@ -753,7 +753,7 @@ func TestServiceRegistrationForm(t *testing.T) {
 	}
 }
 
-func TestDeregisterService(t *testing.T) {
+func TestForderegisterService(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	testSys := createTestSystem(ctx)
@@ -775,7 +775,7 @@ func TestDeregisterService(t *testing.T) {
 
 	newMockTransport(respFunc, 0, nil)
 
-	err := DeregisterService(registrar, serv)
+	err := deregisterService(registrar, serv)
 	if err != nil {
 		t.Errorf("Expected error: %v, got: %v", nil, err)
 	}
@@ -786,7 +786,7 @@ func TestDeregisterService(t *testing.T) {
 
 	registrar = testSys.CoreS[1]
 
-	err = DeregisterService(registrar, serv)
+	err = deregisterService(registrar, serv)
 	if err != nil {
 		t.Errorf("Expected error: %v, got: %v", nil, err)
 	}
@@ -796,7 +796,7 @@ func TestDeregisterService(t *testing.T) {
 	// -- -- -- -- -- -- -- -- -- -- //
 
 	newMockTransport(respFunc, 1, errHTTP)
-	err = DeregisterService(registrar, serv)
+	err = deregisterService(registrar, serv)
 	if err == nil {
 		t.Errorf("Expected error while sending http request")
 	}
@@ -807,7 +807,7 @@ func TestDeregisterService(t *testing.T) {
 
 	newMockTransport(respFunc, 0, nil)
 	registrar.Url = brokenUrl
-	err = DeregisterService(registrar, serv)
+	err = deregisterService(registrar, serv)
 	if err == nil {
 		t.Errorf("Expected error while creating http request")
 	}
@@ -828,7 +828,7 @@ func TestServiceRegistrationFormList(t *testing.T) {
 	}
 }
 
-func TestRegisterService(t *testing.T) {
+func TestForregisterService(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	testSys := createTestSystem(ctx)
@@ -836,7 +836,7 @@ func TestRegisterService(t *testing.T) {
 	serv := (*testSys.UAssets["mockUnitAsset"]).GetServices()["test"]
 	registrar := testSys.CoreS[1]
 
-	payload, err := ServiceRegistrationForm(&testSys, mua, serv, "ServiceRecord_v1")
+	payload, err := serviceRegistrationForm(&testSys, mua, serv, "ServiceRecord_v1")
 
 	if err != nil {
 		t.Fatalf("The Service Record version was wrong.")
@@ -868,7 +868,7 @@ func TestRegisterService(t *testing.T) {
 
 	newMockTransport(respFunc, 0, nil)
 
-	test := RegisterService(&testSys, mua, serv, registrar)
+	test := registerService(&testSys, mua, serv, registrar)
 	if int(test.Seconds()) > 0 {
 		t.Errorf("Expected the delay to be negative, got: %d", int(test.Seconds()))
 	}
@@ -879,7 +879,7 @@ func TestRegisterService(t *testing.T) {
 
 	newMockTransport(respFunc, 0, nil)
 	registrar.Url = brokenUrl
-	test = RegisterService(&testSys, mua, serv, registrar)
+	test = registerService(&testSys, mua, serv, registrar)
 	if int(test.Seconds()) != 15 {
 		t.Errorf("Expected the delay to be 15 since NewRequest with PUT method should have failed, got: %d", int(test.Seconds()))
 	}
@@ -887,7 +887,7 @@ func TestRegisterService(t *testing.T) {
 	registrar.Url = "https://leadingregistrar"
 	serv.ID = 0
 
-	payload, err = ServiceRegistrationForm(&testSys, mua, serv, "ServiceRecord_v1")
+	payload, err = serviceRegistrationForm(&testSys, mua, serv, "ServiceRecord_v1")
 
 	if err != nil {
 		t.Fatalf("The Service Record version was wrong.")
@@ -918,7 +918,7 @@ func TestRegisterService(t *testing.T) {
 
 	newMockTransport(respFunc, 0, nil)
 
-	test = RegisterService(&testSys, mua, serv, registrar)
+	test = registerService(&testSys, mua, serv, registrar)
 	if int(test.Seconds()) > 0 {
 		t.Errorf("Expected the delay to be negative, got: %d", int(test.Seconds()))
 	}
@@ -930,7 +930,7 @@ func TestRegisterService(t *testing.T) {
 	newMockTransport(respFunc, 0, nil)
 
 	registrar.Url = brokenUrl
-	test = RegisterService(&testSys, mua, serv, registrar)
+	test = registerService(&testSys, mua, serv, registrar)
 	if int(test.Seconds()) != 15 {
 		t.Errorf("Expected the delay to be 15 since NewRequest with POST method should have failed, got: %d", int(test.Seconds()))
 	}
@@ -942,7 +942,7 @@ func TestRegisterService(t *testing.T) {
 	registrar.Url = "https://leadingregistrar"
 	timeoutErr := timeoutError{}
 	newMockTransport(respFunc, 1, timeoutErr)
-	test = RegisterService(&testSys, mua, serv, registrar)
+	test = registerService(&testSys, mua, serv, registrar)
 	if int(test.Seconds()) != 15 {
 		t.Errorf("Expected the delay to be 15 since the executed request should fail, got %d", int(test.Seconds()))
 	}
@@ -952,7 +952,7 @@ func TestRegisterService(t *testing.T) {
 	// -- -- -- -- -- -- -- -- -- -- //
 
 	newMockTransport(respFunc, 1, errHTTP)
-	test = RegisterService(&testSys, mua, serv, registrar)
+	test = registerService(&testSys, mua, serv, registrar)
 	if int(test.Seconds()) != 15 {
 		t.Errorf("Expected the delay to be 15 since the executed request should fail, got %d", int(test.Seconds()))
 	}
@@ -972,7 +972,7 @@ func TestRegisterService(t *testing.T) {
 
 	newMockTransport(respFunc, 0, nil)
 
-	test = RegisterService(&testSys, mua, serv, registrar)
+	test = registerService(&testSys, mua, serv, registrar)
 	if int(test.Seconds()) != 15 {
 		t.Errorf("Expected the delay to be 15 since the io.ReadAll() call should fail, got %d", int(test.Seconds()))
 	}
@@ -992,7 +992,7 @@ func TestRegisterService(t *testing.T) {
 
 	newMockTransport(respFunc, 0, nil)
 
-	test = RegisterService(&testSys, mua, serv, registrar)
+	test = registerService(&testSys, mua, serv, registrar)
 	if int(test.Seconds()) != 15 {
 		t.Errorf("Expected the delay to be 15 since the Header had a non-existent/invalid Content-Type, got: %d", int(test.Seconds()))
 	}
@@ -1017,7 +1017,7 @@ func TestRegisterService(t *testing.T) {
 
 	newMockTransport(respFunc, 0, nil)
 
-	test = RegisterService(&testSys, mua, serv, registrar)
+	test = registerService(&testSys, mua, serv, registrar)
 	if int(test.Seconds()) != 15 {
 		t.Errorf("Expected the delay to be 15 since the EndOfValidity has a faulty time format, got: %d", int(test.Seconds()))
 	}
