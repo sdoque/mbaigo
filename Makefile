@@ -25,8 +25,10 @@ analyse:
 	gocyclo -avg -top 10 -ignore test.go .
 
 # Updates 3rd party packages and tools
-deps:
+modinstall:
 	go mod download
+
+linterinstall:
 	go install github.com/securego/gosec/v2/cmd/gosec@latest
 	go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
 	go install code.larus.se/lmas/pointerinterface@latest
