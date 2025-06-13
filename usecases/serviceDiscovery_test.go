@@ -200,7 +200,7 @@ func createTestData(bodyType string, proto int, version string, errRead bool) (d
 	}
 }
 
-type params struct {
+type ExtractQuestFormParams struct {
 	testCase      string
 	bodyType      string
 	protocol      int
@@ -211,8 +211,9 @@ type params struct {
 
 func TestExtractQuestForm(t *testing.T) {
 	// A list holding structs containing the parameters used for the test
-	testParams := []params{
-		// {"testCase", "bodyType", "protocol", "version", "errRead", "expectedError"}
+	testParams := []ExtractQuestFormParams{
+		// {testCase, bodyType, protocol, version, errRead, expectedError}
+		// Always start with the "Best case, no errors"
 		{"No errors", "testBodyHasVersion", -1, "ServiceQuest_v1", false, false},
 		{"Error during Unmarshal", "testBodyHasVersion", -1, "ServiceQuest_v1", true, true},
 		{"Missing version", "testBodyNoVersion", -1, "", false, false},
@@ -269,47 +270,70 @@ func (errReader) Close() error {
 
 var brokenUrl = string([]byte{0x7f})
 
-// sendHttpReq(method string, url string, jsonQF []byte, ctx context.Context) (resp *http.Response, err error)
-func TestSendHttpReq(t *testing.T) {
-	// Good case: everything passes
-	resp := &http.Response{
+type SendHttpReqParams struct {
+	testCase    string
+	method      string
+	url         string
+	data        []byte
+	ctx         context.Context
+	respError   bool
+	expectError bool
+}
+
+func testSystemSetup() (resp *http.Response, data []byte, ctx context.Context, cancel context.CancelFunc, err error) {
+	ctx, cancel = context.WithCancel(context.Background())
+	var form forms.ServiceQuest_v1
+	form.NewForm()
+	resp = &http.Response{
 		Status:     "200 OK",
 		StatusCode: 200,
 		Body:       io.NopCloser(strings.NewReader(string("test body"))),
 	}
+	data, err = json.MarshalIndent(form, "", "  ")
+	if err != nil {
+		return nil, nil, ctx, cancel, errors.New("---\tError occurred while marshalling in test system setup")
+	}
+	return
+}
+
+func TestSendHttpReq(t *testing.T) {
+	resp, data, ctx, cancel, err := testSystemSetup()
+	defer cancel()
 	newMockTransport(resp, 0, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	var qForm forms.ServiceQuest_v1
-	qForm.NewForm()
-	jsonQF, err := json.MarshalIndent(qForm, "", "  ")
 	if err != nil {
-		t.Errorf("Error occurred while Marshalling in test: %v", err)
+		t.Errorf("Error occurred while starting test system: %e", err)
 	}
-	_, err = sendHttpReq(http.MethodPost, "https://test", jsonQF, ctx)
-	if err != nil {
-		t.Errorf("Expected no errors, got: %v", err)
+	params := []SendHttpReqParams{
+		// {testCase, method, url, data, ctx, respError, expectError}
+		// Always start with the "Best case, no errors"
+		{"No errors", http.MethodPost, "http://test", data, ctx, false, false},
+		{"Error creating new request", http.MethodPost, brokenUrl, data, ctx, false, true},
+		{"DefaultClient returns error", http.MethodPost, "http://test", data, ctx, true, true},
 	}
-	cancel()
-
-	// Bad case: url broken, cant make request
-	ctx, cancel = context.WithCancel(context.Background())
-	qForm.NewForm()
-	_, err = sendHttpReq(http.MethodPost, brokenUrl, jsonQF, ctx)
-	if err == nil {
-		t.Errorf("Expected errors while sending http request")
+	var lastLoopErr bool
+	for _, c := range params {
+		// Make sure the the mockTransport doesn't return an error unless needed by the test
+		if (lastLoopErr == true) && (c.respError == false) {
+			newMockTransport(resp, 0, nil)
+			lastLoopErr = false
+		}
+		// Make a new mockTransport with an error response if the test needs it
+		if (lastLoopErr == false) && (c.respError == true) {
+			newMockTransport(resp, 1, errHTTP)
+			lastLoopErr = true
+		}
+		// Run the test
+		_, err = sendHttpReq(c.method, c.url, c.data, c.ctx)
+		if c.expectError == false {
+			if err != nil {
+				t.Errorf("Unexpected error in '%s' test case: %e", c.testCase, err)
+			}
+		} else {
+			if err == nil {
+				t.Errorf("Expected error in '%s' test case, got none", c.testCase)
+			}
+		}
 	}
-	cancel()
-
-	// Bad case: response returns error
-	newMockTransport(resp, 1, errHTTP)
-	ctx, cancel = context.WithCancel(context.Background())
-	qForm.NewForm()
-	_, err = sendHttpReq(http.MethodPost, "https://test", jsonQF, ctx)
-	if err == nil {
-		t.Errorf("Expected errors while sending http request")
-	}
-	cancel()
 }
 
 func TestSearch4Service(t *testing.T) {
