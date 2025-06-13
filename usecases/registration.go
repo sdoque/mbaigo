@@ -36,73 +36,20 @@ import (
 	"github.com/sdoque/mbaigo/forms"
 )
 
-/*
-
 // RegisterServices keeps track of the leading Service Registrar and keeps all services registered
 func RegisterServices(sys *components.System) {
-
 	var leadingRegistrar *components.CoreSystem
-	// Create a buffered channel for the pointer to the leading service registrar
-	registrarStream := make(chan *components.CoreSystem, 1)
 
 	// Goroutine looking for leading service registrar every 5 seconds
 	go func() {
-		defer close(registrarStream)
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
 			// Check if the leading registrar is already known
 			if leadingRegistrar != nil {
-				resp, err := http.Get(leadingRegistrar.Url + "/status")
-				if err != nil {
-					log.Println("lost leading registrar status:", err)
-					leadingRegistrar = nil
-					continue // Skip to the next iteration of the loop
-				}
-
-				// Read from resp.Body and then close it directly after
-				bodyBytes, err := io.ReadAll(resp.Body)
-				errClose := resp.Body.Close() // Close the body directly after reading from it
-				if err != nil {
-					log.Println("\rError reading response from leading registrar:", err)
-					leadingRegistrar = nil
-					continue // Skip to the next iteration of the loop
-				}
-				if errClose != nil {
-					log.Println("Error closing the leading registrar response body:", errClose)
-				}
-
-				if !strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
-					leadingRegistrar = nil
-					log.Println("lost previous leading registrar")
-				}
+				leadingRegistrar = confirmLeadingRegistrar(leadingRegistrar)
 			} else {
-				// If the leading registrar is not known, check all core systems
-				for _, cSys := range sys.CoreS {
-					core := cSys
-					if core.Name == "serviceregistrar" {
-						resp, err := http.Get(core.Url + "/status")
-						if err != nil {
-							fmt.Println("error checking service registrar status:", err)
-							continue // Skip to the next iteration of the loop
-						}
-
-						// Read from resp.Body and then close it directly after
-						bodyBytes, err := io.ReadAll(resp.Body)
-						errClose := resp.Body.Close() // Close the body directly after reading from it
-						if err != nil {
-							fmt.Println("Error reading service registrar response body:", err)
-							continue // Skip to the next iteration of the loop
-						}
-						if errClose != nil {
-							fmt.Println("Error closing service registrar response body:", errClose)
-						}
-						if strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
-							leadingRegistrar = core
-							fmt.Printf("\nlead registrar found at: %s\n", leadingRegistrar.Url)
-						}
-					}
-				}
+				leadingRegistrar = findLeadingRegistrar(sys, leadingRegistrar)
 			}
 
 			select {
@@ -112,11 +59,12 @@ func RegisterServices(sys *components.System) {
 			}
 		}
 	}()
+
+	// Run registration loops for each services
 	assetList := &sys.UAssets
 	for _, aResource := range *assetList {
 		servs := (*aResource).GetServices()
 		for _, service := range servs {
-			// service := (*servs)[j] // Correctly dereference the slice pointer and access the element
 			go func(theUnitAsset *components.UnitAsset, theService *components.Service) {
 				delay := 1 * time.Second
 				for {
@@ -129,7 +77,10 @@ func RegisterServices(sys *components.System) {
 							delay = 15 * time.Second
 						}
 					case <-sys.Ctx.Done():
-						deregisterService(leadingRegistrar, theService)
+						err := deregisterService(leadingRegistrar, theService)
+						if err != nil {
+							fmt.Println("deregistering service:", err)
+						}
 						return
 					}
 				}
@@ -138,117 +89,59 @@ func RegisterServices(sys *components.System) {
 	}
 }
 
-*/
-
-func DiscoverLeadingRegistrar(sys *components.System, manualTicker time.Duration, leadingRegistrarTest bool) *components.CoreSystem {
-	var leadingRegistrar *components.CoreSystem
-	if leadingRegistrarTest == true {
-		leadingRegistrar = sys.CoreS[1]
+func confirmLeadingRegistrar(leadingRegistrar *components.CoreSystem) *components.CoreSystem {
+	resp, err := http.Get(leadingRegistrar.Url + "/status")
+	if err != nil {
+		log.Println("lost leading registrar status:", err)
+		leadingRegistrar = nil
+		return leadingRegistrar
 	}
-	// Create a buffered channel for the pointer to the leading service registrar
-	registrarStream := make(chan *components.CoreSystem, 1)
-	defer close(registrarStream)
-	// ticker := time.NewTicker(5 * time.Second)
-	ticker := time.NewTicker(manualTicker)
-	defer ticker.Stop()
-	for {
-		if leadingRegistrar != nil {
-			resp, err := http.Get(leadingRegistrar.Url + "/status")
-			if err != nil {
-				log.Println("lost leading registrar status:", err)
-				leadingRegistrar = nil
-				continue // Skip to the next iteration of the loop
-			}
-
-			// Read from resp.Body and then close it directly after
-			bodyBytes, err := io.ReadAll(resp.Body)
-			errClose := resp.Body.Close() // Close the body directly after reading from it
-			if err != nil {
-				log.Println("\rError reading response from leading registrar:", err)
-				leadingRegistrar = nil
-				continue // Skip to the next iteration of the loop
-			}
-			if errClose != nil {
-				log.Println("Error closing the leading registrar response body:", errClose)
-			}
-
-			if !strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
-				leadingRegistrar = nil
-				log.Println("lost previous leading registrar")
-			}
-		} else {
-			for _, cSys := range sys.CoreS {
-				core := cSys
-				if core.Name == "serviceregistrar" {
-					resp, err := http.Get(core.Url + "/status")
-					if err != nil {
-						fmt.Println("error checking service registrar status:", err)
-						continue // Skip to the next iteration of the loop
-					}
-
-					// Read from resp.Body and then close it directly after
-					bodyBytes, err := io.ReadAll(resp.Body)
-					errClose := resp.Body.Close() // Close the body directly after reading from it
-					if err != nil {
-						fmt.Println("Error reading service registrar response body:", err)
-						continue // Skip to the next iteration of the loop
-					}
-					if errClose != nil {
-						fmt.Println("Error closing service registrar response body:", errClose)
-					}
-					if strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
-						leadingRegistrar = core
-						fmt.Printf("\nlead registrar found at: %s\n", leadingRegistrar.Url)
-					}
-				}
-			}
-		}
-
-		select {
-		case <-ticker.C:
-		case <-sys.Ctx.Done():
-			return leadingRegistrar
-		}
+	// Read from resp.Body and then close it directly after
+	bodyBytes, err := io.ReadAll(resp.Body)
+	errClose := resp.Body.Close() // Close the body directly after reading from it
+	if err != nil {
+		log.Println("\rError reading response from leading registrar:", err)
+		leadingRegistrar = nil
+		return leadingRegistrar
 	}
+	if errClose != nil {
+		log.Println("Error closing the leading registrar response body:", errClose)
+	}
+	if !strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
+		leadingRegistrar = nil
+		log.Println("lost previous leading registrar")
+	}
+	return leadingRegistrar
 }
 
-func HandleLeadingRegistrar(sys *components.System, manualTicker time.Duration, leadingRegistrarTest bool) (delay time.Duration, err error) {
+func findLeadingRegistrar(sys *components.System, leadingRegistrar *components.CoreSystem) *components.CoreSystem {
+	for _, core := range sys.CoreS {
+		if core.Name != "serviceregistrar" {
+			continue
+		}
 
-	var leadingRegistrar *components.CoreSystem
-	if leadingRegistrarTest == true {
-		leadingRegistrar = sys.CoreS[1]
-	}
-	// Create a buffered channel for the pointer to the leading service registrar
-	registrarStream := make(chan *components.CoreSystem, 1)
-	defer close(registrarStream)
+		resp, err := http.Get(core.Url + "/status")
+		if err != nil {
+			fmt.Println("error checking service registrar status:", err)
+			continue // Skip to the next iteration of the loop
+		}
 
-	assetList := &sys.UAssets
-	for _, aResource := range *assetList {
-		servs := (*aResource).GetServices()
-		for _, service := range servs {
-			// service := (*servs)[j] // Correctly dereference the slice pointer and access the element
-			// delay := 1 * time.Second
-			delay := manualTicker
-			for {
-				timer := time.NewTimer(delay)
-				select {
-				case <-timer.C:
-					if leadingRegistrar != nil {
-						delay = registerService(sys, aResource, service, leadingRegistrar)
-					} else {
-						delay = 15 * time.Second
-					}
-				case <-sys.Ctx.Done():
-					err := deregisterService(leadingRegistrar, service)
-					if err != nil {
-						fmt.Println("Something went wrong with deregistration of service:", err)
-					}
-					return delay, err
-				}
-			}
+		// Read from resp.Body and then close it directly after
+		bodyBytes, err := io.ReadAll(resp.Body)
+		errClose := resp.Body.Close() // Close the body directly after reading from it
+		if err != nil {
+			fmt.Println("Error reading service registrar response body:", err)
+			continue // Skip to the next iteration of the loop
+		}
+		if errClose != nil {
+			fmt.Println("Error closing service registrar response body:", errClose)
+		}
+		if strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
+			fmt.Printf("\nlead registrar found at: %s\n", leadingRegistrar.Url)
+			return core
 		}
 	}
-	return delay, err
+	return leadingRegistrar
 }
 
 // registerService makes a POST or PUT request to register or register individual services
@@ -339,20 +232,18 @@ func deregisterService(registrar *components.CoreSystem, serv *components.Servic
 	if registrar == nil {
 		return nil // there is no need to deregister if there is no leading registrar
 	}
-	// client := &http.Client{}
 	deRegServURL := registrar.Url + "/unregister/" + strconv.Itoa(serv.ID)
-	fmt.Printf("Trying to unregister %s\n", deRegServURL)
+	// fmt.Printf("Trying to unregister %s\n", deRegServURL)
 	req, err := http.NewRequest("DELETE", deRegServURL, nil) // create a new request using http
 	if err != nil {
 		return err
 	}
 	resp, err := http.DefaultClient.Do(req)
-	// resp, err := client.Do(req) // make the request
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	fmt.Printf("service %s deleted from the service registrar with HTTP Response Status: %d, %s\n", serv.Definition, resp.StatusCode, http.StatusText(resp.StatusCode))
+	// fmt.Printf("service %s deleted from the service registrar with HTTP Response Status: %d, %s\n", serv.Definition, resp.StatusCode, http.StatusText(resp.StatusCode))
 	return nil
 }
 

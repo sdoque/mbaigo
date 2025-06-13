@@ -173,6 +173,7 @@ func createTestSystem(ctx context.Context) components.System {
 	return sys
 }
 
+/*
 func TestDiscoverLeadingRegistrar(t *testing.T) {
 	// Create a new Test System to run the test on
 	ctx1, cancel1 := context.WithCancel(context.Background())
@@ -619,6 +620,7 @@ func TestHandleLeadingRegistrar(t *testing.T) {
 		t.Errorf("Expected the delay to be 0 (time.Duration zero value) since the system has no UAssets, got: %d", int(res4.Seconds()))
 	}
 }
+*/
 
 func TestFordeepCopyMap(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
