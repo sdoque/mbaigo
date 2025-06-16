@@ -98,7 +98,6 @@ func sendHttpReq(method string, url string, data []byte, ctx context.Context) (r
 
 // Search4Service requests from the core systems the address of resources's services that meet the need
 func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocation forms.ServicePoint_v1, err error) {
-
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Create a new context, with a 2-second timeout
 	defer cancel()
 
@@ -119,8 +118,11 @@ func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocat
 	if err != nil {
 		return servLocation, err
 	}
-
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return servLocation, fmt.Errorf("received non-2xx status code: %d, response: %s from the Orchestrator", resp.StatusCode, http.StatusText(resp.StatusCode))
+	}
+
 	// Read the response /////////////////////////////////
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
