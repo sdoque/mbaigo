@@ -173,454 +173,139 @@ func createTestSystem(ctx context.Context) components.System {
 	return sys
 }
 
-/*
-func TestDiscoverLeadingRegistrar(t *testing.T) {
-	// Create a new Test System to run the test on
-	ctx1, cancel1 := context.WithCancel(context.Background())
-	defer cancel1()
-	testSys1 := createTestSystem(ctx1)
+type confirmLeadingRegistrarParams struct {
+	testCase         string
+	mockTransportErr int
+	errHTTP          error
+	expectedOutput   *components.CoreSystem
+}
 
-	// -- -- -- -- -- -- -- -- -- -- //
-	// Good case: Everything works in the case that there is no immediate leading registrar
-	// -- -- -- -- -- -- -- -- -- -- //
-
-	respFunc1 := func() *http.Response {
-		return &http.Response{
-			Status:     "200 OK",
-			StatusCode: 200,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(string("lead Service Registrar since"))),
+func createTestBody(testCase string) (respFunc func() *http.Response) {
+	if testCase == "No errors" {
+		respFunc := func() *http.Response {
+			return &http.Response{
+				Status:     "200 OK",
+				StatusCode: 200,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(string("lead Service Registrar since"))),
+			}
 		}
+		return respFunc
 	}
-	newMockTransport(respFunc1, 0, nil)
-
-	manualTicker := 10 * time.Millisecond
-
-	resultCh1 := make(chan *components.CoreSystem, 1)
-	defer close(resultCh1)
-	go func() {
-		res1 := DiscoverLeadingRegistrar(&testSys1, manualTicker, false)
-		resultCh1 <- res1
-	}()
-	time.Sleep(5 * manualTicker)
-	cancel1()
-	leadReg1 := <-resultCh1
-	if leadReg1.Name != "serviceregistrar" {
-		t.Errorf("Expected %s, got: %s", "serviceregistrar", leadReg1.Name)
-	}
-
-	// -- -- -- -- -- -- -- -- -- -- //
-	// Bad case: Broken URL
-	// -- -- -- -- -- -- -- -- -- -- //
-
-	ctx2, cancel2 := context.WithCancel(context.Background())
-	defer cancel2()
-	testSys2 := createTestSystem(ctx2)
-
-	respFunc2 := func() *http.Response {
-		return &http.Response{
-			Status:     "200 OK",
-			StatusCode: 200,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(string("lead Service Registrar since"))),
+	if testCase == "Read error" {
+		respFunc := func() *http.Response {
+			return &http.Response{
+				Status:     "200 OK",
+				StatusCode: 200,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(errorReader{}),
+			}
 		}
+		return respFunc
 	}
-
-	newMockTransport(respFunc2, 0, nil)
-	testSys2.CoreS[1].Url = brokenUrl
-	resultCh2 := make(chan *components.CoreSystem, 1)
-	defer close(resultCh2)
-	go func() {
-		res2 := DiscoverLeadingRegistrar(&testSys2, manualTicker, false)
-		resultCh2 <- res2
-	}()
-	time.Sleep(5 * manualTicker)
-	cancel2()
-	leadReg2 := <-resultCh2
-	if leadReg2 != nil {
-		t.Errorf("Expected the leading registrar to be nil, got: %v", leadReg2)
-	}
-
-	// -- -- -- -- -- -- -- -- -- -- //
-	// Bad case: io.ReadAll() returns an error
-	// -- -- -- -- -- -- -- -- -- -- //
-
-	ctx3, cancel3 := context.WithCancel(context.Background())
-	defer cancel3()
-	testSys3 := createTestSystem(ctx3)
-
-	respFunc3 := func() *http.Response {
-		return &http.Response{
-			Status:     "200 OK",
-			StatusCode: 200,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(errorReader{}),
+	if testCase == "Prefix error" {
+		respFunc := func() *http.Response {
+			return &http.Response{
+				Status:     "200 OK",
+				StatusCode: 200,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(string("Wrong prefix"))),
+			}
 		}
+		return respFunc
 	}
-
-	newMockTransport(respFunc3, 0, nil)
-	resultCh3 := make(chan *components.CoreSystem, 1)
-	defer close(resultCh3)
-	go func() {
-		res3 := DiscoverLeadingRegistrar(&testSys3, manualTicker, false)
-		resultCh3 <- res3
-	}()
-	time.Sleep(5 * manualTicker)
-	cancel3()
-	leadReg3 := <-resultCh3
-	if leadReg3 != nil {
-		t.Errorf("Expected an error when reading the response body, got: %v", leadReg3)
-	}
-
-	// -- -- -- -- -- -- -- -- -- -- //
-	// Bad case: Closing the response body returns an error (no real way to see this as the error handling for that does nothing)
-	// -- -- -- -- -- -- -- -- -- -- //
-
-	ctx4, cancel4 := context.WithCancel(context.Background())
-	defer cancel4()
-	testSys4 := createTestSystem(ctx4)
-
-	respFunc4 := func() *http.Response {
-		return &http.Response{
-			Status:     "200 OK",
-			StatusCode: 200,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       &errorReadCloser{},
+	if testCase == "Broken URL" {
+		respFunc := func() *http.Response {
+			return &http.Response{
+				Status:     "200 OK",
+				StatusCode: 200,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(string("lead Service Registrar since"))),
+			}
 		}
+		return respFunc
+	}
+	return nil
+}
+
+func TestForconfirmLeadingRegistrar(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	testSys := createTestSystem(ctx)
+
+	testParams := []confirmLeadingRegistrarParams{
+		{"No errors", 0, nil, testSys.CoreS[1]},
+		{"Read error", 0, nil, nil},
+		{"Prefix error", 0, nil, nil},
+		{"Broken URL", 0, nil, nil},
 	}
 
-	newMockTransport(respFunc4, 0, nil)
-	resultCh4 := make(chan *components.CoreSystem, 1)
-	defer close(resultCh4)
-	go func() {
-		res4 := DiscoverLeadingRegistrar(&testSys4, manualTicker, false)
-		resultCh4 <- res4
-	}()
-	time.Sleep(5 * manualTicker)
-	cancel4()
-	leadReg4 := <-resultCh4
-	if leadReg4 != nil {
-		t.Errorf("Expected an error when closing the response body, got: %v", leadReg4)
-	}
-
-	// -- -- -- -- -- -- -- -- -- -- //
-	// Good case: But the leading registrar is not null in the beginning
-	// -- -- -- -- -- -- -- -- -- -- //
-
-	ctx5, cancel5 := context.WithCancel(context.Background())
-	defer cancel5()
-	testSys5 := createTestSystem(ctx5)
-
-	respFunc5 := func() *http.Response {
-		return &http.Response{
-			Status:     "200 OK",
-			StatusCode: 200,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(string("lead Service Registrar since"))),
+	for _, test := range testParams {
+		respFunc := createTestBody(test.testCase)
+		if respFunc == nil {
+			t.Errorf("---\tError occurred while creating test data")
 		}
-	}
-
-	newMockTransport(respFunc5, 0, nil)
-	resultCh5 := make(chan *components.CoreSystem, 1)
-	defer close(resultCh5)
-	go func() {
-		res5 := DiscoverLeadingRegistrar(&testSys5, manualTicker, true)
-		resultCh5 <- res5
-	}()
-	time.Sleep(5 * manualTicker)
-	cancel5()
-	leadReg5 := <-resultCh5
-	if leadReg5.Name != "serviceregistrar" {
-		t.Errorf("Expected the lead registrars name to be: %s, got: %s", "serviceregistrar", leadReg5.Name)
-	}
-
-	// -- -- -- -- -- -- -- -- -- -- //
-	// Bad case: Broken URL, with leading registrar from the beginning
-	// -- -- -- -- -- -- -- -- -- -- //
-
-	ctx6, cancel6 := context.WithCancel(context.Background())
-	defer cancel6()
-	testSys6 := createTestSystem(ctx6)
-
-	respFunc6 := func() *http.Response {
-		return &http.Response{
-			Status:     "200 OK",
-			StatusCode: 200,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(string("lead Service Registrar since"))),
+		newMockTransport(respFunc, test.mockTransportErr, test.errHTTP)
+		if test.testCase == "Broken URL" {
+			testSys.CoreS[1].Url = brokenUrl
 		}
-	}
 
-	newMockTransport(respFunc6, 0, nil)
-	testSys6.CoreS[1].Url = brokenUrl
-	resultCh6 := make(chan *components.CoreSystem, 1)
-	defer close(resultCh6)
-	go func() {
-		res6 := DiscoverLeadingRegistrar(&testSys6, manualTicker, true)
-		resultCh6 <- res6
-	}()
-	time.Sleep(5 * manualTicker)
-	cancel6()
-	leadReg6 := <-resultCh6
-	if leadReg6 != nil {
-		t.Errorf("Expected leading registrar to be nil since broken URL in Get() method, got: %v", leadReg6)
-	}
-
-	// -- -- -- -- -- -- -- -- -- -- //
-	// Bad case: io.ReadAll() returns an error, with leading registrar from the beginning
-	// -- -- -- -- -- -- -- -- -- -- //
-
-	ctx7, cancel7 := context.WithCancel(context.Background())
-	defer cancel7()
-	testSys7 := createTestSystem(ctx7)
-
-	respFunc7 := func() *http.Response {
-		return &http.Response{
-			Status:     "200 OK",
-			StatusCode: 200,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(errorReader{}),
+		// Do the test
+		res := confirmLeadingRegistrar(testSys.CoreS[1])
+		if test.testCase == "No errors" {
+			if res != test.expectedOutput {
+				t.Errorf("Test case: %s got error: %v", test.testCase, res)
+			}
+		} else {
+			if res != test.expectedOutput {
+				t.Errorf("---\tTest case: expected leading registrar to be nil, got: %v", res)
+			}
 		}
-	}
-
-	newMockTransport(respFunc7, 0, nil)
-	resultCh7 := make(chan *components.CoreSystem, 1)
-	defer close(resultCh7)
-	go func() {
-		res7 := DiscoverLeadingRegistrar(&testSys7, manualTicker, true)
-		resultCh7 <- res7
-	}()
-	time.Sleep(5 * manualTicker)
-	cancel7()
-	leadReg7 := <-resultCh7
-	if leadReg7 != nil {
-		t.Errorf("Expected an error when reading the response body, got: %v", leadReg7)
-	}
-
-	// -- -- -- -- -- -- -- -- -- -- //
-	// Bad case: The previous leading registrar has been lost. i.e. Prefix in bodyBytes string is not "lead Service Registrar since", with leading registrar from the beginning
-	// -- -- -- -- -- -- -- -- -- -- //
-
-	ctx8, cancel8 := context.WithCancel(context.Background())
-	defer cancel8()
-	testSys8 := createTestSystem(ctx8)
-
-	respFunc8 := func() *http.Response {
-		return &http.Response{
-			Status:     "200 OK",
-			StatusCode: 200,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(string(""))),
-		}
-	}
-
-	newMockTransport(respFunc8, 0, nil)
-	resultCh8 := make(chan *components.CoreSystem, 1)
-	defer close(resultCh8)
-	go func() {
-		res8 := DiscoverLeadingRegistrar(&testSys8, manualTicker, true)
-		resultCh8 <- res8
-	}()
-	time.Sleep(5 * manualTicker)
-	cancel8()
-	leadReg8 := <-resultCh8
-	if leadReg8 != nil {
-		t.Errorf("Expected the lead registrar to be nil since it is lost, got: %s", leadReg8)
 	}
 }
 
-func TestHandleLeadingRegistrar(t *testing.T) {
+type findLeadingRegistrarParams struct {
+	testCase         string
+	mockTransportErr int
+	errHTTP          error
+	expectedOutput   *components.CoreSystem
+}
 
-	// -- -- -- -- -- -- -- -- -- -- //
-	// Good case, everything works, the system has UnitAssets
-	// -- -- -- -- -- -- -- -- -- -- //
+func TestForfindLeadingRegistrar(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	testSys := createTestSystem(ctx)
 
-	ctx1, cancel1 := context.WithCancel(context.Background())
-	defer cancel1()
-	testSys1 := createTestSystem(ctx1)
-	mua1 := testSys1.UAssets["mockUnitAsset"]
-	serv1 := (*testSys1.UAssets["mockUnitAsset"]).GetServices()["test"]
-
-	payload1, err1 := serviceRegistrationForm(&testSys1, mua1, serv1, "ServiceRecord_v1")
-
-	if err1 != nil {
-		t.Fatalf("The Service Record version was wrong.")
+	testParams := []findLeadingRegistrarParams{
+		{"No errors", 0, nil, testSys.CoreS[1]},
+		{"Read error", 0, nil, nil},
+		{"Prefix error", 0, nil, nil},
+		{"Broken URL", 0, nil, nil},
 	}
 
-	var sr1 forms.ServiceRecord_v1
-	if err := json.Unmarshal(payload1, &sr1); err != nil {
-		t.Fatalf("Invalid JSON: %v", err)
-	}
-
-	sr1.EndOfValidity = time.Now().Format(time.RFC3339)
-
-	fakeBody1, err := json.Marshal(sr1)
-	if err != nil {
-		t.Errorf("Fail Marshal at start of test")
-	}
-
-	respFunc1 := func() *http.Response {
-		return &http.Response{
-			Status:     "200 OK",
-			StatusCode: 200,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(string(fakeBody1))),
+	for _, test := range testParams {
+		respFunc := createTestBody(test.testCase)
+		if respFunc == nil {
+			t.Errorf("---\tError occurred while creating test data")
 		}
-	}
-	newMockTransport(respFunc1, 0, nil)
-
-	manualTicker := 50 * time.Millisecond
-	resultTest1 := make(chan time.Duration, 1)
-	resultErr1 := make(chan error, 1)
-
-	go func() {
-		dur1, err1 := HandleLeadingRegistrar(&testSys1, manualTicker, false)
-		resultTest1 <- dur1
-		resultErr1 <- err1
-	}()
-	time.Sleep(100 * time.Millisecond)
-	cancel1()
-	res1 := <-resultTest1
-	resErr1 := <-resultErr1
-	if int(res1.Seconds()) != 15 {
-		t.Errorf("Expected the delay to be 15 seconds since there is no leading registrar, got: %d", int(res1.Seconds()))
-	}
-	if resErr1 != nil {
-		t.Errorf("Expected the error to be nil since there is no need to deregister a service that is not registered, got: %v", err)
-	}
-
-	// -- -- -- -- -- -- -- -- -- -- //
-	// Good case, when leading registrar is not null in the beginning
-	// -- -- -- -- -- -- -- -- -- -- //
-
-	ctx2, cancel2 := context.WithCancel(context.Background())
-	defer cancel2()
-	testSys2 := createTestSystem(ctx2)
-	mua2 := testSys2.UAssets["mockUnitAsset"]
-	serv2 := (*testSys2.UAssets["mockUnitAsset"]).GetServices()["test"]
-
-	payload2, err2 := serviceRegistrationForm(&testSys2, mua2, serv2, "ServiceRecord_v1")
-
-	if err2 != nil {
-		t.Fatalf("The Service Record version was wrong.")
-	}
-
-	var sr2 forms.ServiceRecord_v1
-	if err = json.Unmarshal(payload2, &sr2); err != nil {
-		t.Fatalf("Invalid JSON: %v", err)
-	}
-
-	sr2.EndOfValidity = time.Now().Format(time.RFC3339)
-
-	fakeBody2, err := json.Marshal(sr2)
-	if err != nil {
-		t.Errorf("Fail Marshal at start of test")
-	}
-
-	respFunc2 := func() *http.Response {
-		return &http.Response{
-			Status:     "200 OK",
-			StatusCode: 200,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(string(fakeBody2))),
+		newMockTransport(respFunc, test.mockTransportErr, test.errHTTP)
+		if test.testCase == "Broken URL" {
+			testSys.CoreS[1].Url = brokenUrl
 		}
-	}
 
-	newMockTransport(respFunc2, 0, nil)
-	resultTest2 := make(chan time.Duration, 1)
-	resultErr2 := make(chan error, 1)
-	go func() {
-		dur2, err2 := HandleLeadingRegistrar(&testSys2, manualTicker, true)
-		resultTest2 <- dur2
-		resultErr2 <- err2
-	}()
-	time.Sleep(100 * time.Millisecond)
-	cancel2()
-	res2 := <-resultTest2
-	resErr2 := <-resultErr2
-	if int(res2.Seconds()) > 0 {
-		t.Errorf("Expected the delay to be negative since the service should have been registered, got: %d", int(res2.Seconds()))
-	}
-	if resErr2 != nil {
-		t.Errorf("Expected the service to be able to deregistered, got: %v", err)
-	}
-
-	// -- -- -- -- -- -- -- -- -- -- //
-	// Bad case, error when deregistring the service
-	// -- -- -- -- -- -- -- -- -- -- //
-
-	ctx3, cancel3 := context.WithCancel(context.Background())
-	defer cancel3()
-	testSys3 := createTestSystem(ctx3)
-	mua3 := testSys3.UAssets["mockUnitAsset"]
-	serv3 := (*testSys3.UAssets["mockUnitAsset"]).GetServices()["test"]
-
-	payload3, err3 := serviceRegistrationForm(&testSys3, mua3, serv3, "ServiceRecord_v1")
-
-	if err3 != nil {
-		t.Fatalf("The Service Record version was wrong.")
-	}
-
-	var sr3 forms.ServiceRecord_v1
-	if err = json.Unmarshal(payload3, &sr3); err != nil {
-		t.Fatalf("Invalid JSON: %v", err)
-	}
-
-	sr3.EndOfValidity = time.Now().Format(time.RFC3339)
-
-	fakeBody3, err := json.Marshal(sr3)
-	if err != nil {
-		t.Errorf("Fail Marshal at start of test")
-	}
-
-	respFunc3 := func() *http.Response {
-		return &http.Response{
-			Status:     "200 OK",
-			StatusCode: 200,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(string(fakeBody3))),
+		// Do the test
+		res := findLeadingRegistrar(&testSys, nil)
+		if test.testCase == "No errors" {
+			if res != test.expectedOutput {
+				t.Errorf("Test case: %s got error: %v", test.testCase, res)
+			}
+		} else {
+			if res != test.expectedOutput {
+				t.Errorf("---\tTest case: expected leading registrar to be nil, got: %v", res)
+			}
 		}
-	}
-
-	newMockTransport(respFunc3, 1, errHTTP)
-	resultTest3 := make(chan time.Duration, 1)
-	resultErr3 := make(chan error, 1)
-	go func() {
-		dur3, err3 := HandleLeadingRegistrar(&testSys3, manualTicker, true)
-		resultTest3 <- dur3
-		resultErr3 <- err3
-	}()
-	time.Sleep(100 * time.Millisecond)
-	cancel3()
-	resErr3 := <-resultErr3
-	if resErr3 == nil {
-		t.Errorf("Expected an error when deregistring the service, got: %v", resErr3)
-	}
-
-	// -- -- -- -- -- -- -- -- -- -- //
-	// Neutral case, the system has no UAssets so it won't either register or deregister anything
-	// -- -- -- -- -- -- -- -- -- -- //
-
-	ctx4, cancel4 := context.WithCancel(context.Background())
-	defer cancel4()
-	testSys4 := createTestSystem(ctx4)
-	testSys4.UAssets = nil
-
-	resultTest4 := make(chan time.Duration, 1)
-	resultErr4 := make(chan error, 1)
-	go func() {
-		dur4, err4 := HandleLeadingRegistrar(&testSys4, manualTicker, true)
-		resultTest4 <- dur4
-		resultErr4 <- err4
-	}()
-	time.Sleep(100 * time.Millisecond)
-	cancel4()
-	res4 := <-resultTest4
-	if res4 != 0 {
-		t.Errorf("Expected the delay to be 0 (time.Duration zero value) since the system has no UAssets, got: %d", int(res4.Seconds()))
 	}
 }
-*/
 
 func TestFordeepCopyMap(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

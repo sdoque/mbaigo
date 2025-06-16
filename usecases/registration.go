@@ -137,7 +137,7 @@ func findLeadingRegistrar(sys *components.System, leadingRegistrar *components.C
 			fmt.Println("Error closing service registrar response body:", errClose)
 		}
 		if strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
-			fmt.Printf("\nlead registrar found at: %s\n", leadingRegistrar.Url)
+			fmt.Printf("\nlead registrar found at: %s\n", core.Url)
 			return core
 		}
 	}
