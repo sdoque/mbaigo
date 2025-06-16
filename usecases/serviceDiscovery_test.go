@@ -10,46 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
 )
 
-// mockTransport is used for replacing the default network Transport (used by
-// http.DefaultClient) and it will intercept network requests.
-type mockTransport struct {
-	resp *http.Response
-	hits int
-	err  error
-}
-
-func newMockTransport(resp *http.Response, v int, err error) *mockTransport {
-	t := &mockTransport{
-		resp: resp,
-		hits: v,
-		err:  err,
-	}
-	// Hijack the default http client so no actual http requests are sent over the network
-	http.DefaultClient.Transport = t
-	return t
-}
-
-// RoundTrip method is required to fulfil the RoundTripper interface (as required by the DefaultClient).
-// It prevents the request from being sent over the network, and count how many times
-// a http request was sent
-func (t *mockTransport) RoundTrip(req *http.Request) (resp *http.Response, err error) {
-	t.hits -= 1
-	//log.Printf("hits: %d", t.hits)
-	if t.hits == 0 {
-		return nil, t.err
-	}
-	t.resp.Request = req
-	return t.resp, nil
-}
-
-var errHTTP error = fmt.Errorf("bad http request")
-
 // Tests the output from ServQuestForms() to ensure expected outcome
-
 func TestServQuestForms(t *testing.T) {
 	expectedForms := []string{"ServiceQuest_v1", "ServicePoint_v1"}
 	lst := ServQuestForms()
@@ -61,89 +25,11 @@ func TestServQuestForms(t *testing.T) {
 	}
 }
 
-type UnitAsset struct {
-	Name        string              `json:"name"`    // Must be a unique name, ie. a sensor ID
-	Owner       *components.System  `json:"-"`       // The parent system this UA is part of
-	Details     map[string][]string `json:"details"` // Metadata or details about this UA
-	ServicesMap components.Services `json:"-"`
-	CervicesMap components.Cervices `json:"-"`
-}
-
-func (mua UnitAsset) GetName() string {
-	return mua.Name
-}
-
-func (mua UnitAsset) GetServices() components.Services {
-	return mua.ServicesMap
-}
-
-func (mua UnitAsset) GetCervices() components.Cervices {
-	return mua.CervicesMap
-}
-
-func (mua UnitAsset) GetDetails() map[string][]string {
-	return mua.Details
-}
-
-func (mua UnitAsset) Serving(w http.ResponseWriter, r *http.Request, servicePath string) {}
-
-func createTestSystem(ctx context.Context, broken bool) components.System {
-	// instantiate the System
-	sys := components.NewSystem("testSystem", ctx)
-
-	// Instantiate the Capsule
-	sys.Husk = &components.Husk{
-		Description: "A test system",
-		Details:     map[string][]string{"Developer": {"Test dev"}},
-		ProtoPort:   map[string]int{"https": 0, "http": 1234, "coap": 0},
-		InfoLink:    "https://for.testing.purposes",
-	}
-
-	testCerv := &components.Cervice{
-		Definition: "testCerv",
-		Details:    map[string][]string{"Forms": {"SignalA_v1a"}},
-		Nodes:      map[string][]string{},
-	}
-
-	CervicesMap := &components.Cervices{
-		testCerv.Definition: testCerv,
-	}
-
-	mua := &UnitAsset{
-		Name:        "testUnitAsset",
-		Details:     map[string][]string{"Test": {"Test"}},
-		CervicesMap: *CervicesMap,
-	}
-
-	sys.UAssets = make(map[string]*components.UnitAsset)
-	var muaInterface components.UnitAsset = mua
-	sys.UAssets[mua.GetName()] = &muaInterface
-
-	if broken == false {
-		orchestrator := &components.CoreSystem{
-			Name: "orchestrator",
-			Url:  "https://orchestator",
-		}
-		sys.CoreS = []*components.CoreSystem{
-			orchestrator,
-		}
-	} else {
-		orchestrator := &components.CoreSystem{
-			Name: "orchestrator",
-			Url:  brokenUrl,
-		}
-		sys.CoreS = []*components.CoreSystem{
-			orchestrator,
-		}
-	}
-	return sys
-}
-
 func TestFillQuestForm(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	testSys := createTestSystem(ctx, false)
-	mua := UnitAsset{}
+	mua := mockUnitAsset{}
 	questForm := FillQuestForm(&testSys, mua, "TestDef", "TestProtocol")
 	// Loop through the details in questForm and mua (mockUnitAsset), error if they're not the same
 	for i, detail := range questForm.Details["Details"] {
@@ -256,20 +142,6 @@ func createServicePointTestForm() forms.ServicePoint_v1 {
 	return f
 }
 
-// Create a error reader to break json.unmarshal
-type errReader int
-
-var errBodyRead error = fmt.Errorf("bad body read")
-
-func (errReader) Read(p []byte) (n int, err error) {
-	return 0, errBodyRead
-}
-func (errReader) Close() error {
-	return nil
-}
-
-var brokenUrl = string([]byte{0x7f})
-
 type SendHttpReqParams struct {
 	testCase    string
 	method      string
@@ -280,14 +152,17 @@ type SendHttpReqParams struct {
 	expectError bool
 }
 
-func testSystemSetup() (resp *http.Response, data []byte, ctx context.Context, cancel context.CancelFunc, err error) {
+func testSystemSetup() (resp func() *http.Response, data []byte, ctx context.Context, cancel context.CancelFunc, err error) {
 	ctx, cancel = context.WithCancel(context.Background())
 	var form forms.ServiceQuest_v1
 	form.NewForm()
-	resp = &http.Response{
-		Status:     "200 OK",
-		StatusCode: 200,
-		Body:       io.NopCloser(strings.NewReader(string("test body"))),
+	resp = func() *http.Response {
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string("test body"))),
+		}
 	}
 	data, err = json.MarshalIndent(form, "", "  ")
 	if err != nil {
@@ -344,10 +219,13 @@ func TestSearch4Service(t *testing.T) {
 	if err != nil {
 		t.Errorf("Fail Marshal at start of test")
 	}
-	resp := &http.Response{
-		Status:     "200 OK",
-		StatusCode: 200,
-		Body:       io.NopCloser(strings.NewReader(string(fakeBody))),
+	resp := func() *http.Response {
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string(fakeBody))),
+		}
 	}
 	newMockTransport(resp, 0, nil)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -378,6 +256,14 @@ func TestSearch4Service(t *testing.T) {
 	cancel()
 
 	// Error at sendHttpRequest
+	resp = func() *http.Response {
+		return &http.Response{
+			Status:     "200 ?",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string(fakeBody))),
+		}
+	}
 	newMockTransport(resp, 2, errHTTP)
 	ctx, cancel = context.WithCancel(context.Background())
 	testSys = createTestSystem(ctx, false)
@@ -389,7 +275,14 @@ func TestSearch4Service(t *testing.T) {
 	cancel()
 
 	// Non-2xx status code of response from sendHttpRequest()
-	resp.StatusCode = 300
+	resp = func() *http.Response {
+		return &http.Response{
+			Status:     "300 ?",
+			StatusCode: 300,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string(fakeBody))),
+		}
+	}
 	newMockTransport(resp, 0, nil)
 	ctx, cancel = context.WithCancel(context.Background())
 	testSys = createTestSystem(ctx, false)
@@ -401,9 +294,16 @@ func TestSearch4Service(t *testing.T) {
 	cancel()
 
 	// Error at "Read the response", io.ReadAll()
-	resp.StatusCode = 200
+	resp = func() *http.Response {
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       errReader(0),
+		}
+	}
 	f = createServicePointTestForm()
-	resp.Body = errReader(0)
+	//resp.Body = errReader(0)
 	newMockTransport(resp, 0, nil)
 	ctx, cancel = context.WithCancel(context.Background())
 	testSys = createTestSystem(ctx, false)
@@ -416,7 +316,15 @@ func TestSearch4Service(t *testing.T) {
 
 	// Error at "Read the response", ExtractDiscoveryForm()
 	f = createServicePointTestForm()
-	resp.Body = io.NopCloser(strings.NewReader(string("test")))
+	resp = func() *http.Response {
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string("test"))),
+		}
+	}
+	//resp.Body = io.NopCloser(strings.NewReader(string("test")))
 	newMockTransport(resp, 0, nil)
 	ctx, cancel = context.WithCancel(context.Background())
 	testSys = createTestSystem(ctx, false)
@@ -459,13 +367,14 @@ func TestSearch4Services(t *testing.T) {
 	if err != nil {
 		t.Error("Error in test during json.Marshal()")
 	}
-	resp := &http.Response{
-		Status:     "200 OK",
-		StatusCode: 200,
-		Body:       io.NopCloser(strings.NewReader(string(data))),
+	resp := func() *http.Response {
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string(data))),
+		}
 	}
-	resp.Header = make(http.Header)
-	resp.Header.Set("Content-Type", "application/json")
 	newMockTransport(resp, 0, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	testSys := createTestSystem(ctx, false)
@@ -490,7 +399,11 @@ func TestSearch4Services(t *testing.T) {
 	newMockTransport(resp, 0, nil)
 	ctx, cancel = context.WithCancel(context.Background())
 	testSys = createTestSystem(ctx, false)
-	(*testSys.CoreS[0]).Url = ""
+	for i, cs := range testSys.CoreS {
+		if cs.Name == "orchestrator" {
+			(*testSys.CoreS[i]).Url = ""
+		}
+	}
 	cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 	err = Search4Services(cer, &testSys)
 	if err == nil {
@@ -499,8 +412,6 @@ func TestSearch4Services(t *testing.T) {
 	cancel()
 
 	// Bad case: sendHttpReq() returns an error
-	// TODO: Fix this, maybe change the mockTransport to count number of times it's been called
-	// and then change the retError to true and it should fail.
 	newMockTransport(resp, 2, nil)
 	ctx, cancel = context.WithCancel(context.Background())
 	testSys = createTestSystem(ctx, false)
@@ -512,7 +423,14 @@ func TestSearch4Services(t *testing.T) {
 	cancel()
 
 	// Bad case: Response status code is < 200 or >= 300
-	resp.StatusCode = 199
+	resp = func() *http.Response {
+		return &http.Response{
+			Status:     "199 ?",
+			StatusCode: 199,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string(data))),
+		}
+	}
 	newMockTransport(resp, 4, errHTTP)
 	ctx, cancel = context.WithCancel(context.Background())
 	testSys = createTestSystem(ctx, false)
@@ -524,8 +442,14 @@ func TestSearch4Services(t *testing.T) {
 	cancel()
 
 	// Bad case: io.ReadAll() return an error
-	resp.StatusCode = 200
-	resp.Body = errReader(0)
+	resp = func() *http.Response {
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       errReader(0),
+		}
+	}
 	newMockTransport(resp, 0, nil)
 	ctx, cancel = context.WithCancel(context.Background())
 	testSys = createTestSystem(ctx, false)
@@ -536,9 +460,15 @@ func TestSearch4Services(t *testing.T) {
 	}
 	cancel()
 
-	// Bad case: Unpack() returns an error
-	resp.Body = io.NopCloser(strings.NewReader(string(data)))
-	resp.Header.Set("Content-Type", "Error")
+	// Bad case: Unpack() returns an error and type assertion/conversion fails
+	resp = func() *http.Response {
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"Error"}},
+			Body:       io.NopCloser(strings.NewReader(string(data))),
+		}
+	}
 	newMockTransport(resp, 0, nil)
 	ctx, cancel = context.WithCancel(context.Background())
 	testSys = createTestSystem(ctx, false)
@@ -548,6 +478,7 @@ func TestSearch4Services(t *testing.T) {
 		t.Errorf("Expected errors")
 	}
 	cancel()
+
 }
 
 func createTestServiceRecord(number int) (f forms.ServiceRecord_v1) {
