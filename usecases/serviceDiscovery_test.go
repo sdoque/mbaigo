@@ -401,6 +401,7 @@ func TestSearch4Service(t *testing.T) {
 	cancel()
 
 	// Error at "Read the response", io.ReadAll()
+	resp.StatusCode = 200
 	f = createServicePointTestForm()
 	resp.Body = errReader(0)
 	newMockTransport(resp, 0, nil)
