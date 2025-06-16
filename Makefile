@@ -16,6 +16,9 @@ lint:
 spellcheck:
 	typos .
 
+# All in one check
+runchecks: test lint spellcheck
+	
 # Generate pretty coverage report
 analyse:
 	go tool cover -html=".cover.out" -o="cover.html"
