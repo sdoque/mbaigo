@@ -23,7 +23,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -79,7 +78,7 @@ func RegisterServices(sys *components.System) {
 					case <-sys.Ctx.Done():
 						err := deregisterService(leadingRegistrar, theService)
 						if err != nil {
-							fmt.Println("deregistering service:", err)
+							log.Println("deregistering service:", err)
 						}
 						return
 					}
@@ -93,23 +92,18 @@ func confirmLeadingRegistrar(leadingRegistrar *components.CoreSystem) *component
 	resp, err := http.Get(leadingRegistrar.Url + "/status")
 	if err != nil {
 		log.Println("lost leading registrar status:", err)
-		leadingRegistrar = nil
-		return leadingRegistrar
+		return nil
 	}
 	// Read from resp.Body and then close it directly after
 	bodyBytes, err := io.ReadAll(resp.Body)
-	errClose := resp.Body.Close() // Close the body directly after reading from it
+	defer resp.Body.Close() // Close the body directly after reading from it
 	if err != nil {
 		log.Println("\rError reading response from leading registrar:", err)
-		leadingRegistrar = nil
-		return leadingRegistrar
-	}
-	if errClose != nil {
-		log.Println("Error closing the leading registrar response body:", errClose)
+		return nil
 	}
 	if !strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
-		leadingRegistrar = nil
 		log.Println("lost previous leading registrar")
+		return nil
 	}
 	return leadingRegistrar
 }
@@ -122,22 +116,19 @@ func findLeadingRegistrar(sys *components.System, leadingRegistrar *components.C
 
 		resp, err := http.Get(core.Url + "/status")
 		if err != nil {
-			fmt.Println("error checking service registrar status:", err)
+			log.Println("error checking service registrar status:", err)
 			continue // Skip to the next iteration of the loop
 		}
 
 		// Read from resp.Body and then close it directly after
 		bodyBytes, err := io.ReadAll(resp.Body)
-		errClose := resp.Body.Close() // Close the body directly after reading from it
+		defer resp.Body.Close() // Close the body directly after reading from it
 		if err != nil {
-			fmt.Println("Error reading service registrar response body:", err)
+			log.Println("Error reading service registrar response body:", err)
 			continue // Skip to the next iteration of the loop
 		}
-		if errClose != nil {
-			fmt.Println("Error closing service registrar response body:", errClose)
-		}
 		if strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
-			fmt.Printf("\nlead registrar found at: %s\n", core.Url)
+			log.Printf("lead registrar found at: %s", core.Url)
 			return core
 		}
 	}
@@ -171,7 +162,6 @@ func registerService(sys *components.System, ua *components.UnitAsset, serv *com
 		}
 	}
 	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
-	// client := &http.Client{Timeout: time.Second * 5}
 
 	resp, err := http.DefaultClient.Do(req) // execute the request and get the reply
 	if err != nil {
@@ -209,7 +199,7 @@ func registerService(sys *components.System, ua *components.UnitAsset, serv *com
 		// Perform a type assertion to convert the returned Form to ServiceRecord_v1
 		rr, ok := rRecord.(*forms.ServiceRecord_v1)
 		if !ok {
-			fmt.Println("Problem unpacking the service registration reply")
+			log.Println("Problem unpacking the service registration reply")
 			return
 		}
 
@@ -223,7 +213,6 @@ func registerService(sys *components.System, ua *components.UnitAsset, serv *com
 		}
 		delay = time.Until(parsedTime.Add(-5 * time.Second)) // should not wait until the deadline to start to confirrm live status
 	}
-
 	return
 }
 
@@ -233,7 +222,6 @@ func deregisterService(registrar *components.CoreSystem, serv *components.Servic
 		return nil // there is no need to deregister if there is no leading registrar
 	}
 	deRegServURL := registrar.Url + "/unregister/" + strconv.Itoa(serv.ID)
-	// fmt.Printf("Trying to unregister %s\n", deRegServURL)
 	req, err := http.NewRequest("DELETE", deRegServURL, nil) // create a new request using http
 	if err != nil {
 		return err
@@ -243,7 +231,6 @@ func deregisterService(registrar *components.CoreSystem, serv *components.Servic
 		return err
 	}
 	defer resp.Body.Close()
-	// fmt.Printf("service %s deleted from the service registrar with HTTP Response Status: %d, %s\n", serv.Definition, resp.StatusCode, http.StatusText(resp.StatusCode))
 	return nil
 }
 
@@ -299,7 +286,6 @@ func deepCopyMap(m map[string][]string) map[string][]string {
 	return newMap
 }
 
-// TODO: Research if this function is even needed
 // ServiceRegistrationFormsList returns the list of forms that the service registration handles
 func ServiceRegistrationFormsList() []string {
 	return []string{"ServiceRecord_v1"}

@@ -16,8 +16,8 @@ type mockTransport struct {
 	err      error
 }
 
-func newMockTransport(respFunc func() *http.Response, v int, err error) mockTransport {
-	t := mockTransport{
+func newMockTransport(respFunc func() *http.Response, v int, err error) *mockTransport {
+	t := &mockTransport{
 		respFunc: respFunc,
 		hits:     v,
 		err:      err,
@@ -30,9 +30,8 @@ func newMockTransport(respFunc func() *http.Response, v int, err error) mockTran
 // RoundTrip method is required to fulfil the RoundTripper interface (as required by the DefaultClient).
 // It prevents the request from being sent over the network, and count how many times
 // a http request was sent
-func (t mockTransport) RoundTrip(req *http.Request) (resp *http.Response, err error) {
+func (t *mockTransport) RoundTrip(req *http.Request) (resp *http.Response, err error) {
 	t.hits -= 1
-	//log.Printf("hits: %d", t.hits)
 	if t.hits == 0 {
 		return nil, t.err
 	}
@@ -85,8 +84,9 @@ var brokenUrl = string([]byte{0x7f})
 var errHTTP error = fmt.Errorf("bad http request")
 
 // Help function to create a test system
-func createTestSystem(ctx context.Context, broken bool) components.System {
+func createTestSystem(broken bool) components.System {
 	// instantiate the System
+	ctx := context.Background()
 	sys := components.NewSystem("testSystem", ctx)
 
 	// Instantiate the Capsule

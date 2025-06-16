@@ -1,7 +1,6 @@
 package usecases
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,79 +26,78 @@ func (errorReader) Read(p []byte) (int, error) {
 	return 0, fmt.Errorf("forced read error")
 }
 
-type confirmLeadingRegistrarParams struct {
+type tableDrivenParams struct {
 	testCase         string
+	body             func() *http.Response
 	mockTransportErr int
 	errHTTP          error
 	expectedOutput   *components.CoreSystem
 }
 
-func createTestBody(testCase string) (respFunc func() *http.Response) {
-	if testCase == "No errors" {
-		respFunc := func() *http.Response {
+var testParams = []tableDrivenParams{
+	{
+		"No errors",
+		func() *http.Response {
 			return &http.Response{
 				Status:     "200 OK",
 				StatusCode: 200,
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 				Body:       io.NopCloser(strings.NewReader(string("lead Service Registrar since"))),
 			}
-		}
-		return respFunc
-	}
-	if testCase == "Read error" {
-		respFunc := func() *http.Response {
+		},
+		0,
+		nil,
+		nil,
+	},
+	{
+		"Read error",
+		func() *http.Response {
 			return &http.Response{
 				Status:     "200 OK",
 				StatusCode: 200,
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 				Body:       io.NopCloser(errorReader{}),
 			}
-		}
-		return respFunc
-	}
-	if testCase == "Prefix error" {
-		respFunc := func() *http.Response {
+		},
+		0,
+		nil,
+		nil,
+	},
+	{
+		"Prefix error",
+		func() *http.Response {
 			return &http.Response{
 				Status:     "200 OK",
 				StatusCode: 200,
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 				Body:       io.NopCloser(strings.NewReader(string("Wrong prefix"))),
 			}
-		}
-		return respFunc
-	}
-	if testCase == "Broken URL" {
-		respFunc := func() *http.Response {
+		},
+		0,
+		nil,
+		nil,
+	},
+	{
+		"Broken URL",
+		func() *http.Response {
 			return &http.Response{
 				Status:     "200 OK",
 				StatusCode: 200,
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 				Body:       io.NopCloser(strings.NewReader(string("lead Service Registrar since"))),
 			}
-		}
-		return respFunc
-	}
-	return nil
+		},
+		0,
+		nil,
+		nil,
+	},
 }
 
 func TestForconfirmLeadingRegistrar(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	testSys := createTestSystem(ctx, false)
-
-	testParams := []confirmLeadingRegistrarParams{
-		{"No errors", 0, nil, testSys.CoreS[0]},
-		{"Read error", 0, nil, nil},
-		{"Prefix error", 0, nil, nil},
-		{"Broken URL", 0, nil, nil},
-	}
+	testSys := createTestSystem(false)
 
 	for _, test := range testParams {
-		respFunc := createTestBody(test.testCase)
-		if respFunc == nil {
-			t.Errorf("---\tError occurred while creating test data")
-		}
-		newMockTransport(respFunc, test.mockTransportErr, test.errHTTP)
+		newMockTransport(test.body, test.mockTransportErr, test.errHTTP)
 		if test.testCase == "Broken URL" {
 			testSys.CoreS[0].Url = brokenUrl
 		}
@@ -107,6 +105,7 @@ func TestForconfirmLeadingRegistrar(t *testing.T) {
 		// Do the test
 		res := confirmLeadingRegistrar(testSys.CoreS[0])
 		if test.testCase == "No errors" {
+			test.expectedOutput = testSys.CoreS[0]
 			if res != test.expectedOutput {
 				t.Errorf("Test case: %s got error: %v", test.testCase, res)
 			}
@@ -118,31 +117,11 @@ func TestForconfirmLeadingRegistrar(t *testing.T) {
 	}
 }
 
-type findLeadingRegistrarParams struct {
-	testCase         string
-	mockTransportErr int
-	errHTTP          error
-	expectedOutput   *components.CoreSystem
-}
-
 func TestForfindLeadingRegistrar(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	testSys := createTestSystem(ctx, false)
-
-	testParams := []findLeadingRegistrarParams{
-		{"No errors", 0, nil, testSys.CoreS[0]},
-		{"Read error", 0, nil, nil},
-		{"Prefix error", 0, nil, nil},
-		{"Broken URL", 0, nil, nil},
-	}
+	testSys := createTestSystem(false)
 
 	for _, test := range testParams {
-		respFunc := createTestBody(test.testCase)
-		if respFunc == nil {
-			t.Errorf("---\tError occurred while creating test data")
-		}
-		newMockTransport(respFunc, test.mockTransportErr, test.errHTTP)
+		newMockTransport(test.body, test.mockTransportErr, test.errHTTP)
 		if test.testCase == "Broken URL" {
 			testSys.CoreS[0].Url = brokenUrl
 		}
@@ -150,6 +129,7 @@ func TestForfindLeadingRegistrar(t *testing.T) {
 		// Do the test
 		res := findLeadingRegistrar(&testSys, nil)
 		if test.testCase == "No errors" {
+			test.expectedOutput = testSys.CoreS[0]
 			if res != test.expectedOutput {
 				t.Errorf("Test case: %s got error: %v", test.testCase, res)
 			}
@@ -162,9 +142,7 @@ func TestForfindLeadingRegistrar(t *testing.T) {
 }
 
 func TestFordeepCopyMap(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	testSys := createTestSystem(ctx, false)
+	testSys := createTestSystem(false)
 	mua := testSys.UAssets["testUnitAsset"]
 	original := (*mua).GetDetails()
 
@@ -203,9 +181,7 @@ func TestFordeepCopyMap(t *testing.T) {
 }
 
 func TestForserviceRegistrationForm(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	testSys := createTestSystem(ctx, false)
+	testSys := createTestSystem(false)
 	mua := testSys.UAssets["testUnitAsset"]
 	serv := (*testSys.UAssets["testUnitAsset"]).GetServices()["test"]
 	version := "ServiceRecord_v1"
@@ -295,9 +271,7 @@ func TestForserviceRegistrationForm(t *testing.T) {
 }
 
 func TestForderegisterService(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	testSys := createTestSystem(ctx, false)
+	testSys := createTestSystem(false)
 
 	var registrar *components.CoreSystem
 	serv := (*testSys.UAssets["testUnitAsset"]).GetServices()["test"]
@@ -370,9 +344,7 @@ func TestServiceRegistrationFormList(t *testing.T) {
 }
 
 func TestForregisterService(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	testSys := createTestSystem(ctx, false)
+	testSys := createTestSystem(false)
 	mua := testSys.UAssets["testUnitAsset"]
 	serv := (*testSys.UAssets["testUnitAsset"]).GetServices()["test"]
 	registrar := testSys.CoreS[0]
