@@ -3,7 +3,6 @@ package usecases
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,161 +15,16 @@ import (
 	"github.com/sdoque/mbaigo/forms"
 )
 
-type mockTransport struct {
-	returnError bool
-	respFunc    func() *http.Response
-	hits        int
-	err         error
-}
-
-func newMockTransport(respFunc func() *http.Response, v int, err error) mockTransport {
-	t := mockTransport{
-		hits:     v,
-		respFunc: respFunc,
-		err:      err,
-	}
-	http.DefaultClient.Transport = t
-	return t
-}
-
-func (t mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	t.hits -= 1
-	if t.hits == 0 {
-		return nil, t.err
-	}
-	resp := t.respFunc()
-	resp.Request = req
-	return resp, nil
-}
-
 type timeoutError struct{}
-
-type errorReadCloser struct{}
-
-func (e *errorReadCloser) Read(p []byte) (int, error) {
-	return 0, io.EOF
-}
-
-func (e *errorReadCloser) Close() error {
-	return errors.New("Forced close error")
-}
 
 func (timeoutError) Error() string   { return "timeout" }
 func (timeoutError) Timeout() bool   { return true }
 func (timeoutError) Temporary() bool { return true }
 
-var errHTTP error = fmt.Errorf("bad http request")
-
-var brokenUrl = string([]byte{0x7f})
-
-type UnitAsset struct {
-	Name        string              `json:"name"`    // Must be a unique name, ie. a sensor ID
-	Owner       *components.System  `json:"-"`       // The parent system this UA is part of
-	Details     map[string][]string `json:"details"` // Metadata or details about this UA
-	ServicesMap components.Services `json:"-"`
-	CervicesMap components.Cervices `json:"-"`
-	//
-	test int `json:"-"`
-}
-
-type ServiceRecord_v1 struct {
-	Id                int                 `json:"registryID"`
-	ServiceDefinition string              `json:"definition"`
-	SystemName        string              `json:"systemName"`
-	ServiceNode       string              `json:"serviceNode"`
-	IPAddresses       []string            `json:"ipAddresses"`
-	ProtoPort         map[string]int      `json:"protoPort"`
-	Details           map[string][]string `json:"details"`
-	Certificate       string              `json:"certificate"`
-	SubPath           string              `json:"subpath"`
-	RegLife           int                 `json:"registrationLife"`
-	Version           string              `json:"version"`
-	Created           string              `json:"created"`
-	Updated           string              `json:"updated"`
-	EndOfValidity     string              `json:"endOfValidity"`
-	SubscribeAble     bool                `json:"subscribeAble"`
-	ACost             float64             `json:"activityCost"`
-	CUnit             string              `json:"costUnit"`
-}
-
-func (mua *UnitAsset) GetName() string {
-	return mua.Name
-}
-
-func (mua *UnitAsset) GetServices() components.Services {
-	return mua.ServicesMap
-}
-
-func (mua *UnitAsset) GetCervices() components.Cervices {
-	return mua.CervicesMap
-}
-
-func (mua *UnitAsset) GetDetails() map[string][]string {
-	return mua.Details
-}
-
-func (mua *UnitAsset) Serving(w http.ResponseWriter, r *http.Request, servicePath string) {
-	return
-}
-
 type errorReader struct{}
 
 func (errorReader) Read(p []byte) (int, error) {
 	return 0, fmt.Errorf("forced read error")
-}
-
-func createTestSystem(ctx context.Context) components.System {
-	sys := components.NewSystem("testSystem", ctx)
-
-	sys.Husk = &components.Husk{
-		Description: "A test system",
-		Details:     map[string][]string{"Developer": {"Test dev"}},
-		ProtoPort:   map[string]int{"https": 0, "http": 1234, "coap": 0},
-		InfoLink:    "https://for.testing.purposes",
-	}
-
-	orchestrator := &components.CoreSystem{
-		Name: "orchestrator",
-		Url:  "https://orchestrator",
-	}
-	leadingRegistrar := &components.CoreSystem{
-		Name: "serviceregistrar",
-		Url:  "https://leadingregistrar",
-	}
-	test := &components.CoreSystem{
-		Name: "test",
-		Url:  "https://test",
-	}
-	sys.CoreS = []*components.CoreSystem{
-		orchestrator,
-		leadingRegistrar,
-		test,
-	}
-
-	setTest := &components.Service{
-		ID:            1,
-		Definition:    "test",
-		SubPath:       "test",
-		Details:       map[string][]string{"Forms": {"SignalA_v1a"}},
-		Description:   "A test service",
-		RegPeriod:     45,
-		RegTimestamp:  "now",
-		RegExpiration: "45",
-	}
-	ServicesMap := &components.Services{
-		setTest.SubPath: setTest,
-	}
-	mua := &UnitAsset{
-		Name:        "mockUnitAsset",
-		Details:     map[string][]string{"Test": {"Test"}},
-		ServicesMap: *ServicesMap,
-	}
-
-	sys.UAssets = make(map[string]*components.UnitAsset)
-	var muaInterface components.UnitAsset = mua
-	sys.UAssets[mua.GetName()] = &muaInterface
-
-	return sys
 }
 
 type confirmLeadingRegistrarParams struct {
@@ -231,10 +85,10 @@ func createTestBody(testCase string) (respFunc func() *http.Response) {
 func TestForconfirmLeadingRegistrar(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	testSys := createTestSystem(ctx)
+	testSys := createTestSystem(ctx, false)
 
 	testParams := []confirmLeadingRegistrarParams{
-		{"No errors", 0, nil, testSys.CoreS[1]},
+		{"No errors", 0, nil, testSys.CoreS[0]},
 		{"Read error", 0, nil, nil},
 		{"Prefix error", 0, nil, nil},
 		{"Broken URL", 0, nil, nil},
@@ -247,11 +101,11 @@ func TestForconfirmLeadingRegistrar(t *testing.T) {
 		}
 		newMockTransport(respFunc, test.mockTransportErr, test.errHTTP)
 		if test.testCase == "Broken URL" {
-			testSys.CoreS[1].Url = brokenUrl
+			testSys.CoreS[0].Url = brokenUrl
 		}
 
 		// Do the test
-		res := confirmLeadingRegistrar(testSys.CoreS[1])
+		res := confirmLeadingRegistrar(testSys.CoreS[0])
 		if test.testCase == "No errors" {
 			if res != test.expectedOutput {
 				t.Errorf("Test case: %s got error: %v", test.testCase, res)
@@ -274,10 +128,10 @@ type findLeadingRegistrarParams struct {
 func TestForfindLeadingRegistrar(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	testSys := createTestSystem(ctx)
+	testSys := createTestSystem(ctx, false)
 
 	testParams := []findLeadingRegistrarParams{
-		{"No errors", 0, nil, testSys.CoreS[1]},
+		{"No errors", 0, nil, testSys.CoreS[0]},
 		{"Read error", 0, nil, nil},
 		{"Prefix error", 0, nil, nil},
 		{"Broken URL", 0, nil, nil},
@@ -290,7 +144,7 @@ func TestForfindLeadingRegistrar(t *testing.T) {
 		}
 		newMockTransport(respFunc, test.mockTransportErr, test.errHTTP)
 		if test.testCase == "Broken URL" {
-			testSys.CoreS[1].Url = brokenUrl
+			testSys.CoreS[0].Url = brokenUrl
 		}
 
 		// Do the test
@@ -310,8 +164,8 @@ func TestForfindLeadingRegistrar(t *testing.T) {
 func TestFordeepCopyMap(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	testSys := createTestSystem(ctx)
-	mua := testSys.UAssets["mockUnitAsset"]
+	testSys := createTestSystem(ctx, false)
+	mua := testSys.UAssets["testUnitAsset"]
 	original := (*mua).GetDetails()
 
 	// -- -- -- -- -- -- -- -- -- -- //
@@ -351,9 +205,9 @@ func TestFordeepCopyMap(t *testing.T) {
 func TestForserviceRegistrationForm(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	testSys := createTestSystem(ctx)
-	mua := testSys.UAssets["mockUnitAsset"]
-	serv := (*testSys.UAssets["mockUnitAsset"]).GetServices()["test"]
+	testSys := createTestSystem(ctx, false)
+	mua := testSys.UAssets["testUnitAsset"]
+	serv := (*testSys.UAssets["testUnitAsset"]).GetServices()["test"]
 	version := "ServiceRecord_v1"
 
 	// -- -- -- -- -- -- -- -- -- -- //
@@ -379,7 +233,7 @@ func TestForserviceRegistrationForm(t *testing.T) {
 	// Check that the ServiceNode is created correctly
 	// -- -- -- -- -- -- -- -- -- -- //
 
-	expectedNode := testSys.Host.Name + "_" + testSys.Name + "_" + (*testSys.UAssets["mockUnitAsset"]).GetName() + "_" + (*testSys.UAssets["mockUnitAsset"]).GetServices()["test"].Definition
+	expectedNode := testSys.Host.Name + "_" + testSys.Name + "_" + (*testSys.UAssets["testUnitAsset"]).GetName() + "_" + (*testSys.UAssets["testUnitAsset"]).GetServices()["test"].Definition
 	if sr.ServiceNode != expectedNode {
 		t.Errorf("Expected ServiceNode %q, got: %q", expectedNode, sr.ServiceNode)
 	}
@@ -425,7 +279,7 @@ func TestForserviceRegistrationForm(t *testing.T) {
 	// Check that when the Service RegPeriod equals 0, ServiceRegistrationForm defaults to its RegLife default value of 30
 	// -- -- -- -- -- -- -- -- -- -- //
 
-	(*testSys.UAssets["mockUnitAsset"]).GetServices()["test"].RegPeriod = 0
+	(*testSys.UAssets["testUnitAsset"]).GetServices()["test"].RegPeriod = 0
 	version = "ServiceRecord_v1"
 	payload, err = serviceRegistrationForm(&testSys, mua, serv, version)
 	if err != nil {
@@ -443,10 +297,10 @@ func TestForserviceRegistrationForm(t *testing.T) {
 func TestForderegisterService(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	testSys := createTestSystem(ctx)
+	testSys := createTestSystem(ctx, false)
 
 	var registrar *components.CoreSystem
-	serv := (*testSys.UAssets["mockUnitAsset"]).GetServices()["test"]
+	serv := (*testSys.UAssets["testUnitAsset"]).GetServices()["test"]
 
 	respFunc := func() *http.Response {
 		return &http.Response{
@@ -471,7 +325,7 @@ func TestForderegisterService(t *testing.T) {
 	// Good case: No errors when a service registered tries to get deregistered
 	// -- -- -- -- -- -- -- -- -- -- //
 
-	registrar = testSys.CoreS[1]
+	registrar = testSys.CoreS[0]
 
 	err = deregisterService(registrar, serv)
 	if err != nil {
@@ -518,10 +372,10 @@ func TestServiceRegistrationFormList(t *testing.T) {
 func TestForregisterService(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	testSys := createTestSystem(ctx)
-	mua := testSys.UAssets["mockUnitAsset"]
-	serv := (*testSys.UAssets["mockUnitAsset"]).GetServices()["test"]
-	registrar := testSys.CoreS[1]
+	testSys := createTestSystem(ctx, false)
+	mua := testSys.UAssets["testUnitAsset"]
+	serv := (*testSys.UAssets["testUnitAsset"]).GetServices()["test"]
+	registrar := testSys.CoreS[0]
 
 	payload, err := serviceRegistrationForm(&testSys, mua, serv, "ServiceRecord_v1")
 
