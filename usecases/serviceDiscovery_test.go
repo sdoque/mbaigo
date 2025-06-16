@@ -384,7 +384,19 @@ func TestSearch4Service(t *testing.T) {
 	qForm.NewForm()
 	_, err = Search4Service(qForm, &testSys)
 	if err == nil {
-		t.Errorf("Expected error at GetRunningCoreSystemURL()")
+		t.Errorf("Expected error at sendHttpRequest()")
+	}
+	cancel()
+
+	// Non-2xx status code of response from sendHttpRequest()
+	resp.StatusCode = 300
+	newMockTransport(resp, 0, nil)
+	ctx, cancel = context.WithCancel(context.Background())
+	testSys = createTestSystem(ctx, false)
+	qForm.NewForm()
+	_, err = Search4Service(qForm, &testSys)
+	if err == nil {
+		t.Errorf("Expected error at sendHttpRequest")
 	}
 	cancel()
 
