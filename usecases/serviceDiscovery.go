@@ -21,14 +21,11 @@ package usecases
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
@@ -45,8 +42,6 @@ func FillQuestForm(sys *components.System, res components.UnitAsset, sDef, proto
 	f.NewForm()
 	f.RequesterName = sys.Name
 	f.ServiceDefinition = sDef
-	// TODO: known bug on commit
-	// f.Protocol = append()
 	f.Protocol = protocol
 	f.Details = res.GetDetails()
 	return f
@@ -62,7 +57,7 @@ func ExtractQuestForm(bodyBytes []byte) (rec forms.ServiceQuest_v1, err error) {
 	}
 	formVersion, ok := jsonData["version"].(string)
 	if !ok {
-		log.Printf("Error: 'version' key not found in JSON data")
+		log.Printf("'version' key not found in JSON data")
 		return
 	}
 
@@ -76,53 +71,45 @@ func ExtractQuestForm(bodyBytes []byte) (rec forms.ServiceQuest_v1, err error) {
 		}
 		rec = f
 	default:
-		err = errors.New("unsupported service registration form version")
+		err = fmt.Errorf("unsupported service registration form version")
 	}
 	return
 }
 
-func sendHttpReq(method string, url string, data []byte, ctx context.Context) (resp *http.Response, err error) {
+func sendHttpReq(method string, url string, data []byte) (resp *http.Response, err error) {
 	req, err := http.NewRequest(method, url, bytes.NewBuffer(data))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json") // set the Content-Type header
-	req = req.WithContext(ctx)                         // associate the cancellable context with the request
-
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return resp, fmt.Errorf("received non-2xx status code: %d, response: %s from the Orchestrator", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 	return
 }
 
 // Search4Service requests from the core systems the address of resources's services that meet the need
 func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocation forms.ServicePoint_v1, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Create a new context, with a 2-second timeout
-	defer cancel()
-
 	// Create a new HTTP request to the Orchestrator system (for now the Service Registrar)
 	orchestratorPointer, err := components.GetRunningCoreSystemURL(sys, "orchestrator")
 	if err != nil {
 		return servLocation, err
 	}
-
 	// prepare the payload to perform a service quest
 	oURL := orchestratorPointer + "/squest"
 	jsonQF, err := json.MarshalIndent(qf, "", "  ")
 	if err != nil {
 		return servLocation, err
 	}
-
-	resp, err := sendHttpReq(http.MethodPost, oURL, jsonQF, ctx)
+	resp, err := sendHttpReq(http.MethodPost, oURL, jsonQF)
 	if err != nil {
 		return servLocation, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return servLocation, fmt.Errorf("received non-2xx status code: %d, response: %s from the Orchestrator", resp.StatusCode, http.StatusText(resp.StatusCode))
-	}
-
 	// Read the response /////////////////////////////////
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -146,58 +133,43 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 		Details:           cer.Details,
 		Version:           "ServiceQuest_v1",
 	}
-
 	//pack the service quest form
 	qf, err := Pack(&questForm, "application/json")
 	if err != nil {
 		return err
 	}
-
 	// Search for an Orchestrator system within the local cloud
 	orchestratorPointer, err := components.GetRunningCoreSystemURL(sys, "orchestrator")
 	if err != nil {
 		return err
 	}
 	if orchestratorPointer == "" {
-		err = errors.New("failed to locate an Orchestrator")
+		err = fmt.Errorf("failed to locate an Orchestrator")
 		return err
 	}
 	oURL := orchestratorPointer + "/squest"
-
 	// Prepare the request to the Orchestrator
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Create a new context, with a 2-second timeout
-	defer cancel()
-
-	resp, err := sendHttpReq(http.MethodPost, oURL, qf, ctx)
+	resp, err := sendHttpReq(http.MethodPost, oURL, qf)
 	if err != nil {
 		return
 	}
 	defer resp.Body.Close()
-
-	// Check if the status code indicates an error (anything outside the 200–299 range)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("received non-2xx status code: %d, response: %s from the Orchestrator", resp.StatusCode, http.StatusText(resp.StatusCode))
-	}
-
 	// Read the response /////////////////////////////////
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
-
 	headerContentTtype := resp.Header.Get("Content-Type")
 	discoveryForm, err := Unpack(bodyBytes, headerContentTtype)
 	if err != nil {
 		log.Printf("error extracting the discovery request %v\n", err)
 	}
-
 	// Perform a type assertion to convert the returned Form to ServicePoint_v1
 	df, ok := discoveryForm.(*forms.ServicePoint_v1)
 	if !ok {
 		fmt.Println("Problem unpacking the service discovery request form")
 		return
 	}
-
 	cer.Nodes[df.ServNode] = append(cer.Nodes[df.ServNode], df.ServLocation)
 	return err
 }
@@ -213,7 +185,7 @@ func FillDiscoveredServices(dsList []forms.ServiceRecord_v1, version string) (f 
 			dslForm.List = append(dslForm.List, *sf)
 		}
 	default:
-		err = errors.New("unsupported service registration form version")
+		err = fmt.Errorf("unsupported service registration form version")
 		return
 	}
 	return
@@ -229,7 +201,7 @@ func ExtractDiscoveryForm(bodyBytes []byte) (sLoc forms.ServicePoint_v1, err err
 	}
 	formVersion, ok := jsonData["version"].(string)
 	if !ok {
-		err = errors.New("error: 'version' key not found in JSON data")
+		err = fmt.Errorf("'version' key not found in JSON data")
 		return
 	}
 	switch formVersion {
@@ -243,7 +215,7 @@ func ExtractDiscoveryForm(bodyBytes []byte) (sLoc forms.ServicePoint_v1, err err
 		}
 		sLoc = f
 	default:
-		err = errors.New("unsupported service discovery form version")
+		err = fmt.Errorf("unsupported service discovery form version")
 	}
 	return
 }

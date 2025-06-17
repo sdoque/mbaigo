@@ -26,9 +26,7 @@ func TestServQuestForms(t *testing.T) {
 }
 
 func TestFillQuestForm(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	testSys := createTestSystem(ctx, false)
+	testSys, _ := createTestSystem(false)
 	mua := mockUnitAsset{}
 	questForm := FillQuestForm(&testSys, mua, "TestDef", "TestProtocol")
 	// Loop through the details in questForm and mua (mockUnitAsset), error if they're not the same
@@ -86,7 +84,7 @@ func createTestData(bodyType string, proto int, version string, errRead bool) (d
 	}
 }
 
-type ExtractQuestFormParams struct {
+type extractQuestFormParams struct {
 	testCase      string
 	bodyType      string
 	protocol      int
@@ -97,7 +95,7 @@ type ExtractQuestFormParams struct {
 
 func TestExtractQuestForm(t *testing.T) {
 	// A list holding structs containing the parameters used for the test
-	testParams := []ExtractQuestFormParams{
+	testParams := []extractQuestFormParams{
 		// {testCase, bodyType, protocol, version, errRead, expectedError}
 		// Always start with the "Best case, no errors"
 		{"No errors", "testBodyHasVersion", -1, "ServiceQuest_v1", false, false},
@@ -142,7 +140,7 @@ func createServicePointTestForm() forms.ServicePoint_v1 {
 	return f
 }
 
-type SendHttpReqParams struct {
+type sendHttpReqParams struct {
 	testCase    string
 	method      string
 	url         string
@@ -152,8 +150,8 @@ type SendHttpReqParams struct {
 	expectError bool
 }
 
-func testSystemSetup() (resp func() *http.Response, data []byte, ctx context.Context, cancel context.CancelFunc, err error) {
-	ctx, cancel = context.WithCancel(context.Background())
+func testSystemSetup() (resp func() *http.Response, data []byte, ctx context.Context, err error) {
+	ctx = context.Background()
 	var form forms.ServiceQuest_v1
 	form.NewForm()
 	resp = func() *http.Response {
@@ -166,21 +164,19 @@ func testSystemSetup() (resp func() *http.Response, data []byte, ctx context.Con
 	}
 	data, err = json.MarshalIndent(form, "", "  ")
 	if err != nil {
-		return nil, nil, ctx, cancel, errors.New("---\tError occurred while marshalling in test system setup")
+		return nil, nil, ctx, errors.New("---\tError occurred while marshalling in test system setup")
 	}
 	return
 }
 
 func TestSendHttpReq(t *testing.T) {
-	resp, data, ctx, cancel, err := testSystemSetup()
-	defer cancel()
+	resp, data, ctx, err := testSystemSetup()
 	newMockTransport(resp, 0, nil)
 	if err != nil {
 		t.Errorf("Error occurred while starting test system: %e", err)
 	}
-	params := []SendHttpReqParams{
+	params := []sendHttpReqParams{
 		// {testCase, method, url, data, ctx, respError, expectError}
-		// Always start with the "Best case, no errors"
 		{"No errors", http.MethodPost, "http://test", data, ctx, false, false},
 		{"Error creating new request", http.MethodPost, brokenUrl, data, ctx, false, true},
 		{"DefaultClient returns error", http.MethodPost, "http://test", data, ctx, true, true},
@@ -198,7 +194,7 @@ func TestSendHttpReq(t *testing.T) {
 			lastLoopErr = true
 		}
 		// Run the test
-		_, err = sendHttpReq(c.method, c.url, c.data, c.ctx)
+		_, err = sendHttpReq(c.method, c.url, c.data)
 		if c.expectError == false {
 			if err != nil {
 				t.Errorf("Unexpected error in '%s' test case: %e", c.testCase, err)
@@ -228,10 +224,8 @@ func TestSearch4Service(t *testing.T) {
 		}
 	}
 	newMockTransport(resp, 0, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	testSys := createTestSystem(ctx, false)
+	testSys, _ := createTestSystem(false)
 	var qForm forms.ServiceQuest_v1
-
 	serviceForm, err := Search4Service(qForm, &testSys)
 	if err != nil {
 		t.Errorf("Expected no errors, got: %v", err)
@@ -239,21 +233,17 @@ func TestSearch4Service(t *testing.T) {
 	if serviceForm.ServLocation != f.ServLocation {
 		t.Errorf("Expected %s, got: %s", f.ServLocation, serviceForm.ServLocation)
 	}
-	cancel()
 
 	// Error at "prepare the payload to perform a service quest"
 	// Untested because I found no way of breaking json.Marshal, without making big changes to the form
 
 	// Error while getting core system url
 	newMockTransport(resp, 1, errHTTP)
-	ctx, cancel = context.WithCancel(context.Background())
-	testSys = createTestSystem(ctx, false)
 	qForm.NewForm()
 	_, err = Search4Service(qForm, &testSys)
 	if err == nil {
 		t.Errorf("Expected error at GetRunningCoreSystemURL()")
 	}
-	cancel()
 
 	// Error at sendHttpRequest
 	resp = func() *http.Response {
@@ -265,14 +255,11 @@ func TestSearch4Service(t *testing.T) {
 		}
 	}
 	newMockTransport(resp, 2, errHTTP)
-	ctx, cancel = context.WithCancel(context.Background())
-	testSys = createTestSystem(ctx, false)
 	qForm.NewForm()
 	_, err = Search4Service(qForm, &testSys)
 	if err == nil {
 		t.Errorf("Expected error at sendHttpRequest()")
 	}
-	cancel()
 
 	// Non-2xx status code of response from sendHttpRequest()
 	resp = func() *http.Response {
@@ -284,14 +271,11 @@ func TestSearch4Service(t *testing.T) {
 		}
 	}
 	newMockTransport(resp, 0, nil)
-	ctx, cancel = context.WithCancel(context.Background())
-	testSys = createTestSystem(ctx, false)
 	qForm.NewForm()
 	_, err = Search4Service(qForm, &testSys)
 	if err == nil {
 		t.Errorf("Expected error at sendHttpRequest")
 	}
-	cancel()
 
 	// Error at "Read the response", io.ReadAll()
 	resp = func() *http.Response {
@@ -303,16 +287,12 @@ func TestSearch4Service(t *testing.T) {
 		}
 	}
 	f = createServicePointTestForm()
-	//resp.Body = errReader(0)
 	newMockTransport(resp, 0, nil)
-	ctx, cancel = context.WithCancel(context.Background())
-	testSys = createTestSystem(ctx, false)
 	qForm.NewForm()
 	serviceForm, err = Search4Service(qForm, &testSys)
 	if err == nil {
 		t.Errorf("Expected error")
 	}
-	cancel()
 
 	// Error at "Read the response", ExtractDiscoveryForm()
 	f = createServicePointTestForm()
@@ -324,32 +304,15 @@ func TestSearch4Service(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader(string("test"))),
 		}
 	}
-	//resp.Body = io.NopCloser(strings.NewReader(string("test")))
 	newMockTransport(resp, 0, nil)
-	ctx, cancel = context.WithCancel(context.Background())
-	testSys = createTestSystem(ctx, false)
 	qForm.NewForm()
 	serviceForm, err = Search4Service(qForm, &testSys)
 	if err == nil {
 		t.Errorf("Expected error")
 	}
-	cancel()
-
 }
 
-// Search4Services(cer *components.Cervice, sys *components.System) (err error)
-// *forms.ServicePoint_v1
-/*
-   ServiceID         int                 `json:"serviceId"`
-   ProviderName      string              `json:"providerName"`
-   ServiceDefinition string              `json:"definition"`
-   Details           map[string][]string `json:"details"`
-   ServLocation      string              `json:"serviceURL"`
-   ServNode          string              `json:"serviceNode"`
-   Token             string              `json:"token"`
-   Version           string              `json:"version"`
-*/
-
+// Used to create a ServicePoint_v1 form for testing purposes
 func createTestServicePoint() (f forms.ServicePoint_v1) {
 	f.ProviderName = "testProvider"
 	f.ServiceDefinition = "testDef"
@@ -376,29 +339,22 @@ func TestSearch4Services(t *testing.T) {
 		}
 	}
 	newMockTransport(resp, 0, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	testSys := createTestSystem(ctx, false)
+	testSys, _ := createTestSystem(false)
 	cer := (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 	err = Search4Services(cer, &testSys)
 	if err != nil {
 		t.Errorf("Expected no errors, got %v", err)
 	}
-	cancel()
 
 	// Bad case: GetRunningCoreSystemURL() returns error
 	newMockTransport(resp, 1, errHTTP)
-	ctx, cancel = context.WithCancel(context.Background())
-	testSys = createTestSystem(ctx, true) // true sets orchestrator url to a brokenURL
 	err = Search4Services(cer, &testSys)
 	if err == nil {
 		t.Errorf("Expected errors")
 	}
-	cancel()
 
 	// Bad case: Orchestrator url is ""
 	newMockTransport(resp, 0, nil)
-	ctx, cancel = context.WithCancel(context.Background())
-	testSys = createTestSystem(ctx, false)
 	for i, cs := range testSys.CoreS {
 		if cs.Name == "orchestrator" {
 			(*testSys.CoreS[i]).Url = ""
@@ -409,37 +365,15 @@ func TestSearch4Services(t *testing.T) {
 	if err == nil {
 		t.Errorf("Expected errors")
 	}
-	cancel()
 
 	// Bad case: sendHttpReq() returns an error
 	newMockTransport(resp, 2, nil)
-	ctx, cancel = context.WithCancel(context.Background())
-	testSys = createTestSystem(ctx, false)
+	testSys, _ = createTestSystem(false) // Needed otherwise we don't get past the orchestrator error handlers
 	cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 	err = Search4Services(cer, &testSys)
 	if err == nil {
 		t.Errorf("Expected errors")
 	}
-	cancel()
-
-	// Bad case: Response status code is < 200 or >= 300
-	resp = func() *http.Response {
-		return &http.Response{
-			Status:     "199 ?",
-			StatusCode: 199,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(string(data))),
-		}
-	}
-	newMockTransport(resp, 4, errHTTP)
-	ctx, cancel = context.WithCancel(context.Background())
-	testSys = createTestSystem(ctx, false)
-	cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
-	err = Search4Services(cer, &testSys)
-	if err == nil {
-		t.Errorf("Expected errors")
-	}
-	cancel()
 
 	// Bad case: io.ReadAll() return an error
 	resp = func() *http.Response {
@@ -451,14 +385,11 @@ func TestSearch4Services(t *testing.T) {
 		}
 	}
 	newMockTransport(resp, 0, nil)
-	ctx, cancel = context.WithCancel(context.Background())
-	testSys = createTestSystem(ctx, false)
 	cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 	err = Search4Services(cer, &testSys)
 	if err == nil {
 		t.Errorf("Expected errors")
 	}
-	cancel()
 
 	// Bad case: Unpack() returns an error and type assertion/conversion fails
 	resp = func() *http.Response {
@@ -470,15 +401,11 @@ func TestSearch4Services(t *testing.T) {
 		}
 	}
 	newMockTransport(resp, 0, nil)
-	ctx, cancel = context.WithCancel(context.Background())
-	testSys = createTestSystem(ctx, false)
 	cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 	err = Search4Services(cer, &testSys)
 	if err == nil {
 		t.Errorf("Expected errors")
 	}
-	cancel()
-
 }
 
 func createTestServiceRecord(number int) (f forms.ServiceRecord_v1) {
