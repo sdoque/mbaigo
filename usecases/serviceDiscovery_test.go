@@ -54,10 +54,8 @@ type extractQuestFormParams struct {
 	proto         int
 	version       string
 	errRead       bool
-	f             testBodyFunc //func(string, int, string) ([]byte, error)
+	f             func(int, string, bool) ([]byte, error)
 }
-
-type testBodyFunc func(int, string, bool) ([]byte, error)
 
 func createTestBodyHasProtocol(proto int, version string, errRead bool) ([]byte, error) {
 	if errRead == true {
