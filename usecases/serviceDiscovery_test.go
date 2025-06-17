@@ -105,7 +105,7 @@ func TestExtractQuestForm(t *testing.T) {
 	testParams := []extractQuestFormParams{
 		// Always start with the "Best case, no errors"
 		// {testCase, expectedError, proto, version, errRead, data}
-		{"No errors", false, 123, "ServiceQuest_v1", false, createTestBodyHasVersion},
+		{"No errors", false, -1, "ServiceQuest_v1", false, createTestBodyHasVersion},
 		{"Error during Unmarshal", true, -1, "ServiceQuest_v1", true, createTestBodyHasVersion},
 		{"Missing version", false, -1, "", false, createTestBodyHasNoVersion},
 		{"Error while writing to correct form", true, 123, "ServiceQuest_v1", false, createTestBodyHasProtocol},
