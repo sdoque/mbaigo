@@ -48,65 +48,72 @@ type testBodyHasVersion struct {
 
 type testBodyNoVersion struct{}
 
-func createTestData(bodyType string, proto int, version string, errRead bool) (data []byte, err error) {
+type extractQuestFormParams struct {
+	testCase      string
+	expectedError bool
+	proto         int
+	version       string
+	errRead       bool
+	f             testBodyFunc //func(string, int, string) ([]byte, error)
+}
+
+type testBodyFunc func(int, string, bool) ([]byte, error)
+
+func createTestBodyHasProtocol(proto int, version string, errRead bool) ([]byte, error) {
 	if errRead == true {
 		return json.Marshal(errReader(0))
 	}
-	switch bodyType {
-	case "testBodyHasProtocol":
-		body := testBodyHasProtocol{
-			Protocol: proto,
-			Version:  version,
-		}
-		data, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
-		}
-		return data, nil
-	case "testBodyHasVersion":
-		body := testBodyHasVersion{
-			Version: version,
-		}
-		data, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
-		}
-		return data, nil
-	case "testBodyNoVersion":
-		body := testBodyNoVersion{}
-		data, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
-		}
-		return data, nil
-	default:
-		return nil, errors.New("Body type not supported")
+	body := testBodyHasProtocol{
+		Protocol: proto,
+		Version:  version,
 	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
-type extractQuestFormParams struct {
-	testCase      string
-	bodyType      string
-	protocol      int
-	version       string
-	errRead       bool
-	expectedError bool
+func createTestBodyHasVersion(proto int, version string, errRead bool) ([]byte, error) {
+	if errRead == true {
+		return json.Marshal(errReader(0))
+	}
+	body := testBodyHasVersion{
+		Version: version,
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func createTestBodyHasNoVersion(proto int, version string, errRead bool) ([]byte, error) {
+	if errRead == true {
+		return json.Marshal(errReader(0))
+	}
+	body := testBodyNoVersion{}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func TestExtractQuestForm(t *testing.T) {
 	// A list holding structs containing the parameters used for the test
 	testParams := []extractQuestFormParams{
-		// {testCase, bodyType, protocol, version, errRead, expectedError}
 		// Always start with the "Best case, no errors"
-		{"No errors", "testBodyHasVersion", -1, "ServiceQuest_v1", false, false},
-		{"Error during Unmarshal", "testBodyHasVersion", -1, "ServiceQuest_v1", true, true},
-		{"Missing version", "testBodyNoVersion", -1, "", false, false},
-		{"Error while writing to correct form", "testBodyHasProtocol", 123, "ServiceQuest_v1", false, true},
-		{"Error Unsupported version", "testBodyHasVersion", -1, "", false, true},
+		// {testCase, expectedError, proto, version, errRead, data}
+		{"No errors", false, 123, "ServiceQuest_v1", false, createTestBodyHasVersion},
+		{"Error during Unmarshal", true, -1, "ServiceQuest_v1", true, createTestBodyHasVersion},
+		{"Missing version", false, -1, "", false, createTestBodyHasNoVersion},
+		{"Error while writing to correct form", true, 123, "ServiceQuest_v1", false, createTestBodyHasProtocol},
+		{"Error Unsupported version", true, -1, "", false, createTestBodyHasVersion},
 	}
 	for _, x := range testParams {
 		// Create the data []byte that will be sent into the function
-		data, err := createTestData(x.bodyType, x.protocol, x.version, x.errRead)
+		data, err := x.f(x.proto, x.version, x.errRead)
 		if err != nil {
 			t.Errorf("---\tError occurred while creating test data")
 		}
