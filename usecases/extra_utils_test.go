@@ -84,9 +84,9 @@ var brokenUrl = string([]byte{0x7f})
 var errHTTP error = fmt.Errorf("bad http request")
 
 // Help function to create a test system
-func createTestSystem(broken bool) (sys components.System, ctx context.Context) {
+func createTestSystem(broken bool) (sys components.System) {
 	// instantiate the System
-	ctx = context.Background()
+	ctx := context.Background()
 	sys = components.NewSystem("testSystem", ctx)
 
 	// Instantiate the Capsule

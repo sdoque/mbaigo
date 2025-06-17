@@ -26,7 +26,7 @@ func TestServQuestForms(t *testing.T) {
 }
 
 func TestFillQuestForm(t *testing.T) {
-	testSys, _ := createTestSystem(false)
+	testSys := createTestSystem(false)
 	mua := mockUnitAsset{}
 	questForm := FillQuestForm(&testSys, mua, "TestDef", "TestProtocol")
 	// Loop through the details in questForm and mua (mockUnitAsset), error if they're not the same
@@ -229,7 +229,7 @@ func TestSearch4Service(t *testing.T) {
 		}
 	}
 	newMockTransport(resp, 0, nil)
-	testSys, _ := createTestSystem(false)
+	testSys := createTestSystem(false)
 	var qForm forms.ServiceQuest_v1
 	serviceForm, err := Search4Service(qForm, &testSys)
 	if err != nil {
@@ -344,7 +344,7 @@ func TestSearch4Services(t *testing.T) {
 		}
 	}
 	newMockTransport(resp, 0, nil)
-	testSys, _ := createTestSystem(false)
+	testSys := createTestSystem(false)
 	cer := (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 	err = Search4Services(cer, &testSys)
 	if err != nil {
@@ -373,7 +373,7 @@ func TestSearch4Services(t *testing.T) {
 
 	// Bad case: sendHttpReq() returns an error
 	newMockTransport(resp, 2, nil)
-	testSys, _ = createTestSystem(false) // Needed otherwise we don't get past the orchestrator error handlers
+	testSys = createTestSystem(false) // Needed otherwise we don't get past the orchestrator error handlers
 	cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 	err = Search4Services(cer, &testSys)
 	if err == nil {
