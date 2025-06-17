@@ -41,7 +41,8 @@ func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, er
 			return f, err
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Create a new context, with a 2-second timeout
+	// ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second) // Create a new context, with a 2-second timeout
 	defer cancel()
 	// Create a new HTTP request using the first known provider
 	var serviceUrl string
@@ -58,8 +59,9 @@ func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, er
 	// Associate the cancellable context with the request
 	req = req.WithContext(ctx)
 	// Send the request /////////////////////////////////
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	//client := &http.Client{}
+	//resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		cer.Nodes = make(map[string][]string) // failed to get the resource at that location: reset the providers list, which will trigger a new service search
 		return f, err
@@ -81,6 +83,7 @@ func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, er
 	f, err = Unpack(bodyBytes, headerContentTtype)
 	if err != nil {
 		fmt.Printf("error unpacking the service response: %s", err)
+		return f, err
 	}
 	return f, nil
 }
@@ -96,7 +99,8 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 	}
 
 	// Create a new context, with a 2-second timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	// ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
 
 	// Create a new HTTP request
@@ -118,8 +122,9 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 	req = req.WithContext(ctx)
 
 	// Send the request
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	//client := &http.Client{}
+	//resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		cer.Nodes = make(map[string][]string) // Failed to get the resource at that location: reset the providers list, which will trigger a new service search
 		return f, err
