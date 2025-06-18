@@ -24,7 +24,8 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+
+	//"log"
 	"net/http"
 	"time"
 
@@ -34,63 +35,151 @@ import (
 
 // GetState request the current state of a unit asset (via the asset's service)
 func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, err error) {
-	// if no known providers, search for one via the Orchestrator
-	if len(cer.Nodes) == 0 {
-		err := Search4Services(cer, sys)
-		if err != nil {
-			return f, err
-		}
-	}
-	// ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second) // Create a new context, with a 2-second timeout
-	defer cancel()
-	// Create a new HTTP request using the first known provider
-	var serviceUrl string
-	for _, values := range cer.Nodes {
-		if len(values) > 0 {
-			serviceUrl = values[0]
-			break
-		}
-	}
-	req, err := http.NewRequest(http.MethodGet, serviceUrl, nil)
-	if err != nil {
-		return f, err
-	}
-	// Associate the cancellable context with the request
-	req = req.WithContext(ctx)
-	// Send the request /////////////////////////////////
-	//client := &http.Client{}
-	//resp, err := client.Do(req)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		cer.Nodes = make(map[string][]string) // failed to get the resource at that location: reset the providers list, which will trigger a new service search
-		return f, err
-	}
-	defer resp.Body.Close()
+	return stateHandler(http.MethodGet, cer, sys, nil)
+	/*
+	   // if no known providers, search for one via the Orchestrator
 
-	// Check if the status code indicates an error (anything outside the 200–299 range)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return f, fmt.Errorf("received non-2xx status code: %d, response: %s", resp.StatusCode, http.StatusText(resp.StatusCode))
-	}
+	   	if len(cer.Nodes) == 0 {
+	   		err := Search4Services(cer, sys)
+	   		if err != nil {
+	   			return f, err
+	   		}
+	   	}
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("GetRValue-Error reading registration response body: %v", err)
-		return
-	}
+	   // ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	   ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second) // Create a new context, with a 2-second timeout
+	   defer cancel()
+	   // Create a new HTTP request using the first known provider
+	   var serviceUrl string
 
-	headerContentTtype := resp.Header.Get("Content-Type")
-	f, err = Unpack(bodyBytes, headerContentTtype)
-	if err != nil {
-		fmt.Printf("error unpacking the service response: %s", err)
-		return f, err
-	}
-	return f, nil
+	   	for _, values := range cer.Nodes {
+	   		if len(values) > 0 {
+	   			serviceUrl = values[0]
+	   			break
+	   		}
+	   	}
+
+	   req, err := http.NewRequest(http.MethodGet, serviceUrl, nil)
+
+	   	if err != nil {
+	   		return f, err
+	   	}
+
+	   // Associate the cancellable context with the request
+	   req = req.WithContext(ctx)
+	   // Send the request /////////////////////////////////
+	   //client := &http.Client{}
+	   //resp, err := client.Do(req)
+	   resp, err := http.DefaultClient.Do(req)
+
+	   	if err != nil {
+	   		cer.Nodes = make(map[string][]string) // failed to get the resource at that location: reset the providers list, which will trigger a new service search
+	   		return f, err
+	   	}
+
+	   defer resp.Body.Close()
+
+	   // Check if the status code indicates an error (anything outside the 200–299 range)
+
+	   	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	   		return f, fmt.Errorf("received non-2xx status code: %d, response: %s", resp.StatusCode, http.StatusText(resp.StatusCode))
+	   	}
+
+	   bodyBytes, err := io.ReadAll(resp.Body)
+
+	   	if err != nil {
+	   		log.Printf("GetRValue-Error reading registration response body: %v", err)
+	   		return
+	   	}
+
+	   headerContentTtype := resp.Header.Get("Content-Type")
+	   f, err = Unpack(bodyBytes, headerContentTtype)
+
+	   	if err != nil {
+	   		fmt.Printf("error unpacking the service response: %s", err)
+	   		return f, err
+	   	}
+
+	   return f, nil
+	*/
 }
 
 // SetState puts a request to change the state of a unit asset (via the asset's service)
 func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte) (f forms.Form, err error) {
-	// Get the address of the informing service of the target asset via the Orchestrator
+	return stateHandler(http.MethodPut, cer, sys, bodyBytes)
+	/*
+	   // Get the address of the informing service of the target asset via the Orchestrator
+
+	   	if len(cer.Nodes) == 0 {
+	   		err := Search4Services(cer, sys)
+	   		if err != nil {
+	   			return f, err
+	   		}
+	   	}
+
+	   // Create a new context, with a 2-second timeout
+	   // ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	   ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+	   defer cancel()
+
+	   // Create a new HTTP request
+	   var serviceUrl string
+
+	   	for _, values := range cer.Nodes {
+	   		if len(values) > 0 {
+	   			serviceUrl = values[0]
+	   			break
+	   		}
+	   	}
+
+	   req, err := http.NewRequest(http.MethodPut, serviceUrl, bytes.NewReader(bodyBytes))
+
+	   	if err != nil {
+	   		return f, err
+	   	}
+
+	   // Set the Content-Type header
+	   req.Header.Set("Content-Type", "application/json")
+	   // Associate the cancellable context with the request
+	   req = req.WithContext(ctx)
+
+	   // Send the request
+	   //client := &http.Client{}
+	   //resp, err := client.Do(req)
+	   resp, err := http.DefaultClient.Do(req)
+
+	   	if err != nil {
+	   		cer.Nodes = make(map[string][]string) // Failed to get the resource at that location: reset the providers list, which will trigger a new service search
+	   		return f, err
+	   	}
+
+	   defer resp.Body.Close()
+
+	   // Check if the status code indicates an error (anything outside the 200–299 range)
+
+	   	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	   		return f, fmt.Errorf("received non-2xx status code: %d, response: %s", resp.StatusCode, http.StatusText(resp.StatusCode))
+	   	}
+
+	   // If the response includes a payload, unpack it into a forms.Form
+	   bodyBytes, err = io.ReadAll(resp.Body)
+
+	   	if err != nil {
+	   		return f, fmt.Errorf("error reading response body: %v", err)
+	   	}
+
+	   	if len(bodyBytes) > 0 {
+	   		headerContentType := resp.Header.Get("Content-Type")
+	   		f, err = Unpack(bodyBytes, headerContentType)
+	   		if err != nil {
+	   			return f, fmt.Errorf("error unpacking the service response: %v", err)
+	   		}
+	   	}
+
+	   return f, nil
+	*/
+}
+func stateHandler(httpMethod string, cer *components.Cervice, sys *components.System, bodyBytes []byte) (f forms.Form, err error) {
 	if len(cer.Nodes) == 0 {
 		err := Search4Services(cer, sys)
 		if err != nil {
@@ -98,12 +187,10 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 		}
 	}
 
-	// Create a new context, with a 2-second timeout
 	// ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second) // Create a new context, with a 2-second timeout
 	defer cancel()
 
-	// Create a new HTTP request
 	var serviceUrl string
 	for _, values := range cer.Nodes {
 		if len(values) > 0 {
@@ -111,22 +198,21 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 			break
 		}
 	}
-	req, err := http.NewRequest(http.MethodPut, serviceUrl, bytes.NewReader(bodyBytes))
+
+	req, err := http.NewRequest(httpMethod, serviceUrl, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return f, err
 	}
 
-	// Set the Content-Type header
-	req.Header.Set("Content-Type", "application/json")
-	// Associate the cancellable context with the request
+	if httpMethod == "PUT" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
 	req = req.WithContext(ctx)
 
-	// Send the request
-	//client := &http.Client{}
-	//resp, err := client.Do(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		cer.Nodes = make(map[string][]string) // Failed to get the resource at that location: reset the providers list, which will trigger a new service search
+		cer.Nodes = make(map[string][]string)
 		return f, err
 	}
 	defer resp.Body.Close()
@@ -139,14 +225,14 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 	// If the response includes a payload, unpack it into a forms.Form
 	bodyBytes, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return f, fmt.Errorf("error reading response body: %v", err)
+		return f, fmt.Errorf("error reading response body: %w", err)
 	}
 
 	if len(bodyBytes) > 0 {
 		headerContentType := resp.Header.Get("Content-Type")
 		f, err = Unpack(bodyBytes, headerContentType)
 		if err != nil {
-			return f, fmt.Errorf("error unpacking the service response: %v", err)
+			return f, fmt.Errorf("error unpacking the service response: %w", err)
 		}
 	}
 
