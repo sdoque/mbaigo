@@ -72,7 +72,7 @@ var testStateParams = []stateParams{
 		"No errors",
 		newTestCerviceWithNodes(),
 		&testSys,
-		nil,
+		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
 		func() *http.Response {
 			return &http.Response{
 				Status:     "200 OK",
@@ -90,7 +90,7 @@ var testStateParams = []stateParams{
 		"No errors",
 		&testCerviceWithoutNodes,
 		&testSys,
-		nil,
+		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
 		func() *http.Response {
 			return &http.Response{
 				Status:     "200 OK",
@@ -105,10 +105,28 @@ var testStateParams = []stateParams{
 		nil,
 	},
 	{
+		"No errors SetState",
+		newTestCerviceWithNodes(),
+		&testSys,
+		nil,
+		func() *http.Response {
+			return &http.Response{
+				Status:     "200 OK",
+				StatusCode: 200,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(string(""))),
+			}
+		},
+		0,
+		nil,
+		form.NewForm(),
+		nil,
+	},
+	{
 		"Search4Services error",
 		&testCerviceWithoutNodes,
 		&testSys,
-		nil,
+		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
 		func() *http.Response {
 			return &http.Response{
 				Status:     "200 OK",
@@ -126,7 +144,7 @@ var testStateParams = []stateParams{
 		"NewRequest() error",
 		&testCerviceWithBrokenUrl,
 		&testSys,
-		nil,
+		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
 		func() *http.Response {
 			return &http.Response{
 				Status:     "200 OK",
@@ -144,7 +162,7 @@ var testStateParams = []stateParams{
 		"Status code error",
 		newTestCerviceWithNodes(),
 		&testSys,
-		nil,
+		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
 		func() *http.Response {
 			return &http.Response{
 				Status:     "300 NAK",
@@ -162,7 +180,7 @@ var testStateParams = []stateParams{
 		"io.ReadAll() error",
 		newTestCerviceWithNodes(),
 		&testSys,
-		nil,
+		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
 		func() *http.Response {
 			return &http.Response{
 				Status:     "200 OK",
@@ -180,7 +198,7 @@ var testStateParams = []stateParams{
 		"Unpack() error",
 		newTestCerviceWithNodes(),
 		&testSys,
-		nil,
+		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
 		func() *http.Response {
 			return &http.Response{
 				Status:     "200 OK",
@@ -198,7 +216,7 @@ var testStateParams = []stateParams{
 		"DefaultClient.Do() error",
 		newTestCerviceWithNodes(),
 		&testSys,
-		nil,
+		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
 		func() *http.Response {
 			return &http.Response{
 				Status:     "200 OK",
@@ -218,10 +236,15 @@ func TestGetState(t *testing.T) {
 	for _, test := range testStateParams {
 		newMockTransport(test.body, test.mockTransportErr, test.errHTTP)
 
+		// No need to test this as the test is specifically for SetState
+		if test.testCase == "No errors SetState" {
+			continue
+		}
+
 		res, err := GetState(test.testCer, test.testSys)
 
 		// Directly compare the fields of the expected and actual forms
-		if res != nil {
+		if res != nil && test.bodyBytes != nil {
 			expected := test.expectedfForm.(*forms.SignalA_v1a)
 			actual := res.(*forms.SignalA_v1a)
 			if test.testCase == "No errors" {
@@ -247,7 +270,40 @@ func TestSetState(t *testing.T) {
 		res, err := SetState(test.testCer, test.testSys, nil)
 
 		// Directly compare the fields of the expected and actual forms
-		if res != nil {
+		if res != nil && test.bodyBytes != nil {
+			expected := test.expectedfForm.(*forms.SignalA_v1a)
+			actual := res.(*forms.SignalA_v1a)
+			if test.testCase == "No errors" {
+				if expected.Value != actual.Value || expected.Unit != actual.Unit || expected.Timestamp != actual.Timestamp || expected.Version != actual.Version || err != test.expectedErr {
+					t.Errorf("Test case: %s got error: %v. \nExpected form: \n%+v\n, got: \n%+v", test.testCase, err, expected, actual)
+				}
+			}
+		} else if test.bodyBytes == nil {
+			if err != nil && res != nil {
+				t.Errorf("Test case: %s got error: %v:", test.testCase, err)
+			}
+		} else {
+			if err == nil {
+				t.Errorf("Test case: %s got error: %v:", test.testCase, err)
+			}
+		}
+	}
+}
+
+/*
+func TestForstateHandler(t *testing.T) {
+	for _, test := range testStateParams {
+		newMockTransport(test.body, test.mockTransportErr, test.errHTTP)
+
+		// No need to test this as the test is specifically for SetState
+		if test.testCase == "No errors SetState" {
+			continue
+		}
+
+		res, err := GetState(test.testCer, test.testSys)
+
+		// Directly compare the fields of the expected and actual forms
+		if res != nil && test.bodyBytes != nil {
 			expected := test.expectedfForm.(*forms.SignalA_v1a)
 			actual := res.(*forms.SignalA_v1a)
 			if test.testCase == "No errors" {
@@ -261,4 +317,32 @@ func TestSetState(t *testing.T) {
 			}
 		}
 	}
+	for _, test := range testStateParams {
+		newMockTransport(test.body, test.mockTransportErr, test.errHTTP)
+
+		if test.testCase == "DefaultClient.Do() error" {
+			test.testCer = &testCerviceWithNodesRefresh
+		}
+		res, err := SetState(test.testCer, test.testSys, test.bodyBytes)
+
+		// Directly compare the fields of the expected and actual forms
+		if res != nil && test.bodyBytes != nil {
+			expected := test.expectedfForm.(*forms.SignalA_v1a)
+			actual := res.(*forms.SignalA_v1a)
+			if test.testCase == "No errors" {
+				if expected.Value != actual.Value || expected.Unit != actual.Unit || expected.Timestamp != actual.Timestamp || expected.Version != actual.Version || err != test.expectedErr {
+					t.Errorf("Test case: %s got error: %v. \nExpected form: \n%+v\n, got: \n%+v", test.testCase, err, expected, actual)
+				}
+			}
+		} else if test.bodyBytes == nil {
+			if err != nil && res != nil {
+				t.Errorf("Test case: %s got error: %v:", test.testCase, err)
+			}
+		} else {
+			if err == nil {
+				t.Errorf("Test case: %s got error: %v:", test.testCase, err)
+			}
+		}
+	}
 }
+*/
