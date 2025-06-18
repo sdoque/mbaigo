@@ -116,7 +116,10 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 
 	var rawBytes []json.RawMessage // the mbaigo library does not know about the unit asset's structure (defined in the file thing.go and not part of the library)
 
-	// open the configuration file or create one with the default content prepared above
+	// TODO: open the configuration file or create one with the default content prepared above
+	// os.OpenFile can do both open and create in the same command, ensuring one of them happens, depending on
+	// wether or not the file exists
+	// https://pkg.go.dev/os#OpenFile
 	systemConfigFile, err := os.Open("systemconfig.json")
 
 	if err != nil { // could not find the systemconfig.json so a default one is being created
@@ -125,15 +128,14 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 			return rawBytes, err
 		}
 		defer defaultConfigFile.Close()
-		systemconfigjson, err := json.MarshalIndent(defaultConfig, "", "     ")
+
+		enc := json.NewEncoder(defaultConfigFile) // Create an encoder that allows writing to a file
+		enc.SetIndent("", "     ")                // Set proper indentation
+		err = enc.Encode(defaultConfig)           // Write defaultConfig template to file
 		if err != nil {
-			return rawBytes, err
+			return nil, fmt.Errorf("jsonEncode: %w", err)
 		}
-		nBytes, err := defaultConfigFile.Write(systemconfigjson)
-		if err != nil {
-			return rawBytes, err
-		}
-		return rawBytes, fmt.Errorf("a new configuration file has been written with %d bytes. Please update it and restart the system", nBytes)
+		return nil, fmt.Errorf("a new configuration file has been created. Please update it and restart the system")
 	}
 
 	// the system configuration file could be open, read the configurations and pass them on to the system
