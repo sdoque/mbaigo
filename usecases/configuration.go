@@ -116,12 +116,7 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 
 	var rawBytes []json.RawMessage // the mbaigo library does not know about the unit asset's structure (defined in the file thing.go and not part of the library)
 
-	// TODO: open the configuration file or create one with the default content prepared above
-	// os.OpenFile can do both open and create in the same command, ensuring one of them happens, depending on
-	// wether or not the file exists
-	// https://pkg.go.dev/os#OpenFile
 	systemConfigFile, err := os.Open("systemconfig.json")
-
 	if err != nil { // could not find the systemconfig.json so a default one is being created
 		defaultConfigFile, err := os.Create("systemconfig.json")
 		if err != nil {
