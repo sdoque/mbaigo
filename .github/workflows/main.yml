@@ -15,7 +15,7 @@ jobs:
       - name: Setup go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version-file: go.mod
       - name: Install dependencies
         run: make linterinstall
       - name: Run linters
@@ -36,7 +36,7 @@ jobs:
       - name: Setup go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version-file: go.mod
       - name: Install dependencies
         run: make modinstall
       - name: Run tests
