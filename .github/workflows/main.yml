@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  Linters:
+  LintnTest:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -17,29 +17,15 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install dependencies
-        run: make linterinstall
+        run: make installpkgs
       - name: Run linters
         run: make lint
+      - name: Run tests
+        run: make test
 
   Spellcheck:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 1
     steps:
       - uses: actions/checkout@v4
       - uses: crate-ci/typos@v1.29.7
-
-  Tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Install dependencies
-        run: make modinstall
-      - name: Run tests
-        run: make test
-      - name: Report stats
-        run: make analyse
