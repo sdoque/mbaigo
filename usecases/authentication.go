@@ -132,7 +132,13 @@ func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
 	}
 	url += "/certify"
 
-	resp, err := http.Post(url, "application/x-pem-file", bytes.NewReader(csrPEM))
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(csrPEM))
+	if err != nil {
+		log.Printf("Error creating request: %v", err)
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-pem-file")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send CSR: %w", err)
 	}
@@ -166,7 +172,7 @@ func getCACertificate(sys *components.System) (string, error) {
 	// Make a GET request to the CA's endpoint
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		log.Printf("Error creating NewRequest: %v", err)
+		log.Printf("Error creating request: %v", err)
 		return "", err
 	}
 	resp, err := http.DefaultClient.Do(req)
