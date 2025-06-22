@@ -80,7 +80,7 @@ func (errReader) Close() error {
 }
 
 // Variables used in testing
-var brokenUrl = string([]byte{0x7f})
+var brokenUrl = string(rune(0))
 var errHTTP error = fmt.Errorf("bad http request")
 
 // Help function to create a test system
@@ -132,7 +132,7 @@ func createTestSystem(broken bool) (sys components.System) {
 	sys.UAssets[mua.GetName()] = &muaInterface
 
 	leadingRegistrar := &components.CoreSystem{
-		Name: "serviceregistrar",
+		Name: components.ServiceRegistrarName,
 		Url:  "https://leadingregistrar",
 	}
 	test := &components.CoreSystem{

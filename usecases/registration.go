@@ -28,7 +28,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/sdoque/mbaigo/components"
@@ -37,18 +36,17 @@ import (
 
 // RegisterServices keeps track of the leading Service Registrar and keeps all services registered
 func RegisterServices(sys *components.System) {
-	var leadingRegistrar *components.CoreSystem
+	var leadRegistrarURL string
 
 	// Goroutine looking for leading service registrar every 5 seconds
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
-			// Check if the leading registrar is already known
-			if leadingRegistrar != nil {
-				leadingRegistrar = confirmLeadingRegistrar(leadingRegistrar)
-			} else {
-				leadingRegistrar = findLeadingRegistrar(sys, leadingRegistrar)
+			var err error
+			leadRegistrarURL, err = components.GetRunningCoreSystemURL(sys, components.ServiceRegistrarName)
+			if err != nil {
+				log.Println("find lead registrar:", err)
 			}
 
 			select {
@@ -70,15 +68,11 @@ func RegisterServices(sys *components.System) {
 					timer := time.NewTimer(delay)
 					select {
 					case <-timer.C:
-						if leadingRegistrar != nil {
-							delay = registerService(sys, theUnitAsset, theService, leadingRegistrar)
-						} else {
-							delay = 15 * time.Second
-						}
+						delay = registerService(sys, leadRegistrarURL, theUnitAsset, theService)
 					case <-sys.Ctx.Done():
-						err := deregisterService(leadingRegistrar, theService)
+						err := unregisterService(leadRegistrarURL, theService)
 						if err != nil {
-							log.Println("deregistering service:", err)
+							log.Println("unregistering service:", err)
 						}
 						return
 					}
@@ -88,76 +82,32 @@ func RegisterServices(sys *components.System) {
 	}
 }
 
-func confirmLeadingRegistrar(leadingRegistrar *components.CoreSystem) *components.CoreSystem {
-	resp, err := http.Get(leadingRegistrar.Url + "/status")
-	if err != nil {
-		log.Println("lost leading registrar status:", err)
-		return nil
-	}
-	// Read from resp.Body and then close it directly after
-	bodyBytes, err := io.ReadAll(resp.Body)
-	defer resp.Body.Close() // Close the body directly after reading from it
-	if err != nil {
-		log.Println("\rError reading response from leading registrar:", err)
-		return nil
-	}
-	if !strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
-		log.Println("lost previous leading registrar")
-		return nil
-	}
-	return leadingRegistrar
-}
-
-func findLeadingRegistrar(sys *components.System, leadingRegistrar *components.CoreSystem) *components.CoreSystem {
-	for _, core := range sys.CoreS {
-		if core.Name != "serviceregistrar" {
-			continue
-		}
-
-		resp, err := http.Get(core.Url + "/status")
-		if err != nil {
-			log.Println("error checking service registrar status:", err)
-			continue // Skip to the next iteration of the loop
-		}
-
-		// Read from resp.Body and then close it directly after
-		bodyBytes, err := io.ReadAll(resp.Body)
-		defer resp.Body.Close() // Close the body directly after reading from it
-		if err != nil {
-			log.Println("Error reading service registrar response body:", err)
-			continue // Skip to the next iteration of the loop
-		}
-		if strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
-			log.Printf("lead registrar found at: %s", core.Url)
-			return core
-		}
-	}
-	return leadingRegistrar
-}
-
 // registerService makes a POST or PUT request to register or register individual services
-func registerService(sys *components.System, ua *components.UnitAsset, serv *components.Service, registrar *components.CoreSystem) (delay time.Duration) {
-
+func registerService(sys *components.System, registrar string, ua *components.UnitAsset, serv *components.Service) (delay time.Duration) {
 	delay = 15 * time.Second
+	if registrar == "" {
+		return delay
+	}
+
 	// Prepare request
 	reqPayload, err := serviceRegistrationForm(sys, ua, serv, "ServiceRecord_v1")
 	if err != nil {
 		log.Println("Registration marshall error, ", err)
 		return
 	}
-	registrationurl := registrar.Url + "/register"
+	registrationURL := registrar + "/register"
 
 	var req *http.Request // Declare req outside the blocks
 	if serv.ID == 0 {
-		req, err = http.NewRequest("POST", registrationurl, bytes.NewBuffer(reqPayload))
+		req, err = http.NewRequest("POST", registrationURL, bytes.NewBuffer(reqPayload))
 		if err != nil {
 			log.Printf("unable to register service %s with lead registrar\n", serv.Definition)
 			return
 		}
 	} else {
-		req, err = http.NewRequest("PUT", registrationurl, bytes.NewBuffer(reqPayload))
+		req, err = http.NewRequest("PUT", registrationURL, bytes.NewBuffer(reqPayload))
 		if err != nil {
-			log.Printf("unable to confirm the %s service with lead registar", serv.Definition)
+			log.Printf("unable to confirm the %s service with lead registrar", serv.Definition)
 			return
 		}
 	}
@@ -168,14 +118,13 @@ func registerService(sys *components.System, ua *components.UnitAsset, serv *com
 		switch err := err.(type) {
 		case net.Error:
 			if err.Timeout() {
-				log.Printf("registry timeout with lead registrar %s\n", registrationurl)
+				log.Printf("registry timeout with lead registrar %s\n", registrationURL)
 			} else {
 				log.Printf("unable to (re-)register service %s with lead registrar\n", serv.Definition)
 			}
 		default:
-			log.Printf("registration request error with %s, and error %s\n", registrationurl, err)
+			log.Printf("registration request error with %s, and error %s\n", registrationURL, err)
 		}
-		registrar = nil
 		serv.ID = 0 // if re-registration failed, a complete new one should be made (POST)
 		return
 	}
@@ -190,8 +139,8 @@ func registerService(sys *components.System, ua *components.UnitAsset, serv *com
 			return
 		}
 
-		headerContentTtype := resp.Header.Get("Content-Type")
-		rRecord, err := Unpack(bodyBytes, headerContentTtype)
+		headerContentType := resp.Header.Get("Content-Type")
+		rRecord, err := Unpack(bodyBytes, headerContentType)
 		if err != nil {
 			log.Printf("error extracting the registration record reply %v\n", err)
 		}
@@ -211,18 +160,19 @@ func registerService(sys *components.System, ua *components.UnitAsset, serv *com
 			log.Printf("Error parsing input: %s", err)
 			return
 		}
-		delay = time.Until(parsedTime.Add(-5 * time.Second)) // should not wait until the deadline to start to confirrm live status
+		// should not wait until the deadline to start to confirm live status
+		delay = time.Until(parsedTime.Add(-5 * time.Second))
 	}
 	return
 }
 
-// deregisterService deletes a service from the database based on its service id
-func deregisterService(registrar *components.CoreSystem, serv *components.Service) error {
-	if registrar == nil {
+// unregisterService deletes a service from the database based on its service id
+func unregisterService(registrar string, serv *components.Service) error {
+	if registrar == "" {
 		return nil // there is no need to deregister if there is no leading registrar
 	}
-	deRegServURL := registrar.Url + "/unregister/" + strconv.Itoa(serv.ID)
-	req, err := http.NewRequest("DELETE", deRegServURL, nil) // create a new request using http
+	unregisterURL := registrar + "/unregister/" + strconv.Itoa(serv.ID)
+	req, err := http.NewRequest("DELETE", unregisterURL, nil) // create a new request using http
 	if err != nil {
 		return err
 	}
