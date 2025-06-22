@@ -126,16 +126,9 @@ func RequestCertificate(sys *components.System) {
 }
 
 func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
-	var err error
-	url := ""
-	for _, cSys := range sys.CoreS {
-		core := cSys
-		if core.Name == "ca" {
-			url = core.Url
-		}
-	}
-	if url == "" {
-		return "", fmt.Errorf("failed to locate certificate authority: %w", err)
+	url, err := components.GetRunningCoreSystemURL(sys, "ca") // Assuming the first core system is the CA
+	if err != nil {
+		return "", fmt.Errorf("failed to get CA URL: %w", err)
 	}
 	url += "/certify"
 
@@ -163,19 +156,6 @@ func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
 
 // getCACertificate gets the CA's certificate necessary for the dual server-client authentication in the TLS setup
 func getCACertificate(sys *components.System) (string, error) {
-	// var err error
-	// coreUAurl := ""
-	// for _, cSys := range sys.CoreS {
-	// 	core := cSys
-	// 	if core.Name == "ca" {
-	// 		coreUAurl = core.Url
-	// 	}
-	// }
-	// if coreUAurl == "" {
-	// 	return "", fmt.Errorf("failed to locate certificate authority: %w", err)
-	// }
-
-	// Get the URL of the CA's configuration
 	coreUAurl, err := components.GetRunningCoreSystemURL(sys, "ca") // Assuming the first core system is the CA
 	if err != nil {
 		return "", fmt.Errorf("failed to get CA URL: %w", err)
@@ -184,8 +164,6 @@ func getCACertificate(sys *components.System) (string, error) {
 	url := strings.TrimSuffix(coreUAurl, "ification")
 
 	// Make a GET request to the CA's endpoint
-	// https://stackoverflow.com/questions/70281883/golang-untaint-url-variable-to-fix-gosec-warning-g107
-	//resp, err := http.Get(url)
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		log.Printf("Error creating NewRequest: %v", err)
