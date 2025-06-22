@@ -22,6 +22,7 @@
 package components
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -29,7 +30,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 )
 
@@ -64,57 +64,70 @@ func NewSystem(name string, ctx context.Context) System {
 	return newSystem
 }
 
+func verifyStatus(u *url.URL) ([]byte, error) {
+	resp, err := http.Get(u.String())
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	// Body must be fully drained AND closed upon returning, otherwise it might leak memory
+	body, err := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("bad response: %d %s", resp.StatusCode, resp.Status)
+	}
+	return body, err
+}
+
+const ServiceRegistrarName string = "serviceregistrar"
+const ServiceRegistrarLeader string = "lead Service Registrar since"
+
 // GetRunningCoreSystemURL returns the URL of a running core system based on the provided type.
 // When systemType is "serviceregistrar", it verifies the service is the lead registrar by checking
 // its /status endpoint response. For other core system types, it simply tests that the URL is accessible.
 func GetRunningCoreSystemURL(sys *System, systemType string) (string, error) {
+	// Store the latest error encountered when iterating thru the system list
+	// and then return this error if no matching system was found.
+	var lastErr error
+
 	for _, core := range sys.CoreS {
-		if core.Name == systemType {
-			// Special logic for the service registrar: check the status endpoint
-			if systemType == "serviceregistrar" {
-				// statusURL := core.Url + "/status"
-				statusURL, err := url.Parse(core.Url + "/status")
-				if err != nil {
-					fmt.Printf("error parsing core URL for the service registrar: %s\n", err)
-					continue
-				}
-				resp, err := http.Get(statusURL.String())
-				if err != nil {
-					fmt.Printf("error checking service registrar status at %s: %v\n", statusURL, err)
-					continue // Try the next core system instance, if any.
-				}
-				bodyBytes, err := io.ReadAll(resp.Body)
-				errClose := resp.Body.Close() // Always close the response body when done.
-				if err != nil {
-					fmt.Printf("error reading response from %s: %v\n", statusURL, err)
-					continue
-				}
-				if errClose != nil {
-					fmt.Printf("error closing response body: %s\n", errClose)
-				}
-				// Verify status response
-				if strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
-					fmt.Printf("Lead service registrar found at: %s\n", core.Url)
-					return core.Url, nil
-				}
-			} else {
-				// For other core systems, verify that the service is accessible.
-				resp, err := http.Get(core.Url)
-				if err != nil {
-					fmt.Printf("error checking %s at %s: %v\n", systemType, core.Url, err)
-					continue
-				}
-				if err = resp.Body.Close(); err != nil {
-					fmt.Printf("error while closing response body: %s\n", err)
-				}
-				return core.Url, nil
-			}
+		// Ignore unrelated systems
+		if core.Name != systemType {
+			continue
 		}
+
+		coreURL, err := url.Parse(core.Url)
+		if err != nil {
+			lastErr = fmt.Errorf("parsing core URL: %w", err)
+			continue
+		}
+		if systemType == ServiceRegistrarName {
+			coreURL = coreURL.JoinPath("status")
+		}
+
+		body, err := verifyStatus(coreURL)
+		if err != nil {
+			lastErr = fmt.Errorf("verifying core URL: %w", err)
+			continue
+		}
+
+		// Skips non-leading registrars
+		// TODO: race condition when the lead drops and no other registrar have
+		// picked up the slack yet? - Alex
+		if systemType == ServiceRegistrarName && !bytes.HasPrefix(body, []byte(ServiceRegistrarLeader)) {
+			continue
+		}
+
+		return coreURL.String(), nil
 	}
-	return "", fmt.Errorf("failed to locate running core system of type %s", systemType)
+
+	err := fmt.Errorf("core system '%s' not found", systemType)
+	if lastErr != nil {
+		err = fmt.Errorf("core system '%s' not found: %w", systemType, lastErr)
+	}
+	return "", err
 }
 
-// The following code is used only for issues support on GitHub @sdoque --------------------------
+// The following code is used only for issues support on GitHub @sdoque
 var (
 	AppName   string
 	Version   string

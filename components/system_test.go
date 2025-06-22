@@ -111,11 +111,11 @@ func (t *mockTrans) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-const leadRegPrefix = "lead Service Registrar since"
 const coreRegURL = "http://registrar"
+const coreFakeURL = "http://fake"
 
-var coreReg = &CoreSystem{"serviceregistrar", coreRegURL}
-var coreFake = &CoreSystem{"fakesystem", "http://fake"}
+var coreReg = &CoreSystem{ServiceRegistrarName, coreRegURL}
+var coreFake = &CoreSystem{"fakesystem", coreFakeURL}
 
 type sampleGetRunningCoreSystem struct {
 	name    string
@@ -125,26 +125,37 @@ type sampleGetRunningCoreSystem struct {
 }
 
 var tableGetRunningCoreSystem = []sampleGetRunningCoreSystem{
-	// Case: return url for registrar
-	{coreReg.Name, coreReg.Url, false, func(m *mockTrans) { m.setResponse(200, leadRegPrefix) }},
-	// Case: return url.Parse() error for registrar
+	// Tests for non-registrars
+	// Case: url.Parse() error
+	{coreFake.Name, "", true, func(m *mockTrans) { coreFake.Url = string(rune(0)) }},
+	// Case: http.Get() error
+	{coreFake.Name, "", true, func(m *mockTrans) { m.setError() }},
+	// Case: io.ReadAll() error
+	{coreFake.Name, "", true, func(m *mockTrans) { m.setBodyError() }},
+	// Case: http < 200 error
+	{coreFake.Name, "", true, func(m *mockTrans) { m.setResponse(199, "") }},
+	// Case: http > 299 error
+	{coreFake.Name, "", true, func(m *mockTrans) { m.setResponse(300, "") }},
+	// Case: return url
+	{coreFake.Name, coreFake.Url, false, nil},
+
+	// Tests for registrars
+	// Case: url.Parse() error
 	{coreReg.Name, "", true, func(m *mockTrans) { coreReg.Url = string(rune(0)) }},
-	// Case: return http.Get() error fro registrar
+	// Case: http.Get() error
 	{coreReg.Name, "", true, func(m *mockTrans) { m.setError() }},
-	// Case: return io.ReadAll() error for registrar
+	// Case: io.ReadAll() error
 	{coreReg.Name, "", true, func(m *mockTrans) { m.setBodyError() }},
-	// Case: return body.Close() error for registrar
-	{coreReg.Name, "", true, func(m *mockTrans) { m.setBodyCloseError() }},
+	// Case: http < 200 error
+	{coreReg.Name, "", true, func(m *mockTrans) { m.setResponse(199, "") }},
+	// Case: http > 299 error
+	{coreReg.Name, "", true, func(m *mockTrans) { m.setResponse(300, "") }},
 	// Case: return error when missing prefix string in body for registrar
 	{coreReg.Name, "", true, nil},
-
-	// Case: return url and no error for non-registrar
-	{coreFake.Name, coreFake.Url, false, nil},
-	// Case: return http.Get() error for non-registrar
-	{coreFake.Name, "", true, func(m *mockTrans) { m.setError() }},
-	// Case: return body.Close() error for non-registrar
-	// TODO: can't test this for now, since the original error handling is so poor
-	// {coreFake.Name, "", true, func(m *mockTrans) { m.setBodyCloseError() }},
+	// Case: return url
+	{coreReg.Name, coreReg.Url + "/status", false, func(m *mockTrans) {
+		m.setResponse(200, ServiceRegistrarLeader)
+	}},
 }
 
 func TestGetRunningCoreSystem(t *testing.T) {
@@ -162,7 +173,8 @@ func TestGetRunningCoreSystem(t *testing.T) {
 	sys.CoreS = []*CoreSystem{coreReg, coreFake}
 
 	for _, test := range tableGetRunningCoreSystem {
-		coreReg.Url = coreRegURL // reset after testing url.Parse errors
+		coreReg.Url = coreRegURL // reset URLs after testing url.Parse() errors
+		coreFake.Url = coreFakeURL
 		m := newMockTransport()
 		if test.setup != nil {
 			test.setup(m)
@@ -171,7 +183,7 @@ func TestGetRunningCoreSystem(t *testing.T) {
 		gotURL, gotErr := GetRunningCoreSystemURL(&sys, test.name)
 		switch {
 		case test.wantErr == (gotErr == nil):
-			t.Errorf("expected error = %v, got '%v'", test.wantErr, gotErr)
+			t.Errorf("expected error = %v, got: %v", test.wantErr, gotErr)
 		case gotURL != test.url:
 			t.Errorf("expected core system URL '%s', got '%s'", test.url, gotURL)
 		}
