@@ -100,6 +100,7 @@ func GetRunningCoreSystemURL(sys *System, systemType string) (string, error) {
 			lastErr = fmt.Errorf("parsing core URL: %w", err)
 			continue
 		}
+		coreSystemURL := coreURL.String() // Preserves the original URL
 		if systemType == ServiceRegistrarName {
 			coreURL = coreURL.JoinPath("status")
 		}
@@ -117,7 +118,7 @@ func GetRunningCoreSystemURL(sys *System, systemType string) (string, error) {
 			continue
 		}
 
-		return coreURL.String(), nil
+		return coreSystemURL, nil
 	}
 
 	err := fmt.Errorf("core system '%s' not found", systemType)

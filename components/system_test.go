@@ -153,7 +153,7 @@ var tableGetRunningCoreSystem = []sampleGetRunningCoreSystem{
 	// Case: return error when missing prefix string in body for registrar
 	{coreReg.Name, "", true, nil},
 	// Case: return url
-	{coreReg.Name, coreReg.Url + "/status", false, func(m *mockTrans) {
+	{coreReg.Name, coreReg.Url, false, func(m *mockTrans) {
 		m.setResponse(200, ServiceRegistrarLeader)
 	}},
 }
