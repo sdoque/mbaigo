@@ -23,6 +23,7 @@ package usecases
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
@@ -50,25 +51,27 @@ type templateOut struct {
 // Since it does not know about the details of the Thing, it does not unmarsahll this
 // information
 type configFileIn struct {
-	CName        string                  `json:"systemname"`
-	rawResources []json.RawMessage       `json:"-"`
-	Protocols    map[string]int          `json:"protocolsNports"`
-	CCoreS       []components.CoreSystem `json:"coreSystems"`
+	CName     string                  `json:"systemname"`
+	Protocols map[string]int          `json:"protocolsNports"`
+	CCoreS    []components.CoreSystem `json:"coreSystems"`
+	Resources []json.RawMessage       `json:"unit_assets"`
 }
+
+var ErrNewConfig = errors.New("a new configuration file has been created. Please update it and restart the system")
 
 // Configure reads the system configuration JSON file to get the deployment details.
 // If the file is missing, it generates a default systemconfig.json file and shuts down the system
 func Configure(sys *components.System) ([]json.RawMessage, error) {
-	// prepare content of configuration file
-	var defaultConfig templateOut
-
-	// var servicesList []components.Service // this is the list of services for each unit asset
-
 	var assetTemplate components.UnitAsset
+	if sys.UAssets == nil {
+		return nil, fmt.Errorf("unitAsset missing")
+	}
+
 	for _, ua := range sys.UAssets {
 		assetTemplate = *ua // this creates a copy (value, not reference)
 		break               // stop after the first entry
 	}
+
 	servicesTemplate := getServicesList(assetTemplate)
 
 	confAsset := ConfigurableAsset{
@@ -88,7 +91,8 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 			}
 		}
 	}
-
+	// prepare content of configuration file
+	var defaultConfig templateOut
 	defaultConfig.CName = sys.Name
 	defaultConfig.Protocols = sys.Husk.ProtoPort
 	defaultConfig.Assets = []ConfigurableAsset{confAsset} // this is a list of unit assets
@@ -130,7 +134,7 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 		if err != nil {
 			return nil, fmt.Errorf("jsonEncode: %w", err)
 		}
-		return nil, fmt.Errorf("a new configuration file has been created. Please update it and restart the system")
+		return nil, ErrNewConfig
 	}
 
 	// the system configuration file could be open, read the configurations and pass them on to the system
@@ -140,32 +144,22 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 		return rawBytes, err
 	}
 
-	// the challenge is that the definition of the unit asset is unknown to the mbaigo library and only known to the system that invokes the library
 	var configurationIn configFileIn
-	// extract the information related to the system separately from the unit_assets (i.e., the resources)
-	type Alias configFileIn
-	aux := &struct {
-		Resources []json.RawMessage `json:"unit_assets"`
-		*Alias
-	}{
-		Alias: (*Alias)(&configurationIn),
-	}
-	if err := json.Unmarshal(configBytes, aux); err != nil {
+	if err := json.Unmarshal(configBytes, &configurationIn); err != nil {
 		return rawBytes, err
 	}
-	if len(aux.Resources) > 0 {
-		configurationIn.rawResources = aux.Resources
+	var rawResources []json.RawMessage
+	if len(configurationIn.Resources) > 0 {
+		rawResources = configurationIn.Resources
 	} else {
-		var rawMessages []json.RawMessage
 		for _, s := range defaultConfig.Assets {
 			// convert the struct to JSON-encoded byte array
 			jsonBytes, err := json.Marshal(s)
 			if err != nil {
 				fmt.Println("Failed to marshal struct:", err)
 			}
-			rawMessages = append(rawMessages, json.RawMessage(jsonBytes)) // append the json.RawMessage to the slice
+			rawResources = append(rawResources, json.RawMessage(jsonBytes)) // append the json.RawMessage to the slice
 		}
-		configurationIn.rawResources = rawMessages
 	}
 
 	sys.Name = configurationIn.CName
@@ -175,7 +169,7 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 		sys.CoreS = append(sys.CoreS, &newCore)
 	}
 
-	return configurationIn.rawResources, nil
+	return rawResources, nil
 }
 
 // getServicesList() returns the original list of services
