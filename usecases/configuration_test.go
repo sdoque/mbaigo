@@ -172,7 +172,6 @@ func TestConfigure(t *testing.T) {
 	defer os.Remove("systemconfig.json")
 	for _, testCase := range testParams {
 		testSys := createTestSystem(false)
-		log.Printf("testSys: %#v", testSys.UAssets)
 		if testCase.testCase == "Missing asset" {
 			testSys.UAssets = nil
 		}
