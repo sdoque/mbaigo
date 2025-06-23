@@ -14,7 +14,6 @@ import (
 )
 
 type stateParams struct {
-	testCase         string
 	testCer          *components.Cervice
 	testSys          *components.System
 	bodyBytes        []byte
@@ -23,6 +22,7 @@ type stateParams struct {
 	errHTTP          error
 	expectedfForm    forms.Form
 	expectedErr      error
+	testCase         string
 }
 
 func newTestCerviceWithNodes() *components.Cervice {
@@ -152,105 +152,15 @@ func createUnpackErrorHttpResp() func() *http.Response {
 }
 
 var testStateParams = []stateParams{
-	{
-		"No errors with nodes",
-		newTestCerviceWithNodes(),
-		&testSys,
-		createTestBytes(),
-		createWorkingHttpResp(),
-		0,
-		nil,
-		form.NewForm(),
-		nil,
-	},
-	{
-		"No errors without nodes",
-		&testCerviceWithoutNodes,
-		&testSys,
-		createTestBytes(),
-		createDoubleHttpResp(),
-		0,
-		nil,
-		form.NewForm(),
-		nil,
-	},
-	{
-		"Empty response body error",
-		newTestCerviceWithNodes(),
-		&testSys,
-		nil,
-		createEmptyHttpResp(),
-		0,
-		nil,
-		nil,
-		errEmptyRespBody,
-	},
-	{
-		"Search4Services error",
-		&testCerviceWithoutNodes,
-		&testSys,
-		createTestBytes(),
-		createWorkingHttpResp(),
-		1,
-		errHTTP,
-		nil,
-		errHTTP,
-	},
-	{
-		"NewRequest() error",
-		&testCerviceWithBrokenUrl,
-		&testSys,
-		createTestBytes(),
-		createWorkingHttpResp(),
-		2,
-		errHTTP,
-		nil,
-		errHTTP,
-	},
-	{
-		"Status code error",
-		newTestCerviceWithNodes(),
-		&testSys,
-		createTestBytes(),
-		createStatusErrorHttpResp(),
-		2,
-		errHTTP,
-		nil,
-		errHTTP,
-	},
-	{
-		"io.ReadAll() error",
-		newTestCerviceWithNodes(),
-		&testSys,
-		createTestBytes(),
-		createErrorReaderHttpResp(),
-		0,
-		nil,
-		nil,
-		errBodyRead,
-	},
-	{
-		"Unpack() error",
-		newTestCerviceWithNodes(),
-		&testSys,
-		createTestBytes(),
-		createUnpackErrorHttpResp(),
-		0,
-		nil,
-		nil,
-		errUnpack,
-	},
-	{
-		"DefaultClient.Do() error",
-		newTestCerviceWithNodes(),
-		&testSys,
-		createTestBytes(),
-		createWorkingHttpResp(),
-		1,
-		errHTTP,
-		nil,
-		errHTTP,
-	},
+	{newTestCerviceWithNodes(), &testSys, createTestBytes(), createWorkingHttpResp(), 0, nil, form.NewForm(), nil, "No errors with nodes"},
+	{&testCerviceWithoutNodes, &testSys, createTestBytes(), createDoubleHttpResp(), 0, nil, form.NewForm(), nil, "No errors without nodes"},
+	{newTestCerviceWithNodes(), &testSys, nil, createEmptyHttpResp(), 0, nil, nil, errEmptyRespBody, "Empty response body error"},
+	{&testCerviceWithoutNodes, &testSys, createTestBytes(), createWorkingHttpResp(), 1, errHTTP, nil, errHTTP, "Search4Services error"},
+	{&testCerviceWithBrokenUrl, &testSys, createTestBytes(), createWorkingHttpResp(), 2, errHTTP, nil, errHTTP, "NewRequest() error"},
+	{newTestCerviceWithNodes(), &testSys, createTestBytes(), createStatusErrorHttpResp(), 2, errHTTP, nil, errHTTP, "Status code error"},
+	{newTestCerviceWithNodes(), &testSys, createTestBytes(), createErrorReaderHttpResp(), 0, nil, nil, errBodyRead, "io.ReadAll() error"},
+	{newTestCerviceWithNodes(), &testSys, createTestBytes(), createUnpackErrorHttpResp(), 0, nil, nil, errUnpack, "Unpack() error"},
+	{newTestCerviceWithNodes(), &testSys, createTestBytes(), createWorkingHttpResp(), 1, errHTTP, nil, errHTTP, "DefaultClient.Do() error"},
 }
 
 func TestGetState(t *testing.T) {
