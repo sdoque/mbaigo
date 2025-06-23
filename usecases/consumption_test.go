@@ -1,17 +1,13 @@
 package usecases
 
 import (
-	//"encoding/json"
-	//"fmt"
-	//"io"
-	//"reflect"
-	//"strings"
+	"encoding/json"
+	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"testing"
-
-	//"time"
 
 	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
@@ -39,19 +35,11 @@ func newTestCerviceWithNodes() *components.Cervice {
 	}
 }
 
-var testCerviceWithNodesRefresh = components.Cervice{
-	IReferentce: "test",
-	Definition:  "A test Cervice with nodes",
-	Details:     map[string][]string{"Forms": {"SignalA_v1a"}},
-	Nodes:       map[string][]string{"test": {"https://testSystem/testUnitAsset/test"}},
-	Protos:      []string{"http"},
-}
-
 var testCerviceWithoutNodes = components.Cervice{
 	IReferentce: "test",
 	Definition:  "A test Cervice without nodes",
 	Details:     map[string][]string{"Forms": {"SignalA_v1a"}},
-	Nodes:       nil,
+	Nodes:       make(map[string][]string),
 	Protos:      []string{"http"},
 }
 
@@ -67,74 +55,142 @@ var testSys = createTestSystem(false)
 
 var form forms.SignalA_v1a
 
+var errEmptyRespBody = errors.New("got empty response body")
+
+var errUnpack = errors.New("Problem unpacking response body")
+
+func createTestBytes() []byte {
+	return []byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}")
+}
+
+func createWorkingHttpResp() func() *http.Response {
+	httpResp := func() *http.Response {
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"))),
+		}
+	}
+	return httpResp
+}
+
+// This function creates two different http responses with a different body, since some tests build on receiving multiple correct http responses
+func createDoubleHttpResp() func() *http.Response {
+	f := createServicePointTestForm()
+	// Create mock response from orchestrator
+	fakeBody, err := json.Marshal(f)
+	if err != nil {
+		log.Println("Fail Marshal at start of test")
+	}
+	count := 0
+	return func() *http.Response {
+		count++
+		if count == 2 || count == 5 {
+			return &http.Response{
+				Status:     "200 OK",
+				StatusCode: 200,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(string(fakeBody))),
+			}
+		}
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"))),
+		}
+	}
+}
+
+func createEmptyHttpResp() func() *http.Response {
+	httpResp := func() *http.Response {
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string(""))),
+		}
+	}
+	return httpResp
+}
+
+func createStatusErrorHttpResp() func() *http.Response {
+	httpResp := func() *http.Response {
+		return &http.Response{
+			Status:     "300 NAK",
+			StatusCode: 300,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"))),
+		}
+	}
+	return httpResp
+}
+
+func createErrorReaderHttpResp() func() *http.Response {
+	httpResp := func() *http.Response {
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(errorReader{}),
+		}
+	}
+	return httpResp
+}
+
+func createUnpackErrorHttpResp() func() *http.Response {
+	httpResp := func() *http.Response {
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"Wrong content type"}},
+			Body:       io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"))),
+		}
+	}
+	return httpResp
+}
+
 var testStateParams = []stateParams{
 	{
-		"No errors",
+		"No errors with nodes",
 		newTestCerviceWithNodes(),
 		&testSys,
-		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
-		func() *http.Response {
-			return &http.Response{
-				Status:     "200 OK",
-				StatusCode: 200,
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-				Body:       io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"))),
-			}
-		},
+		createTestBytes(),
+		createWorkingHttpResp(),
 		0,
 		nil,
 		form.NewForm(),
 		nil,
 	},
 	{
-		"No errors",
+		"No errors without nodes",
 		&testCerviceWithoutNodes,
 		&testSys,
-		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
-		func() *http.Response {
-			return &http.Response{
-				Status:     "200 OK",
-				StatusCode: 200,
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-				Body:       io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"))),
-			}
-		},
+		createTestBytes(),
+		createDoubleHttpResp(),
 		0,
 		nil,
 		form.NewForm(),
 		nil,
 	},
 	{
-		"No errors SetState",
+		"Empty response body error",
 		newTestCerviceWithNodes(),
 		&testSys,
 		nil,
-		func() *http.Response {
-			return &http.Response{
-				Status:     "200 OK",
-				StatusCode: 200,
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-				Body:       io.NopCloser(strings.NewReader(string(""))),
-			}
-		},
+		createEmptyHttpResp(),
 		0,
 		nil,
-		form.NewForm(),
 		nil,
+		errEmptyRespBody,
 	},
 	{
 		"Search4Services error",
 		&testCerviceWithoutNodes,
 		&testSys,
-		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
-		func() *http.Response {
-			return &http.Response{
-				Status:     "200 OK",
-				StatusCode: 200,
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-				Body:       io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"))),
-			}
-		},
+		createTestBytes(),
+		createWorkingHttpResp(),
 		1,
 		errHTTP,
 		nil,
@@ -144,16 +200,9 @@ var testStateParams = []stateParams{
 		"NewRequest() error",
 		&testCerviceWithBrokenUrl,
 		&testSys,
-		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
-		func() *http.Response {
-			return &http.Response{
-				Status:     "200 OK",
-				StatusCode: 200,
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-				Body:       io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"))),
-			}
-		},
-		1,
+		createTestBytes(),
+		createWorkingHttpResp(),
+		2,
 		errHTTP,
 		nil,
 		errHTTP,
@@ -162,15 +211,8 @@ var testStateParams = []stateParams{
 		"Status code error",
 		newTestCerviceWithNodes(),
 		&testSys,
-		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
-		func() *http.Response {
-			return &http.Response{
-				Status:     "300 NAK",
-				StatusCode: 300,
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-				Body:       io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"))),
-			}
-		},
+		createTestBytes(),
+		createStatusErrorHttpResp(),
 		2,
 		errHTTP,
 		nil,
@@ -180,51 +222,30 @@ var testStateParams = []stateParams{
 		"io.ReadAll() error",
 		newTestCerviceWithNodes(),
 		&testSys,
-		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
-		func() *http.Response {
-			return &http.Response{
-				Status:     "200 OK",
-				StatusCode: 200,
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-				Body:       io.NopCloser(errorReader{}),
-			}
-		},
+		createTestBytes(),
+		createErrorReaderHttpResp(),
 		0,
 		nil,
 		nil,
-		nil,
+		errBodyRead,
 	},
 	{
 		"Unpack() error",
 		newTestCerviceWithNodes(),
 		&testSys,
-		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
-		func() *http.Response {
-			return &http.Response{
-				Status:     "200 OK",
-				StatusCode: 200,
-				Header:     http.Header{"Content-Type": []string{"Wrong content type"}},
-				Body:       io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"))),
-			}
-		},
+		createTestBytes(),
+		createUnpackErrorHttpResp(),
 		0,
 		nil,
 		nil,
-		nil,
+		errUnpack,
 	},
 	{
 		"DefaultClient.Do() error",
 		newTestCerviceWithNodes(),
 		&testSys,
-		[]byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"),
-		func() *http.Response {
-			return &http.Response{
-				Status:     "200 OK",
-				StatusCode: 200,
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-				Body:       io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"))),
-			}
-		},
+		createTestBytes(),
+		createWorkingHttpResp(),
 		1,
 		errHTTP,
 		nil,
@@ -235,27 +256,16 @@ var testStateParams = []stateParams{
 func TestGetState(t *testing.T) {
 	for _, test := range testStateParams {
 		newMockTransport(test.body, test.mockTransportErr, test.errHTTP)
-
-		// No need to test this as the test is specifically for SetState
-		if test.testCase == "No errors SetState" {
-			continue
-		}
-
 		res, err := GetState(test.testCer, test.testSys)
 
-		// Directly compare the fields of the expected and actual forms
-		if res != nil && test.bodyBytes != nil {
+		if test.expectedfForm != nil {
 			expected := test.expectedfForm.(*forms.SignalA_v1a)
 			actual := res.(*forms.SignalA_v1a)
-			if test.testCase == "No errors" {
-				if expected.Value != actual.Value || expected.Unit != actual.Unit || expected.Timestamp != actual.Timestamp || expected.Version != actual.Version || err != test.expectedErr {
-					t.Errorf("Test case: %s got error: %v. \nExpected form: \n%+v\n, got: \n%+v", test.testCase, err, expected, actual)
-				}
+			if expected.Value != actual.Value || expected.Unit != actual.Unit || expected.Timestamp != actual.Timestamp || expected.Version != actual.Version || err != test.expectedErr {
+				t.Errorf("Test case: %s got error: %v. \nExpected form: \n%+v\n, got: \n%+v", test.testCase, err, expected, actual)
 			}
-		} else {
-			if err == nil {
-				t.Errorf("Test case: %s got error: %v:", test.testCase, err)
-			}
+		} else if err == nil {
+			t.Errorf("Test case: %s got error: %v:", test.testCase, err)
 		}
 	}
 }
@@ -265,84 +275,21 @@ func TestSetState(t *testing.T) {
 		newMockTransport(test.body, test.mockTransportErr, test.errHTTP)
 
 		if test.testCase == "DefaultClient.Do() error" {
-			test.testCer = &testCerviceWithNodesRefresh
+			test.testCer.Nodes = map[string][]string{"test": {"https://testSystem/testUnitAsset/test"}}
 		}
-		res, err := SetState(test.testCer, test.testSys, nil)
-
-		// Directly compare the fields of the expected and actual forms
-		if res != nil && test.bodyBytes != nil {
-			expected := test.expectedfForm.(*forms.SignalA_v1a)
-			actual := res.(*forms.SignalA_v1a)
-			if test.testCase == "No errors" {
-				if expected.Value != actual.Value || expected.Unit != actual.Unit || expected.Timestamp != actual.Timestamp || expected.Version != actual.Version || err != test.expectedErr {
-					t.Errorf("Test case: %s got error: %v. \nExpected form: \n%+v\n, got: \n%+v", test.testCase, err, expected, actual)
-				}
-			}
-		} else if test.bodyBytes == nil {
-			if err != nil && res != nil {
-				t.Errorf("Test case: %s got error: %v:", test.testCase, err)
-			}
-		} else {
-			if err == nil {
-				t.Errorf("Test case: %s got error: %v:", test.testCase, err)
-			}
-		}
-	}
-}
-
-/*
-func TestForstateHandler(t *testing.T) {
-	for _, test := range testStateParams {
-		newMockTransport(test.body, test.mockTransportErr, test.errHTTP)
-
-		// No need to test this as the test is specifically for SetState
-		if test.testCase == "No errors SetState" {
-			continue
-		}
-
-		res, err := GetState(test.testCer, test.testSys)
-
-		// Directly compare the fields of the expected and actual forms
-		if res != nil && test.bodyBytes != nil {
-			expected := test.expectedfForm.(*forms.SignalA_v1a)
-			actual := res.(*forms.SignalA_v1a)
-			if test.testCase == "No errors" {
-				if expected.Value != actual.Value || expected.Unit != actual.Unit || expected.Timestamp != actual.Timestamp || expected.Version != actual.Version || err != test.expectedErr {
-					t.Errorf("Test case: %s got error: %v. \nExpected form: \n%+v\n, got: \n%+v", test.testCase, err, expected, actual)
-				}
-			}
-		} else {
-			if err == nil {
-				t.Errorf("Test case: %s got error: %v:", test.testCase, err)
-			}
-		}
-	}
-	for _, test := range testStateParams {
-		newMockTransport(test.body, test.mockTransportErr, test.errHTTP)
-
-		if test.testCase == "DefaultClient.Do() error" {
-			test.testCer = &testCerviceWithNodesRefresh
+		if test.testCase == "No errors without nodes" {
+			test.testCer.Nodes = make(map[string][]string)
 		}
 		res, err := SetState(test.testCer, test.testSys, test.bodyBytes)
 
-		// Directly compare the fields of the expected and actual forms
-		if res != nil && test.bodyBytes != nil {
+		if test.expectedfForm != nil {
 			expected := test.expectedfForm.(*forms.SignalA_v1a)
 			actual := res.(*forms.SignalA_v1a)
-			if test.testCase == "No errors" {
-				if expected.Value != actual.Value || expected.Unit != actual.Unit || expected.Timestamp != actual.Timestamp || expected.Version != actual.Version || err != test.expectedErr {
-					t.Errorf("Test case: %s got error: %v. \nExpected form: \n%+v\n, got: \n%+v", test.testCase, err, expected, actual)
-				}
+			if expected.Value != actual.Value || expected.Unit != actual.Unit || expected.Timestamp != actual.Timestamp || expected.Version != actual.Version || err != test.expectedErr {
+				t.Errorf("Test case: %s got error: %v. \nExpected form: \n%+v\n, got: \n%+v", test.testCase, err, expected, actual)
 			}
-		} else if test.bodyBytes == nil {
-			if err != nil && res != nil {
-				t.Errorf("Test case: %s got error: %v:", test.testCase, err)
-			}
-		} else {
-			if err == nil {
-				t.Errorf("Test case: %s got error: %v:", test.testCase, err)
-			}
+		} else if err == nil {
+			t.Errorf("Test case: %s got error: %v:", test.testCase, err)
 		}
 	}
 }
-*/
