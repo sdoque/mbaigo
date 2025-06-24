@@ -57,18 +57,17 @@ type configFileIn struct {
 	Resources []json.RawMessage       `json:"unit_assets"`
 }
 
-var ErrNewConfig = errors.New("a new configuration file has been created. Please update it and restart the system")
+var ErrNewConfig = errors.New("A new configuration file has been created. Please update it and restart the system")
 
-// Configure reads the system configuration JSON file to get the deployment details.
-// If the file is missing, it generates a default systemconfig.json file and shuts down the system
-func Configure(sys *components.System) ([]json.RawMessage, error) {
+// TODO: Create setupDefaultConfig() to create a defaultConfig used to write default values to systemconfig in Configure().
+func setupDefaultConfig(sys *components.System) (defaultConfig templateOut, err error) {
 	var assetTemplate components.UnitAsset
 	if sys.UAssets == nil {
-		return nil, fmt.Errorf("unitAssets missing")
+		return defaultConfig, fmt.Errorf("unitAssets missing")
 	}
 
 	for _, ua := range sys.UAssets {
-		assetTemplate = *ua
+		assetTemplate = *ua // this creates a copy (value, not reference)
 		break
 	}
 
@@ -84,13 +83,77 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 	if assetWithTraits, ok := assetTemplate.(components.HasTraits); ok {
 		if traits := assetWithTraits.GetTraits(); traits != nil {
 			traitJSON, err := json.Marshal(traits)
-			if err == nil {
-				confAsset.Traits = []json.RawMessage{traitJSON}
-			} else {
-				fmt.Println("Warning: could not marshal traits:", err)
+			if err != nil {
+				return defaultConfig, fmt.Errorf("couldn't marshal traits: %v", err)
 			}
+			confAsset.Traits = []json.RawMessage{traitJSON}
 		}
 	}
+
+	// prepare content of configuration file
+	defaultConfig.CName = sys.Name
+	defaultConfig.Protocols = sys.Husk.ProtoPort
+	defaultConfig.Assets = []ConfigurableAsset{confAsset} // this is a list of unit assets
+
+	servReg := components.CoreSystem{
+		Name: "serviceregistrar",
+		Url:  "http://localhost:20102/serviceregistrar/registry",
+	}
+	orches := components.CoreSystem{
+		Name: "orchestrator",
+		Url:  "http://localhost:20103/orchestrator/orchestration",
+	}
+	ca := components.CoreSystem{
+		Name: "ca",
+		Url:  "http://localhost:20100/ca/certification",
+	}
+	maitreD := components.CoreSystem{
+		Name: "maitreD",
+		Url:  "http://localhost:20101/maitreD/maitreD",
+	}
+
+	// add the core systems to the configuration file
+	// the system is part of a local cloud with mandatory core systems
+	coreSystems := []components.CoreSystem{servReg, orches, ca, maitreD}
+	defaultConfig.CCoreS = coreSystems
+	return defaultConfig, nil
+}
+
+// TODO: Make a default config from tests branch, and use it to compare the systemconfig file created here against that,
+//       this ensures correct behaviour while creating a config.
+
+// Configure reads the system configuration JSON file to get the deployment details.
+// If the file is missing, it generates a default systemconfig.json file and shuts down the system
+func Configure(sys *components.System) ([]json.RawMessage, error) {
+	var assetTemplate components.UnitAsset
+	if sys.UAssets == nil {
+		return nil, fmt.Errorf("unitAssets missing")
+	}
+
+	for _, ua := range sys.UAssets {
+		assetTemplate = *ua // this creates a copy (value, not reference)
+		break
+	}
+
+	servicesTemplate := getServicesList(assetTemplate)
+
+	confAsset := ConfigurableAsset{
+		Name:     assetTemplate.GetName(),
+		Details:  assetTemplate.GetDetails(),
+		Services: servicesTemplate,
+	}
+
+	// If the asset exposes traits, serialize them and store as raw JSON
+	if assetWithTraits, ok := assetTemplate.(components.HasTraits); ok {
+		if traits := assetWithTraits.GetTraits(); traits != nil {
+			traitJSON, err := json.Marshal(traits)
+			if err != nil {
+				return nil, fmt.Errorf("couldn't marshal traits: %v", err)
+			}
+			confAsset.Traits = []json.RawMessage{traitJSON}
+		}
+	}
+
 	// prepare content of configuration file
 	var defaultConfig templateOut
 	defaultConfig.CName = sys.Name
@@ -113,13 +176,22 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 		Name: "maitreD",
 		Url:  "http://localhost:20101/maitreD/maitreD",
 	}
+
 	// add the core systems to the configuration file
 	// the system is part of a local cloud with mandatory core systems
 	coreSystems := []components.CoreSystem{servReg, orches, ca, maitreD}
 	defaultConfig.CCoreS = coreSystems
 
-	// 0600 allows sudo Read/Write permission (secure config file), but no R/W for groups and users, 0644 to allow R/W on sudo and only R on groups/users, 0666 for R/W permissions for everyone
-	systemConfigFile, err := os.OpenFile("systemconfig.json", os.O_RDONLY|os.O_CREATE|os.O_RDWR, 0600)
+	// TODO: Make sure this works like all the above code
+	/*
+		defaultConfig, err := setupDefaultConfig(sys)
+		if err != nil {
+			return nil, fmt.Errorf("couldn't create default config: %v", err)
+		}
+	*/
+
+	// 0600 allows user Read/Write permission (secure config file), but no R/W for groups and others, 0644 to allow R/W on sudo and only R on groups/others, 0666 for R/W permissions for everyone
+	systemConfigFile, err := os.OpenFile("systemconfig.json", os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("error while opening/creating systemconfig file, check permissions on config file")
 	}
@@ -127,7 +199,7 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 
 	fileInfo, err := systemConfigFile.Stat() // *.Stat() returns fileInfo/stats
 	if err != nil {
-		return nil, fmt.Errorf("error occured while getting config file stats")
+		return nil, fmt.Errorf("error occurred while getting config file stats")
 	}
 	if fileInfo.Size() == 0 { // *.Size() returns the filesize (number bytes) as an int, 0 is an empty file
 		enc := json.NewEncoder(systemConfigFile)
