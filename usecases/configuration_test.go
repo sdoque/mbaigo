@@ -14,9 +14,9 @@ import (
 
 // A mocked UnitAsset used for testing
 type mockUnitAssetWithTraits struct {
-	Name        string              `json:"name"`    // Must be a unique name, ie. a sensor ID
-	Owner       *components.System  `json:"-"`       // The parent system this UA is part of
-	Details     map[string][]string `json:"details"` // Metadata or details about this UA
+	Name        string              `json:"name"`
+	Owner       *components.System  `json:"-"`
+	Details     map[string][]string `json:"details"`
 	ServicesMap components.Services `json:"-"`
 	CervicesMap components.Cervices `json:"-"`
 	Traits      map[string][]string `json:"-"`
@@ -50,8 +50,8 @@ func createConfig(sys *components.System, assetTrait bool, assetAmount int) {
 
 	var assetTemplate components.UnitAsset
 	for _, ua := range sys.UAssets {
-		assetTemplate = *ua // this creates a copy (value, not reference)
-		break               // stop after the first entry
+		assetTemplate = *ua
+		break
 	}
 	servicesTemplate := getServicesList(assetTemplate)
 
@@ -101,9 +101,9 @@ func createConfig(sys *components.System, assetTrait bool, assetAmount int) {
 	if assetAmount > 0 {
 		for x := range assetAmount {
 			setTest := components.Service{
-				ID:            x + 1,
-				Definition:    fmt.Sprintf("test%d", x+1),
-				SubPath:       fmt.Sprintf("test%d", x+1),
+				ID:            x,
+				Definition:    fmt.Sprintf("test%d", x),
+				SubPath:       fmt.Sprintf("test%d", x),
 				Details:       map[string][]string{"Forms": {"SignalA_v1a"}},
 				Description:   "A test service",
 				RegPeriod:     45,
@@ -112,14 +112,14 @@ func createConfig(sys *components.System, assetTrait bool, assetAmount int) {
 			}
 			servList := []components.Service{setTest}
 			mua := ConfigurableAsset{
-				Name:     fmt.Sprintf("testUnitAsset%d", x+1),
+				Name:     fmt.Sprintf("testUnitAsset%d", x),
 				Details:  map[string][]string{"Test": {"Test"}},
 				Services: servList,
 			}
-
 			defaultConfig.Assets = append(defaultConfig.Assets, mua)
 		}
 	}
+
 	leadingRegistrar := components.CoreSystem{
 		Name: "serviceregistrar",
 		Url:  "https://leadingregistrar",
@@ -141,36 +141,36 @@ func createConfig(sys *components.System, assetTrait bool, assetAmount int) {
 	defer defaultConfigFile.Close()
 
 	enc := json.NewEncoder(defaultConfigFile) // Create an encoder that allows writing to a file
-	enc.SetIndent("", "     ")                // Set proper indentation
-	err = enc.Encode(defaultConfig)           // Write defaultConfig template to file
+	enc.SetIndent("", "     ")
+	err = enc.Encode(defaultConfig) // Write defaultConfig template to file
 	if err != nil {
 		log.Fatalf("jsonEncode: %v", err)
 	}
 }
 
 type configureParams struct {
-	testCase        string
-	brokenSystem    bool
 	assetHasTraits  bool
 	assetNumber     int
 	createNewConfig bool
 	allowConfigRead bool
 	expectError     bool
+	testCase        string
 }
 
 func TestConfigure(t *testing.T) {
 	testParams := []configureParams{
-		// {testCase, brokenSystem, assetHasTraits, assetNumber, createNewConfig, allowConfigRead, expectError}
-		{"Best case, no errors", false, false, 1, true, true, false},
-		{"Missing asset", false, false, 0, false, true, true},
-		{"Good case, asset has traits", false, true, 0, true, true, false},
-		{"Config missing", false, false, 1, false, true, true},
-		{"Config missing, cant open or create", false, false, 1, false, false, true},
-		{"No Assets in config", false, false, 0, true, true, false},
-		{"Multiple Assets in config", false, false, 3, true, true, false},
+		// {assetHasTraits, assetNumber, createNewConfig, allowConfigRead, expectError, testCase}
+		{false, 1, true, true, false, "Best case"},
+		{false, 0, false, true, true, "Missing asset"},
+		{true, 0, true, true, false, "Good case, asset has traits"},
+		{false, 1, false, true, true, "Config missing"},
+		{false, 1, false, false, true, "Config missing, cant open or create"},
+		{false, 0, true, true, false, "No Assets in config"},
+		{false, 3, true, true, false, "Multiple Assets in config"},
 	}
 	defer os.Remove("systemconfig.json")
 	for _, testCase := range testParams {
+		os.Remove("systemconfig.json")
 		testSys := createTestSystem(false)
 		if testCase.testCase == "Missing asset" {
 			testSys.UAssets = nil
@@ -184,7 +184,7 @@ func TestConfigure(t *testing.T) {
 		_, err := Configure(&testSys)
 		if testCase.expectError == false {
 			if err != nil {
-				t.Errorf("Expected no errors in best case, got: %#v", err)
+				t.Errorf("Expected no errors in '%s', got: %v", testCase.testCase, err)
 			}
 		} else {
 			if err == nil {
@@ -207,35 +207,27 @@ func TestConfigure(t *testing.T) {
 }
 
 func TestGetServiceList(t *testing.T) {
-	// getServicesList(uat components.UnitAsset) []components.Service
-	testSys := createTestSystem(false)
-	ua := (*testSys.UAssets["testUnitAsset"])
-	servList := getServicesList(ua)
+	setTest := &components.Service{
+		ID:            1,
+		Definition:    "test",
+		SubPath:       "test",
+		Details:       map[string][]string{"Forms": {"SignalA_v1a"}},
+		Description:   "A test service",
+		RegPeriod:     45,
+		RegTimestamp:  "now",
+		RegExpiration: "45",
+	}
+	ServicesMap := &components.Services{
+		setTest.SubPath: setTest,
+	}
+	mua := mockUnitAsset{
+		Name:        "test",
+		Owner:       nil,
+		Details:     nil,
+		ServicesMap: *ServicesMap,
+	}
+	servList := getServicesList(mua)
 	if len(servList) != 1 && servList[0].Definition != "test" {
 		t.Errorf("Expected length: 1, got %d\tExpected 'Definition': test, got %s", len(servList), servList[0].Definition)
-	}
-}
-
-func TestMakeServiceMap(t *testing.T) {
-	var servList []components.Service
-	for x := range 6 {
-		serv := components.Service{
-			ID:            x,
-			Definition:    fmt.Sprintf("testDef%d", x),
-			SubPath:       fmt.Sprintf("test%d", x),
-			Details:       map[string][]string{"Forms": {"SignalA_v1a"}},
-			Description:   fmt.Sprintf("test service %d", x),
-			RegPeriod:     45,
-			RegTimestamp:  "now",
-			RegExpiration: "45",
-		}
-		servList = append(servList, serv)
-	}
-	servMap := MakeServiceMap(servList)
-	for c := range 6 {
-		service := fmt.Sprintf("test%d", c)
-		if servMap[service].SubPath != service || servMap[service].ID != c {
-			t.Errorf(`Expected servMap["%s"].SubPath to be "%s", with ID: "%d". Got Subpath: "%s", with ID: "%d"`, service, service, c, servMap[service].SubPath, servMap[service].ID)
-		}
 	}
 }

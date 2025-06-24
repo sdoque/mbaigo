@@ -64,12 +64,12 @@ var ErrNewConfig = errors.New("a new configuration file has been created. Please
 func Configure(sys *components.System) ([]json.RawMessage, error) {
 	var assetTemplate components.UnitAsset
 	if sys.UAssets == nil {
-		return nil, fmt.Errorf("unitAsset missing")
+		return nil, fmt.Errorf("unitAssets missing")
 	}
 
 	for _, ua := range sys.UAssets {
-		assetTemplate = *ua // this creates a copy (value, not reference)
-		break               // stop after the first entry
+		assetTemplate = *ua
+		break
 	}
 
 	servicesTemplate := getServicesList(assetTemplate)
@@ -118,47 +118,43 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 	coreSystems := []components.CoreSystem{servReg, orches, ca, maitreD}
 	defaultConfig.CCoreS = coreSystems
 
-	var rawBytes []json.RawMessage // the mbaigo library does not know about the unit asset's structure (defined in the file thing.go and not part of the library)
+	// 0600 allows sudo Read/Write permission (secure config file), but no R/W for groups and users, 0644 to allow R/W on sudo and only R on groups/users, 0666 for R/W permissions for everyone
+	systemConfigFile, err := os.OpenFile("systemconfig.json", os.O_RDONLY|os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("error while opening/creating systemconfig file, check permissions on config file")
+	}
+	defer systemConfigFile.Close()
 
-	systemConfigFile, err := os.Open("systemconfig.json")
-	if err != nil { // could not find the systemconfig.json so a default one is being created
-		defaultConfigFile, err := os.Create("systemconfig.json")
+	fileInfo, err := systemConfigFile.Stat() // *.Stat() returns fileInfo/stats
+	if err != nil {
+		return nil, fmt.Errorf("error occured while getting config file stats")
+	}
+	if fileInfo.Size() == 0 { // *.Size() returns the filesize (number bytes) as an int, 0 is an empty file
+		enc := json.NewEncoder(systemConfigFile)
+		enc.SetIndent("", "    ")
+		err = enc.Encode(defaultConfig) // Write default values into systemconfig since file was empty
 		if err != nil {
-			return rawBytes, err
-		}
-		defer defaultConfigFile.Close()
-
-		enc := json.NewEncoder(defaultConfigFile) // Create an encoder that allows writing to a file
-		enc.SetIndent("", "     ")                // Set proper indentation
-		err = enc.Encode(defaultConfig)           // Write defaultConfig template to file
-		if err != nil {
-			return nil, fmt.Errorf("jsonEncode: %w", err)
+			return nil, fmt.Errorf("error writing default values to system config")
 		}
 		return nil, ErrNewConfig
 	}
 
-	// the system configuration file could be open, read the configurations and pass them on to the system
-	defer systemConfigFile.Close()
-	configBytes, err := os.ReadFile("systemconfig.json")
+	var configurationIn configFileIn
+	err = json.NewDecoder(systemConfigFile).Decode(&configurationIn) // Read the contents of systemconfig into configurationIn
 	if err != nil {
-		return rawBytes, err
+		return nil, fmt.Errorf("error reading systemconfig: %v", err)
 	}
 
-	var configurationIn configFileIn
-	if err := json.Unmarshal(configBytes, &configurationIn); err != nil {
-		return rawBytes, err
-	}
 	var rawResources []json.RawMessage
-	if len(configurationIn.Resources) > 0 {
+	if len(configurationIn.Resources) > 0 { // If unit assets was present in systemconfig file, send those
 		rawResources = configurationIn.Resources
 	} else {
-		for _, s := range defaultConfig.Assets {
-			// convert the struct to JSON-encoded byte array
+		for _, s := range defaultConfig.Assets { // Otherwise send the system default
 			jsonBytes, err := json.Marshal(s)
 			if err != nil {
 				fmt.Println("Failed to marshal struct:", err)
 			}
-			rawResources = append(rawResources, json.RawMessage(jsonBytes)) // append the json.RawMessage to the slice
+			rawResources = append(rawResources, json.RawMessage(jsonBytes))
 		}
 	}
 
@@ -180,15 +176,4 @@ func getServicesList(uat components.UnitAsset) []components.Service {
 		serviceList = append(serviceList, *services[s])
 	}
 	return serviceList
-}
-
-// MakeServiceMap() creates a map of services from a slice of services
-// The map is indexed by the service subpath
-func MakeServiceMap(services []components.Service) map[string]*components.Service {
-	serviceMap := make(map[string]*components.Service)
-	for i := range services {
-		svc := services[i] // take the address of the element in the slice
-		serviceMap[svc.SubPath] = &svc
-	}
-	return serviceMap
 }
