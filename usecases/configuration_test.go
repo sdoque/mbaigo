@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/sdoque/mbaigo/components"
@@ -45,7 +46,7 @@ func (mua mockUnitAssetWithTraits) GetDetails() map[string][]string {
 func (mua mockUnitAssetWithTraits) Serving(w http.ResponseWriter, r *http.Request, servicePath string) {
 }
 
-func createConfig(sys *components.System, assetTrait bool, assetAmount int) {
+func createConfigHasTraits(sys *components.System) {
 	var defaultConfig templateOut
 
 	var assetTemplate components.UnitAsset
@@ -61,8 +62,81 @@ func createConfig(sys *components.System, assetTrait bool, assetAmount int) {
 		Services: servicesTemplate,
 	}
 
-	if assetTrait == true {
-		setTest := &components.Service{
+	setTest := &components.Service{
+		ID:            1,
+		Definition:    "test",
+		SubPath:       "test",
+		Details:       map[string][]string{"Forms": {"SignalA_v1a"}},
+		Description:   "A test service",
+		RegPeriod:     45,
+		RegTimestamp:  "now",
+		RegExpiration: "45",
+	}
+	ServicesMap := &components.Services{
+		setTest.SubPath: setTest,
+	}
+	mua := &mockUnitAssetWithTraits{
+		Name:        "testUnitAsset",
+		Details:     map[string][]string{"Test": {"Test"}},
+		ServicesMap: *ServicesMap,
+		CervicesMap: nil,
+		Traits:      map[string][]string{"Trait": {"testTrait"}},
+	}
+	var muaInterface components.UnitAsset = mua
+	sys.UAssets[mua.GetName()] = &muaInterface
+	// If the asset exposes traits, serialize them and store as raw JSON
+	if assetWithTraits, ok := assetTemplate.(components.HasTraits); ok {
+		if traits := assetWithTraits.GetTraits(); traits != nil {
+			traitJSON, err := json.Marshal(traits)
+			if err == nil {
+				confAsset.Traits = []json.RawMessage{traitJSON}
+			} else {
+				fmt.Println("Warning: could not marshal traits:", err)
+			}
+		}
+	}
+	defaultConfig.Assets = []ConfigurableAsset{confAsset} // this is a list of unit assets
+
+	leadingRegistrar := components.CoreSystem{
+		Name: "serviceregistrar",
+		Url:  "http://localhost:20102/serviceregistrar/registry",
+	}
+	orchestrator := components.CoreSystem{
+		Name: "orchestrator",
+		Url:  "http://localhost:20103/orchestrator/orchestration",
+	}
+	ca := components.CoreSystem{
+		Name: "ca",
+		Url:  "http://localhost:20100/ca/certification",
+	}
+	maitreD := components.CoreSystem{
+		Name: "maitreD",
+		Url:  "http://localhost:20101/maitreD/maitreD",
+	}
+
+	defaultConfig.CCoreS = []components.CoreSystem{leadingRegistrar, orchestrator, ca, maitreD}
+	defaultConfig.CName = sys.Name
+	defaultConfig.Protocols = sys.Husk.ProtoPort
+	os.Remove("systemconfig.json")
+	defaultConfigFile, err := os.Create("systemconfig.json")
+	if err != nil {
+		log.Fatalf("Encountered error while creating default config file")
+	}
+	defer defaultConfigFile.Close()
+
+	enc := json.NewEncoder(defaultConfigFile) // Create an encoder that allows writing to a file
+	enc.SetIndent("", "     ")
+	err = enc.Encode(defaultConfig) // Write defaultConfig template to file
+	if err != nil {
+		log.Fatalf("jsonEncode: %v", err)
+	}
+}
+
+func createConfigNoTraits(sys *components.System, assetAmount int) {
+	var defaultConfig templateOut
+
+	if assetAmount == 1 {
+		setTest := components.Service{
 			ID:            1,
 			Definition:    "test",
 			SubPath:       "test",
@@ -72,33 +146,14 @@ func createConfig(sys *components.System, assetTrait bool, assetAmount int) {
 			RegTimestamp:  "now",
 			RegExpiration: "45",
 		}
-		ServicesMap := &components.Services{
-			setTest.SubPath: setTest,
+		servList := []components.Service{setTest}
+		mua := ConfigurableAsset{
+			Name:     "testUnitAsset",
+			Details:  map[string][]string{"Test": {"Test"}},
+			Services: servList,
 		}
-		mua := &mockUnitAssetWithTraits{
-			Name:        "testUnitAsset",
-			Details:     map[string][]string{"Test": {"Test"}},
-			ServicesMap: *ServicesMap,
-			CervicesMap: nil,
-			Traits:      map[string][]string{"Trait": {"testTrait"}},
-		}
-		var muaInterface components.UnitAsset = mua
-		sys.UAssets[mua.GetName()] = &muaInterface
-		// If the asset exposes traits, serialize them and store as raw JSON
-		if assetWithTraits, ok := assetTemplate.(components.HasTraits); ok {
-			if traits := assetWithTraits.GetTraits(); traits != nil {
-				traitJSON, err := json.Marshal(traits)
-				if err == nil {
-					confAsset.Traits = []json.RawMessage{traitJSON}
-				} else {
-					fmt.Println("Warning: could not marshal traits:", err)
-				}
-			}
-		}
-		defaultConfig.Assets = []ConfigurableAsset{confAsset} // this is a list of unit assets
-	}
-
-	if assetAmount > 0 {
+		defaultConfig.Assets = append(defaultConfig.Assets, mua)
+	} else {
 		for x := range assetAmount {
 			setTest := components.Service{
 				ID:            x,
@@ -122,15 +177,22 @@ func createConfig(sys *components.System, assetTrait bool, assetAmount int) {
 
 	leadingRegistrar := components.CoreSystem{
 		Name: "serviceregistrar",
-		Url:  "https://leadingregistrar",
+		Url:  "http://localhost:20102/serviceregistrar/registry",
 	}
-	test := components.CoreSystem{
-		Name: "test",
-		Url:  "https://test",
+	orchestrator := components.CoreSystem{
+		Name: "orchestrator",
+		Url:  "http://localhost:20103/orchestrator/orchestration",
+	}
+	ca := components.CoreSystem{
+		Name: "ca",
+		Url:  "http://localhost:20100/ca/certification",
+	}
+	maitreD := components.CoreSystem{
+		Name: "maitreD",
+		Url:  "http://localhost:20101/maitreD/maitreD",
 	}
 
-	defaultConfig.CCoreS = append(defaultConfig.CCoreS, leadingRegistrar)
-	defaultConfig.CCoreS = append(defaultConfig.CCoreS, test)
+	defaultConfig.CCoreS = []components.CoreSystem{leadingRegistrar, orchestrator, ca, maitreD}
 	defaultConfig.CName = sys.Name
 	defaultConfig.Protocols = sys.Husk.ProtoPort
 	os.Remove("systemconfig.json")
@@ -149,7 +211,7 @@ func createConfig(sys *components.System, assetTrait bool, assetAmount int) {
 }
 
 type configureParams struct {
-	assetHasTraits  bool
+	hasTraits       bool
 	assetNumber     int
 	createNewConfig bool
 	allowConfigRead bool
@@ -157,9 +219,45 @@ type configureParams struct {
 	testCase        string
 }
 
+// This is the config in string form from the original Configure()
+var expectedConf string = `map[coreSystems:[map[coreSystem:serviceregistrar url:http://localhost:20102/serviceregistrar/registry] map[coreSystem:orchestrator url:http://localhost:20103/orchestrator/orchestration] map[coreSystem:ca url:http://localhost:20100/ca/certification] map[coreSystem:maitreD url:http://localhost:20101/maitreD/maitreD]] protocolsNports:map[coap:0 http:1234 https:0] systemname:testSystem unit_assets:[map[details:map[Test:[Test]] name:testUnitAsset services:[map[costUnit: definition:test details:map[Forms:[SignalA_v1a]] registrationPeriod:45 subpath:test]] traits:<nil>]]]`
+
+// This test is to ensure that setupDefaultConfig() doesnt change the behaviour of of Config()
+func TestSetupDefaultConfig(t *testing.T) {
+	testSys := createTestSystem(false)
+
+	// Setup a default config with setupDefaultConfig() func
+	defConf, err := setupDefaultConfig(&testSys)
+	if err != nil {
+		t.Errorf("error in setupDefaultConfig() in test: %v", err)
+	}
+
+	def, err := os.OpenFile("systemconfig.json", os.O_RDWR|os.O_CREATE, 0600)
+	if err != nil {
+		t.Errorf("error while opening/creating systemconfig.json in test")
+	}
+	defer def.Close()
+	// Write our defaultConfig to file with correct indent
+	enc := json.NewEncoder(def)
+	enc.SetIndent("", "     ")
+	enc.Encode(defConf)
+
+	// Decode to defaultConfig so we can compare the created default- and expected config
+	var defaultConfig any
+	def.Seek(0, 0)
+	json.NewDecoder(def).Decode(&defaultConfig)
+	os.Remove("systemconfig.json")
+
+	// Check if defaultConfig converted to a string is the same as the expectedConf
+	ok := reflect.DeepEqual(fmt.Sprintf("%v", defaultConfig), expectedConf)
+	if ok == false {
+		t.Errorf("systemconfig not equal")
+	}
+}
+
 func TestConfigure(t *testing.T) {
 	testParams := []configureParams{
-		// {assetHasTraits, assetNumber, createNewConfig, allowConfigRead, expectError, testCase}
+		// {hasTraits, assetNumber, createNewConfig, allowConfigRead, expectError, testCase}
 		{false, 1, true, true, false, "Best case"},
 		{false, 0, false, true, true, "Missing asset"},
 		{true, 0, true, true, false, "Good case, asset has traits"},
@@ -170,13 +268,17 @@ func TestConfigure(t *testing.T) {
 	}
 	defer os.Remove("systemconfig.json")
 	for _, testCase := range testParams {
-		os.Remove("systemconfig.json")
 		testSys := createTestSystem(false)
+		os.Remove("systemconfig.json")
 		if testCase.testCase == "Missing asset" {
 			testSys.UAssets = nil
 		}
 		if testCase.createNewConfig == true {
-			createConfig(&testSys, testCase.assetHasTraits, testCase.assetNumber)
+			if testCase.hasTraits == true {
+				createConfigHasTraits(&testSys)
+			} else {
+				createConfigNoTraits(&testSys, testCase.assetNumber)
+			}
 		}
 		if testCase.allowConfigRead == false {
 			os.OpenFile("systemconfig.json", os.O_RDWR|os.O_CREATE, 0000)
