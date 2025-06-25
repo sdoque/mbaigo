@@ -62,7 +62,7 @@ var ErrNewConfig = errors.New("A new configuration file has been created. Please
 func setupDefaultConfig(sys *components.System) (defaultConfig templateOut, err error) {
 	var assetTemplate components.UnitAsset
 	if sys.UAssets == nil {
-		return defaultConfig, fmt.Errorf("unitAssets missing")
+		return templateOut{}, fmt.Errorf("unitAssets missing")
 	}
 
 	for _, ua := range sys.UAssets {
@@ -83,7 +83,7 @@ func setupDefaultConfig(sys *components.System) (defaultConfig templateOut, err 
 		if traits := assetWithTraits.GetTraits(); traits != nil {
 			traitJSON, err := json.Marshal(traits)
 			if err != nil {
-				return defaultConfig, fmt.Errorf("couldn't marshal traits: %v", err)
+				return templateOut{}, fmt.Errorf("couldn't marshal traits: %v", err)
 			}
 			confAsset.Traits = []json.RawMessage{traitJSON}
 		}
@@ -160,7 +160,7 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 		for _, s := range defaultConfig.Assets { // Otherwise send the system default
 			jsonBytes, err := json.Marshal(s)
 			if err != nil {
-				fmt.Println("Failed to marshal struct:", err)
+				return nil, fmt.Errorf("failed to marshal struct: %v", err)
 			}
 			rawResources = append(rawResources, json.RawMessage(jsonBytes))
 		}

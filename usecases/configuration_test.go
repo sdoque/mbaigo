@@ -2,12 +2,9 @@ package usecases
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
-	"reflect"
 	"testing"
 
 	"github.com/sdoque/mbaigo/components"
@@ -46,7 +43,7 @@ func (mua mockUnitAssetWithTraits) GetDetails() map[string][]string {
 func (mua mockUnitAssetWithTraits) Serving(w http.ResponseWriter, r *http.Request, servicePath string) {
 }
 
-func createConfigHasTraits(sys *components.System) {
+func createConfigHasTraits(sys *components.System) (err error) {
 	var defaultConfig templateOut
 
 	var assetTemplate components.UnitAsset
@@ -91,7 +88,7 @@ func createConfigHasTraits(sys *components.System) {
 			if err == nil {
 				confAsset.Traits = []json.RawMessage{traitJSON}
 			} else {
-				fmt.Println("Warning: could not marshal traits:", err)
+				return err
 			}
 		}
 	}
@@ -117,10 +114,9 @@ func createConfigHasTraits(sys *components.System) {
 	defaultConfig.CCoreS = []components.CoreSystem{leadingRegistrar, orchestrator, ca, maitreD}
 	defaultConfig.CName = sys.Name
 	defaultConfig.Protocols = sys.Husk.ProtoPort
-	os.Remove("systemconfig.json")
 	defaultConfigFile, err := os.Create("systemconfig.json")
 	if err != nil {
-		log.Fatalf("Encountered error while creating default config file")
+		return fmt.Errorf("Encountered error while creating default config file")
 	}
 	defer defaultConfigFile.Close()
 
@@ -128,11 +124,12 @@ func createConfigHasTraits(sys *components.System) {
 	enc.SetIndent("", "     ")
 	err = enc.Encode(defaultConfig) // Write defaultConfig template to file
 	if err != nil {
-		log.Fatalf("jsonEncode: %v", err)
+		return fmt.Errorf("jsonEncode: %v", err)
 	}
+	return
 }
 
-func createConfigNoTraits(sys *components.System, assetAmount int) {
+func createConfigNoTraits(sys *components.System, assetAmount int) (err error) {
 	var defaultConfig templateOut
 
 	if assetAmount == 1 {
@@ -195,10 +192,9 @@ func createConfigNoTraits(sys *components.System, assetAmount int) {
 	defaultConfig.CCoreS = []components.CoreSystem{leadingRegistrar, orchestrator, ca, maitreD}
 	defaultConfig.CName = sys.Name
 	defaultConfig.Protocols = sys.Husk.ProtoPort
-	os.Remove("systemconfig.json")
 	defaultConfigFile, err := os.Create("systemconfig.json")
 	if err != nil {
-		log.Fatalf("Encountered error while creating default config file")
+		return fmt.Errorf("Encountered error while creating default config file")
 	}
 	defer defaultConfigFile.Close()
 
@@ -206,24 +202,75 @@ func createConfigNoTraits(sys *components.System, assetAmount int) {
 	enc.SetIndent("", "     ")
 	err = enc.Encode(defaultConfig) // Write defaultConfig template to file
 	if err != nil {
-		log.Fatalf("jsonEncode: %v", err)
+		return fmt.Errorf("jsonEncode: %v", err)
 	}
-}
-
-type configureParams struct {
-	hasTraits       bool
-	assetNumber     int
-	createNewConfig bool
-	allowConfigRead bool
-	expectError     bool
-	testCase        string
+	return
 }
 
 // This is the config in string form from the original Configure()
 var expectedConf string = `map[coreSystems:[map[coreSystem:serviceregistrar url:http://localhost:20102/serviceregistrar/registry] map[coreSystem:orchestrator url:http://localhost:20103/orchestrator/orchestration] map[coreSystem:ca url:http://localhost:20100/ca/certification] map[coreSystem:maitreD url:http://localhost:20101/maitreD/maitreD]] protocolsNports:map[coap:0 http:1234 https:0] systemname:testSystem unit_assets:[map[details:map[Test:[Test]] name:testUnitAsset services:[map[costUnit: definition:test details:map[Forms:[SignalA_v1a]] registrationPeriod:45 subpath:test]] traits:<nil>]]]`
 
-// This test is to ensure that setupDefaultConfig() doesnt change the behaviour of of Config()
+type setupDefConfigParams struct {
+	expectError bool
+	testCase    string
+	setup       func(*components.System) (err error)
+	cleanup     func() (err error)
+}
+
 func TestSetupDefaultConfig(t *testing.T) {
+	testParams := []setupDefConfigParams{
+		// {expectError, testCase, setup(), cleanup()}
+		{
+			false,
+			"Best case",
+			func(sys *components.System) (err error) {
+				err = createConfigNoTraits(sys, 1)
+				return err
+			},
+			func() (err error) { return cleanup() },
+		},
+		{
+			false,
+			"Good case, asset has traits",
+			func(sys *components.System) (err error) {
+				err = createConfigHasTraits(sys)
+				return err
+			},
+			func() (err error) { return cleanup() },
+		},
+	}
+
+	// Start of test
+	for _, c := range testParams {
+		testSys := createTestSystem(false)
+
+		// Setup
+		err := c.setup(&testSys)
+		if err != nil {
+			t.Errorf("setup failed: %v", err)
+		}
+
+		// Test
+		_, err = setupDefaultConfig(&testSys)
+		if c.expectError != true {
+			if err != nil {
+				t.Errorf("Expected no errors in testcase '%s', got: %v", c.testCase, err)
+			}
+		} else {
+			if err == nil {
+				t.Errorf("expected errors in testcase '%s', got none", c.testCase)
+			}
+		}
+		// Cleanup
+		err = c.cleanup()
+		if err != nil {
+			t.Errorf("failed to remove 'systemconfig.json' in testcase '%s'", c.testCase)
+		}
+	}
+}
+
+// This test is to ensure that setupDefaultConfig() doesnt change the behaviour of of Config()
+func TestSetupDefaultConfigCorrectness(t *testing.T) {
 	testSys := createTestSystem(false)
 
 	// Setup a default config with setupDefaultConfig() func
@@ -249,41 +296,85 @@ func TestSetupDefaultConfig(t *testing.T) {
 	os.Remove("systemconfig.json")
 
 	// Check if defaultConfig converted to a string is the same as the expectedConf
-	ok := reflect.DeepEqual(fmt.Sprintf("%v", defaultConfig), expectedConf)
-	if ok == false {
+	if fmt.Sprint(defaultConfig) != expectedConf {
 		t.Errorf("systemconfig not equal")
 	}
 }
 
+func cleanup() error {
+	err := os.Remove("systemconfig.json")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+type configureParams struct {
+	expectError bool
+	testCase    string
+	setup       func(*components.System) (err error)
+	cleanup     func() (err error)
+}
+
 func TestConfigure(t *testing.T) {
 	testParams := []configureParams{
-		// {hasTraits, assetNumber, createNewConfig, allowConfigRead, expectError, testCase}
-		{false, 1, true, true, false, "Best case"},
-		{false, 0, false, true, true, "Missing asset"},
-		{true, 0, true, true, false, "Good case, asset has traits"},
-		{false, 1, false, true, true, "Config missing"},
-		{false, 1, false, false, true, "Config missing, cant open or create"},
-		{false, 0, true, true, false, "No Assets in config"},
-		{false, 3, true, true, false, "Multiple Assets in config"},
+		// {expectError, testCase, setup(), cleanup()}
+		{
+			false,
+			"Best case, one asset",
+			func(sys *components.System) (err error) {
+				err = createConfigNoTraits(sys, 1)
+				return
+			},
+			func() (err error) { return cleanup() },
+		},
+		{
+			true,
+			"Can't open/create config",
+			func(sys *components.System) (err error) {
+				_, err = os.OpenFile("systemconfig.json", os.O_RDWR|os.O_CREATE, 0000)
+				return
+			},
+			func() (err error) { return cleanup() },
+		},
+		{
+			true,
+			"Config missing",
+			func(sys *components.System) (err error) { return nil },
+			func() (err error) { return cleanup() },
+		},
+		{
+			false,
+			"No Assets in config",
+			func(sys *components.System) (err error) {
+				err = createConfigNoTraits(sys, 0)
+				return
+			},
+			func() (err error) { return cleanup() },
+		},
+		{
+			false,
+			"Multiple Assets in config",
+			func(sys *components.System) (err error) {
+				err = createConfigNoTraits(sys, 3)
+				return
+			},
+			func() (err error) { return cleanup() },
+		},
 	}
-	defer os.Remove("systemconfig.json")
+
+	// Start of test
 	for _, testCase := range testParams {
 		testSys := createTestSystem(false)
-		os.Remove("systemconfig.json")
-		if testCase.testCase == "Missing asset" {
-			testSys.UAssets = nil
+
+		// Setup
+		err := testCase.setup(&testSys)
+		if err != nil {
+			t.Errorf("failed during setup: %v", err)
 		}
-		if testCase.createNewConfig == true {
-			if testCase.hasTraits == true {
-				createConfigHasTraits(&testSys)
-			} else {
-				createConfigNoTraits(&testSys, testCase.assetNumber)
-			}
-		}
-		if testCase.allowConfigRead == false {
-			os.OpenFile("systemconfig.json", os.O_RDWR|os.O_CREATE, 0000)
-		}
-		_, err := Configure(&testSys)
+
+		// Test
+		_, err = Configure(&testSys)
 		if testCase.expectError == false {
 			if err != nil {
 				t.Errorf("Expected no errors in '%s', got: %v", testCase.testCase, err)
@@ -293,17 +384,11 @@ func TestConfigure(t *testing.T) {
 				t.Errorf("Expected errors in testcase '%s' got none", testCase.testCase)
 			}
 		}
-		if (testCase.createNewConfig == true) || (testCase.allowConfigRead == false) {
-			err = os.Remove("systemconfig.json")
-			if err != nil {
-				t.Fatalf("failed while removing file")
-			}
-		}
-		if errors.Is(err, ErrNewConfig) {
-			err = os.Remove("systemconfig.json")
-			if err != nil {
-				t.Fatalf("failed while removing file")
-			}
+
+		//Cleanup
+		err = testCase.cleanup()
+		if err != nil {
+			t.Errorf("failed to remove 'systemconfig.json' in testcase '%s'", testCase.testCase)
 		}
 	}
 }
