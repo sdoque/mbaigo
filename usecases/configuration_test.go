@@ -116,7 +116,7 @@ func createConfigHasTraits(sys *components.System) (err error) {
 	defaultConfig.Protocols = sys.Husk.ProtoPort
 	defaultConfigFile, err := os.Create("systemconfig.json")
 	if err != nil {
-		return fmt.Errorf("Encountered error while creating default config file")
+		return fmt.Errorf("encountered error while creating default config file: %v", err)
 	}
 	defer defaultConfigFile.Close()
 
@@ -194,7 +194,7 @@ func createConfigNoTraits(sys *components.System, assetAmount int) (err error) {
 	defaultConfig.Protocols = sys.Husk.ProtoPort
 	defaultConfigFile, err := os.Create("systemconfig.json")
 	if err != nil {
-		return fmt.Errorf("Encountered error while creating default config file")
+		return fmt.Errorf("encountered error while creating config file: %v", err)
 	}
 	defer defaultConfigFile.Close()
 
