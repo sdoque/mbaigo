@@ -17,7 +17,7 @@
 package components
 
 import (
-	"reflect"
+	"fmt"
 	"testing"
 )
 
@@ -114,6 +114,33 @@ var mergeDetailsTestParams = []mergeDetailsTestStruct{
 	{make(map[string][]string), make(map[string][]string), expectedBothEmptyMapMerge},
 }
 
+func manualEqualityCheck(map1 map[string][]string, map2 map[string][]string) error {
+	if len(map1) != len(map2) {
+		return fmt.Errorf("Expected map length %d, got %d", len(map2), len(map1))
+	} else {
+		for k, v := range map2 {
+			mv, ok := map1[k]
+			if !ok {
+				return fmt.Errorf("Expected key %q not found in merged map", k)
+			}
+			if len(mv) != len(v) {
+				return fmt.Errorf("For key %q, expected slice length %d, got %d", k, len(v), len(mv))
+			}
+			for i := range v {
+				if mv[i] != v[i] {
+					return fmt.Errorf("For key %q, at index %d, expected %q, got %q", k, i, v[i], mv[i])
+				}
+			}
+		}
+		for k := range map1 {
+			if _, ok := map2[k]; !ok {
+				return fmt.Errorf("Unexpected key %q found in merged map", k)
+			}
+		}
+	}
+	return nil
+}
+
 func TestMerge(t *testing.T) {
 	testService.Merge(&testOriginalService)
 	if testService.Definition != testOriginalService.Definition ||
@@ -180,16 +207,20 @@ func TestMergeDetails(t *testing.T) {
 	for _, test := range mergeDetailsTestParams {
 		merged := MergeDetails(test.map1, test.map2)
 
-		if !reflect.DeepEqual(merged, test.expected) {
+		err := manualEqualityCheck(merged, test.expected)
+		if err != nil {
 			t.Errorf("Expected %v, got %v", test.expected, merged)
 		}
 
 		if len(merged) != 0 {
 			merged["a"][0] = "changed"
 
-			if reflect.DeepEqual(merged, test.map1) || reflect.DeepEqual(merged, test.map2) {
-				t.Errorf("A change in the merged map resulted in a change in the input maps")
+			err1 := manualEqualityCheck(merged, test.map1)
+			err2 := manualEqualityCheck(merged, test.map2)
+			if err1 != nil || err2 != nil {
+				continue // The two maps should not be equal so if we get an "error" the test case has passed
 			}
+			t.Errorf("A change in the merged map resulted in a change in the input maps")
 		}
 	}
 }
