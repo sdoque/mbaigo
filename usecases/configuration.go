@@ -129,13 +129,13 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 	// 0600 allows user Read/Write permission (secure config file), but no R/W for groups and others, 0644 to allow R/W on sudo and only R on groups/others, 0666 for R/W permissions for everyone
 	systemConfigFile, err := os.OpenFile("systemconfig.json", os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
-		return nil, fmt.Errorf("error while opening/creating systemconfig file, check permissions on config file")
+		return nil, fmt.Errorf("error while opening/creating systemconfig file: %v", err)
 	}
 	defer systemConfigFile.Close()
 
 	fileInfo, err := systemConfigFile.Stat() // *.Stat() returns fileInfo/stats
 	if err != nil {
-		return nil, fmt.Errorf("error occurred while getting config file stats")
+		return nil, fmt.Errorf("error occurred while getting config file stats: %s", err)
 	}
 	if fileInfo.Size() == 0 { // *.Size() returns the filesize (number bytes) as an int, 0 is an empty file
 		enc := json.NewEncoder(systemConfigFile)

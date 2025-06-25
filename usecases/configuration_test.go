@@ -220,24 +220,8 @@ type setupDefConfigParams struct {
 func TestSetupDefaultConfig(t *testing.T) {
 	testParams := []setupDefConfigParams{
 		// {expectError, testCase, setup(), cleanup()}
-		{
-			false,
-			"Best case",
-			func(sys *components.System) (err error) {
-				err = createConfigNoTraits(sys, 1)
-				return err
-			},
-			func() (err error) { return cleanup() },
-		},
-		{
-			false,
-			"Good case, asset has traits",
-			func(sys *components.System) (err error) {
-				err = createConfigHasTraits(sys)
-				return err
-			},
-			func() (err error) { return cleanup() },
-		},
+		{false, "Best case", func(sys *components.System) (err error) { return createConfigNoTraits(sys, 1) }, func() (err error) { return cleanup() }},
+		{false, "Good case, asset has traits", func(sys *components.System) (err error) { return createConfigHasTraits(sys) }, func() (err error) { return cleanup() }},
 	}
 
 	// Start of test
@@ -264,7 +248,7 @@ func TestSetupDefaultConfig(t *testing.T) {
 		// Cleanup
 		err = c.cleanup()
 		if err != nil {
-			t.Errorf("failed to remove 'systemconfig.json' in testcase '%s'", c.testCase)
+			t.Errorf("failed to remove 'systemconfig.json' in testcase '%s': %v", c.testCase, err)
 		}
 	}
 }
@@ -281,20 +265,28 @@ func TestSetupDefaultConfigCorrectness(t *testing.T) {
 
 	def, err := os.OpenFile("systemconfig.json", os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
-		t.Errorf("error while opening/creating systemconfig.json in test")
+		t.Errorf("error while opening/creating systemconfig.json in test: %v", err)
 	}
 	defer def.Close()
 	// Write our defaultConfig to file with correct indent
 	enc := json.NewEncoder(def)
 	enc.SetIndent("", "     ")
-	enc.Encode(defConf)
+	err = enc.Encode(defConf)
+	if err != nil {
+		t.Errorf("Couldn't encode to 'systemconfig.json' in test: %v", err)
+	}
 
 	// Decode to defaultConfig so we can compare the created default- and expected config
 	var defaultConfig any
 	def.Seek(0, 0)
-	json.NewDecoder(def).Decode(&defaultConfig)
-	os.Remove("systemconfig.json")
-
+	err = json.NewDecoder(def).Decode(&defaultConfig)
+	if err != nil {
+		t.Errorf("couldn't decode from 'systemconfig.json' in test: %v", err)
+	}
+	err = os.Remove("systemconfig.json")
+	if err != nil {
+		t.Errorf("couldn't remove 'systemconfig.json' in test: %v", err)
+	}
 	// Check if defaultConfig converted to a string is the same as the expectedConf
 	if fmt.Sprint(defaultConfig) != expectedConf {
 		t.Errorf("systemconfig not equal")
@@ -302,11 +294,7 @@ func TestSetupDefaultConfigCorrectness(t *testing.T) {
 }
 
 func cleanup() error {
-	err := os.Remove("systemconfig.json")
-	if err != nil {
-		return err
-	}
-	return nil
+	return os.Remove("systemconfig.json")
 }
 
 type configureParams struct {
@@ -319,15 +307,7 @@ type configureParams struct {
 func TestConfigure(t *testing.T) {
 	testParams := []configureParams{
 		// {expectError, testCase, setup(), cleanup()}
-		{
-			false,
-			"Best case, one asset",
-			func(sys *components.System) (err error) {
-				err = createConfigNoTraits(sys, 1)
-				return
-			},
-			func() (err error) { return cleanup() },
-		},
+		{false, "Best case, one asset", func(sys *components.System) (err error) { return createConfigNoTraits(sys, 1) }, func() (err error) { return cleanup() }},
 		{
 			true,
 			"Can't open/create config",
@@ -337,30 +317,9 @@ func TestConfigure(t *testing.T) {
 			},
 			func() (err error) { return cleanup() },
 		},
-		{
-			true,
-			"Config missing",
-			func(sys *components.System) (err error) { return nil },
-			func() (err error) { return cleanup() },
-		},
-		{
-			false,
-			"No Assets in config",
-			func(sys *components.System) (err error) {
-				err = createConfigNoTraits(sys, 0)
-				return
-			},
-			func() (err error) { return cleanup() },
-		},
-		{
-			false,
-			"Multiple Assets in config",
-			func(sys *components.System) (err error) {
-				err = createConfigNoTraits(sys, 3)
-				return
-			},
-			func() (err error) { return cleanup() },
-		},
+		{true, "Config missing", func(sys *components.System) (err error) { return nil }, func() (err error) { return cleanup() }},
+		{false, "No Assets in config", func(sys *components.System) (err error) { return createConfigNoTraits(sys, 0) }, func() (err error) { return cleanup() }},
+		{false, "Multiple Assets in config", func(sys *components.System) (err error) { return createConfigNoTraits(sys, 3) }, func() (err error) { return cleanup() }},
 	}
 
 	// Start of test
