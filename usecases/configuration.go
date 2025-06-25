@@ -142,7 +142,7 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 		enc.SetIndent("", "    ")
 		err = enc.Encode(defaultConfig) // Write default values into systemconfig since file was empty
 		if err != nil {
-			return nil, fmt.Errorf("error writing default values to system config")
+			return nil, fmt.Errorf("error writing default values to system config: %v", err)
 		}
 		return nil, ErrNewConfig
 	}
