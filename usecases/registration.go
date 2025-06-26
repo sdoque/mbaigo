@@ -35,28 +35,41 @@ import (
 	"github.com/sdoque/mbaigo/forms"
 )
 
+type registrarTracker struct {
+	url   string
+	mutex sync.RWMutex
+}
+
+func (rt *registrarTracker) set(url string) {
+	rt.mutex.Lock()
+	rt.url = url
+	rt.mutex.Unlock()
+}
+
+func (rt *registrarTracker) get() string {
+	rt.mutex.RLock()
+	defer rt.mutex.RUnlock()
+	return rt.url
+}
+
 // RegisterServices keeps track of the leading Service Registrar and keeps all services registered
 func RegisterServices(sys *components.System) {
-	var leadRegistrarURL string
-	var mutex sync.RWMutex
+	// Keep track of the registrar URL. The URL is shared between goroutines,
+	// so it must be protected from data races using a mutex.
+	registrar := &registrarTracker{}
 
 	// Goroutine looking for leading service registrar every 5 seconds
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
+		ticker := time.Tick(5 * time.Second)
 		for {
 			newURL, err := components.GetRunningCoreSystemURL(sys, components.ServiceRegistrarName)
-			// The URL is shared between goroutines and thus must be protected
-			// from data races using a mutex. This could had been handled better.
-			mutex.Lock()
-			leadRegistrarURL = newURL
-			mutex.Unlock()
+			registrar.set(newURL) // should be empty on error anyway
 			if err != nil {
 				log.Println("find lead registrar:", err)
 			}
 
 			select {
-			case <-ticker.C:
+			case <-ticker:
 			case <-sys.Ctx.Done():
 				return
 			}
@@ -71,15 +84,11 @@ func RegisterServices(sys *components.System) {
 			go func(theUnitAsset *components.UnitAsset, theService *components.Service) {
 				delay := 1 * time.Second
 				for {
-					timer := time.NewTimer(delay)
-					mutex.RLock()
-					regURL := leadRegistrarURL
-					mutex.RUnlock()
 					select {
-					case <-timer.C:
-						delay = registerService(sys, regURL, theUnitAsset, theService)
+					case <-time.Tick(delay):
+						delay = registerService(sys, registrar.get(), theUnitAsset, theService)
 					case <-sys.Ctx.Done():
-						err := unregisterService(regURL, theService)
+						err := unregisterService(registrar.get(), theService)
 						if err != nil {
 							log.Println("unregistering service:", err)
 						}
