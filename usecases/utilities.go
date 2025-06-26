@@ -60,10 +60,8 @@ func Unpack(data []byte, contentType string) (forms.Form, error) {
 		if len(trimmed) > 0 {
 			switch trimmed[0] {
 			case '{', '[':
-				//log.Println("Detected JSON in text/plain payload.")
 				contentType = "application/json"
 			case '<':
-				//log.Println("Detected XML in text/plain payload.")
 				contentType = "application/xml"
 			default:
 				return nil, fmt.Errorf("plain text content is neither valid JSON nor XML")
@@ -77,12 +75,10 @@ func Unpack(data []byte, contentType string) (forms.Form, error) {
 	switch {
 	case strings.Contains(contentType, "application/json"):
 		if err := json.Unmarshal(data, &rawData); err != nil {
-			//log.Printf("Error unmarshalling JSON: %v", err)
 			return nil, fmt.Errorf("error unmarshalling JSON: %v", err)
 		}
 	case strings.Contains(contentType, "application/xml"):
 		if err := xml.Unmarshal(data, &rawData); err != nil {
-			//log.Printf("Error unmarshalling XML: %v", err)
 			return nil, fmt.Errorf("error unmarshalling XML: %v", err)
 		}
 	default:
