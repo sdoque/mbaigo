@@ -28,6 +28,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/sdoque/mbaigo/components"
@@ -37,14 +38,19 @@ import (
 // RegisterServices keeps track of the leading Service Registrar and keeps all services registered
 func RegisterServices(sys *components.System) {
 	var leadRegistrarURL string
+	var mutex sync.RWMutex
 
 	// Goroutine looking for leading service registrar every 5 seconds
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
-			var err error
-			leadRegistrarURL, err = components.GetRunningCoreSystemURL(sys, components.ServiceRegistrarName)
+			newURL, err := components.GetRunningCoreSystemURL(sys, components.ServiceRegistrarName)
+			// The URL is shared between goroutines and thus must be protected
+			// from data races using a mutex. This could had been handled better.
+			mutex.Lock()
+			leadRegistrarURL = newURL
+			mutex.Unlock()
 			if err != nil {
 				log.Println("find lead registrar:", err)
 			}
@@ -66,11 +72,14 @@ func RegisterServices(sys *components.System) {
 				delay := 1 * time.Second
 				for {
 					timer := time.NewTimer(delay)
+					mutex.RLock()
+					regURL := leadRegistrarURL
+					mutex.RUnlock()
 					select {
 					case <-timer.C:
-						delay = registerService(sys, leadRegistrarURL, theUnitAsset, theService)
+						delay = registerService(sys, regURL, theUnitAsset, theService)
 					case <-sys.Ctx.Done():
-						err := unregisterService(leadRegistrarURL, theService)
+						err := unregisterService(regURL, theService)
 						if err != nil {
 							log.Println("unregistering service:", err)
 						}
