@@ -185,3 +185,14 @@ func getServicesList(uat components.UnitAsset) []components.Service {
 	}
 	return serviceList
 }
+
+// MakeServiceMap() creates a map of services from a slice of services
+// The map is indexed by the service subpath
+func MakeServiceMap(services []components.Service) map[string]*components.Service {
+	serviceMap := make(map[string]*components.Service)
+	for i := range services {
+		svc := services[i] // take the address of the element in the slice
+		serviceMap[svc.SubPath] = &svc
+	}
+	return serviceMap
+}

@@ -222,6 +222,7 @@ func TestSetupDefaultConfig(t *testing.T) {
 		// {expectError, testCase, setup(), cleanup()}
 		{false, "Best case", func(sys *components.System) (err error) { return createConfigNoTraits(sys, 1) }, func() (err error) { return cleanup() }},
 		{false, "Good case, asset has traits", func(sys *components.System) (err error) { return createConfigHasTraits(sys) }, func() (err error) { return cleanup() }},
+		{true, "No assets in sys", func(sys *components.System) (err error) { return createConfigHasTraits(sys) }, func() (err error) { return cleanup() }},
 	}
 
 	// Start of test
@@ -232,6 +233,10 @@ func TestSetupDefaultConfig(t *testing.T) {
 		err := c.setup(&testSys)
 		if err != nil {
 			t.Errorf("setup failed: %v", err)
+		}
+
+		if c.testCase == "No assets in sys" {
+			testSys.UAssets = nil
 		}
 
 		// Test
@@ -245,6 +250,7 @@ func TestSetupDefaultConfig(t *testing.T) {
 				t.Errorf("expected errors in testcase '%s', got none", c.testCase)
 			}
 		}
+
 		// Cleanup
 		err = c.cleanup()
 		if err != nil {
@@ -320,6 +326,15 @@ func TestConfigure(t *testing.T) {
 		{true, "Config missing", func(sys *components.System) (err error) { return nil }, func() (err error) { return cleanup() }},
 		{false, "No Assets in config", func(sys *components.System) (err error) { return createConfigNoTraits(sys, 0) }, func() (err error) { return cleanup() }},
 		{false, "Multiple Assets in config", func(sys *components.System) (err error) { return createConfigNoTraits(sys, 3) }, func() (err error) { return cleanup() }},
+		{
+			true,
+			"No assets in sys",
+			func(sys *components.System) (err error) {
+				sys.UAssets = nil
+				return createConfigNoTraits(sys, 1)
+			},
+			func() (err error) { return cleanup() },
+		},
 	}
 
 	// Start of test
@@ -375,5 +390,29 @@ func TestGetServiceList(t *testing.T) {
 	servList := getServicesList(mua)
 	if len(servList) != 1 && servList[0].Definition != "test" {
 		t.Errorf("Expected length: 1, got %d\tExpected 'Definition': test, got %s", len(servList), servList[0].Definition)
+	}
+}
+
+func TestMakeServiceMap(t *testing.T) {
+	var servList []components.Service
+	for x := range 6 {
+		serv := components.Service{
+			ID:            x,
+			Definition:    fmt.Sprintf("testDef%d", x),
+			SubPath:       fmt.Sprintf("test%d", x),
+			Details:       map[string][]string{"Forms": {"SignalA_v1a"}},
+			Description:   fmt.Sprintf("test service %d", x),
+			RegPeriod:     45,
+			RegTimestamp:  "now",
+			RegExpiration: "45",
+		}
+		servList = append(servList, serv)
+	}
+	servMap := MakeServiceMap(servList)
+	for c := range 6 {
+		service := fmt.Sprintf("test%d", c)
+		if servMap[service].SubPath != service || servMap[service].ID != c {
+			t.Errorf(`Expected servMap["%s"].SubPath to be "%s", with ID: "%d". Got Subpath: "%s", with ID: "%d"`, service, service, c, servMap[service].SubPath, servMap[service].ID)
+		}
 	}
 }
