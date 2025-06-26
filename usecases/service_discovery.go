@@ -95,17 +95,17 @@ func sendHttpReq(method string, url string, data []byte) (resp *http.Response, e
 // Search4Service requests from the core systems the address of resources's services that meet the need
 func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocation forms.ServicePoint_v1, err error) {
 	// Create a new HTTP request to the Orchestrator system (for now the Service Registrar)
-	orchestratorPointer, err := components.GetRunningCoreSystemURL(sys, "orchestrator")
+	orURL, err := components.GetRunningCoreSystemURL(sys, "orchestrator")
 	if err != nil {
 		return servLocation, err
 	}
 	// prepare the payload to perform a service quest
-	oURL := orchestratorPointer + "/squest"
+	orURL = orURL + "/squest"
 	jsonQF, err := json.MarshalIndent(qf, "", "  ")
 	if err != nil {
 		return servLocation, err
 	}
-	resp, err := sendHttpReq(http.MethodPost, oURL, jsonQF)
+	resp, err := sendHttpReq(http.MethodPost, orURL, jsonQF)
 	if err != nil {
 		return servLocation, err
 	}
@@ -139,19 +139,18 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 		return err
 	}
 	// Search for an Orchestrator system within the local cloud
-	orchestratorPointer, err := components.GetRunningCoreSystemURL(sys, "orchestrator")
+	orURL, err := components.GetRunningCoreSystemURL(sys, "orchestrator")
 	if err != nil {
 		return err
 	}
-	if orchestratorPointer == "" {
-		err = fmt.Errorf("failed to locate an Orchestrator")
-		return err
+	if orURL == "" {
+		return fmt.Errorf("failed to locate an orchestrator")
 	}
-	oURL := orchestratorPointer + "/squest"
-	// Prepare the request to the Orchestrator
-	resp, err := sendHttpReq(http.MethodPost, oURL, qf)
+	orURL = orURL + "/squest"
+	// Prepare the request to the orchestrator
+	resp, err := sendHttpReq(http.MethodPost, orURL, qf)
 	if err != nil {
-		return
+		return err
 	}
 	defer resp.Body.Close()
 	// Read the response /////////////////////////////////
@@ -159,19 +158,18 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 	if err != nil {
 		return err
 	}
-	headerContentTtype := resp.Header.Get("Content-Type")
-	discoveryForm, err := Unpack(bodyBytes, headerContentTtype)
+	headerContentType := resp.Header.Get("Content-Type")
+	discoveryForm, err := Unpack(bodyBytes, headerContentType)
 	if err != nil {
-		log.Printf("error extracting the discovery request %v\n", err)
+		return err
 	}
 	// Perform a type assertion to convert the returned Form to ServicePoint_v1
 	df, ok := discoveryForm.(*forms.ServicePoint_v1)
 	if !ok {
-		fmt.Println("Problem unpacking the service discovery request form")
-		return
+		return fmt.Errorf("unable to unpack discovery request form")
 	}
 	cer.Nodes[df.ServNode] = append(cer.Nodes[df.ServNode], df.ServLocation)
-	return err
+	return nil
 }
 
 // FillDiscoveredServices returns a json data byte array with a slice of matching services (e.g., Service Registrar)
