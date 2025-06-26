@@ -1,6 +1,6 @@
 # Run tests and log the test coverage
 test:
-	go test -v -coverprofile=".cover.out" $$(go list ./... | grep -v /tmp)
+	go test -v -race -coverprofile=".cover.out" $$(go list ./... | grep -v /tmp)
 
 # Runs source code linters and catches common errors
 lint:
