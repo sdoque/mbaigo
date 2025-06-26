@@ -38,14 +38,13 @@ import (
 )
 
 // SetoutServers setups the http and https servers and starts them
-func SetoutServers(sys *components.System) (err error) {
+func SetoutServers(sys *components.System) error {
 	// get the servers port number (from configuration file)
 	httpPort := sys.Husk.ProtoPort["http"]
 	httpsPort := sys.Husk.ProtoPort["https"]
 
 	if httpPort == 0 && httpsPort == 0 {
-		fmt.Printf("The system %s has no web server configured\n", sys.Name)
-		return
+		return fmt.Errorf("missing http(s) port in configuration")
 	}
 
 	// how to handle requests to the servers
@@ -56,13 +55,13 @@ func SetoutServers(sys *components.System) (err error) {
 		// Encode the ECDSA private key to PEM format
 		privateKeyPEM, err := encodeECDSAPrivateKeyToPEM(sys.Husk.Pkey)
 		if err != nil {
-			log.Fatalf("Failed to encode private key: %v", err)
+			return fmt.Errorf("encoding private key: %w", err)
 		}
 
 		// Load the certificate and key
 		cert, err := tls.X509KeyPair([]byte(sys.Husk.Certificate), privateKeyPEM)
 		if err != nil {
-			log.Fatalf("Failed to parse certificate or private key: %v", err)
+			return fmt.Errorf("parsing certificate/private key: %w", err)
 		}
 
 		caCertPool := x509.NewCertPool()
@@ -89,22 +88,21 @@ func SetoutServers(sys *components.System) (err error) {
 		go func() {
 			<-sys.Ctx.Done()
 			time.Sleep(1 * time.Second) // this line is for the leading service registrar to deregister its own services
-			fmt.Printf("Initiating graceful shutdown of the HTTPS server.\n")
-			err = httpsServer.Shutdown(sys.Ctx)
-			if err != nil {
-				log.Printf("Error occurred during shutdown: %v", err)
+			// log.Printf("Initiating graceful shutdown of the HTTPS server.\n")
+			if err := httpsServer.Shutdown(sys.Ctx); err != nil {
+				log.Printf("Error during shutdown: %v", err)
 			}
 		}()
 
 		// Inform the user how to access the system's web server (black box documentation)
 		httpsURL := "https://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(httpsPort) + "/" + sys.Name
-		fmt.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpsURL)
+		log.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpsURL)
 
 		// Start and monitor the server
 		go func() {
-			err = httpsServer.ListenAndServeTLS("", "")
+			err := httpsServer.ListenAndServeTLS("", "")
 			if err != nil && err != http.ErrServerClosed {
-				log.Fatalf("Listen: %s\n", err)
+				log.Fatalf("Error from web server: %v\n", err)
 			}
 		}()
 	}
@@ -123,22 +121,23 @@ func SetoutServers(sys *components.System) (err error) {
 		go func() {
 			<-sys.Ctx.Done()
 			time.Sleep(1 * time.Second) // this line is for the leading service registrar to deregister its own services
-			fmt.Printf("Initiating graceful shutdown of the HTTP server.\n")
-			err = httpServer.Shutdown(sys.Ctx)
-			if err != nil {
-				log.Printf("Error occurred during shutdown: %v", err)
+			// log.Printf("Initiating graceful shutdown of the HTTP server.\n")
+			if err := httpServer.Shutdown(sys.Ctx); err != nil {
+				log.Printf("Error during shutdown: %v", err)
 			}
 		}()
 
 		// Inform the user how to access the system's web server (black box documentation)
 		httpURL := "http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(httpPort) + "/" + sys.Name
-		fmt.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpURL)
+		log.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpURL)
 
 		// Start and monitor the server
-		err = httpServer.ListenAndServe()
-		if err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Listen: %s\n", err)
-		}
+		go func() {
+			err := httpServer.ListenAndServe()
+			if err != nil && err != http.ErrServerClosed {
+				log.Fatalf("Error from web server: %v\n", err)
+			}
+		}()
 	}
 
 	return nil
