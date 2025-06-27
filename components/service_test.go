@@ -1,19 +1,3 @@
-/*******************************************************************************
- * Copyright (c) 2025 Synecdoque
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, subject to the following conditions:
- *
- * The software is licensed under the MIT License. See the LICENSE file in this repository for details.
- *
- * Contributors:
- *   Jan A. van Deventer, Luleå - initial implementation
- *   Thomas Hedeler, Hamburg - initial implementation
- ***************************************************************************SDG*/
-
 package components
 
 import (
@@ -117,25 +101,24 @@ var mergeDetailsTestParams = []mergeDetailsTestStruct{
 func manualEqualityCheck(map1 map[string][]string, map2 map[string][]string) error {
 	if len(map1) != len(map2) {
 		return fmt.Errorf("Expected map length %d, got %d", len(map2), len(map1))
-	} else {
-		for k, v := range map2 {
-			mv, ok := map1[k]
-			if !ok {
-				return fmt.Errorf("Expected key %q not found in merged map", k)
-			}
-			if len(mv) != len(v) {
-				return fmt.Errorf("For key %q, expected slice length %d, got %d", k, len(v), len(mv))
-			}
-			for i := range v {
-				if mv[i] != v[i] {
-					return fmt.Errorf("For key %q, at index %d, expected %q, got %q", k, i, v[i], mv[i])
-				}
+	}
+	for key, value := range map2 {
+		mv, ok := map1[key]
+		if !ok {
+			return fmt.Errorf("Expected key %q not found in merged map", key)
+		}
+		if len(mv) != len(value) {
+			return fmt.Errorf("For key %q, expected slice length %d, got %d", key, len(value), len(mv))
+		}
+		for i := range value {
+			if mv[i] != value[i] {
+				return fmt.Errorf("For key %q, at index %d, expected %q, got %q", key, i, value[i], mv[i])
 			}
 		}
-		for k := range map1 {
-			if _, ok := map2[k]; !ok {
-				return fmt.Errorf("Unexpected key %q found in merged map", k)
-			}
+	}
+	for key := range map1 {
+		if _, ok := map2[key]; !ok {
+			return fmt.Errorf("Unexpected key %q found in merged map", key)
 		}
 	}
 	return nil
