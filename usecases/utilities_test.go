@@ -103,12 +103,12 @@ func TestUnpack(t *testing.T) {
 			data = append(data, byte(math.NaN()))
 			return data, err
 		}},
-		// TODO: Refactor code so we can do this test: currently can't reach second unmarshal for json to break it this way, moving on.
 		{true, "Bad case, broken unmarshal in xml", "application/xml", func() (data []byte, err error) {
 			data = append(data, byte(math.NaN()))
 			return data, err
 		}},
-		// TODO: Refactor code so we can do this test: currently can't reach second unmarshal for xml to break it this way, moving on.
+		// TODO: Refactor code so we can do another test: currently can't reach second unmarshal for json to break it this way, moving on.
+		// TODO: Refactor code so we can do another test: currently can't reach second unmarshal for xml to break it this way, moving on.
 	}
 
 	for _, c := range testParams {
