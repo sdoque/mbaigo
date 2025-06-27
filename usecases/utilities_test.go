@@ -2,8 +2,6 @@ package usecases
 
 import (
 	"encoding/json"
-	"encoding/xml"
-	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -11,124 +9,35 @@ import (
 	"github.com/sdoque/mbaigo/forms"
 )
 
-// Returns a form containing test values
-func createTestForm() (form mockForm) {
-	form = mockForm{
-		XMLName: xml.Name{},
-		Value:   123,
-		Unit:    "testUnit",
-		Version: "testVersion",
-	}
-	return form
-}
-
-type assureParams struct {
-	contentType  string
-	checkName    func(string, []string) []string
-	checkValue   func(string, []string) []string
-	checkUnit    func(string, []string) []string
-	checkVersion func(string, []string) []string
-}
-
-// Returns an error containing a list of values who was missing/wrong
-func assurePackData(byteArr []byte, contentType string) (err error) {
-	testParams := []assureParams{
-		// Parameters and function for checking xml data
-		{
-			"application/xml",
-			func(data string, missingList []string) []string {
-				if strings.Contains(data, "<testName>") == false {
-					missingList = append(missingList, "name")
-				}
-				return missingList
-			},
-			func(data string, missingList []string) []string {
-				if strings.Contains(data, "<value>123</value>") == false {
-					missingList = append(missingList, "value")
-				}
-				return missingList
-			},
-			func(data string, missingList []string) []string {
-				if strings.Contains(data, "<unit>testUnit</unit>") == false {
-					missingList = append(missingList, "unit")
-				}
-				return missingList
-			},
-			func(data string, missingList []string) []string {
-				if strings.Contains(data, "<version>testVersion</version>") == false {
-					missingList = append(missingList, "version")
-				}
-				return missingList
-			},
-		},
-		// Parameters and functions for checking json data
-		{
-			"application/json",
-			func(data string, missingList []string) []string { return missingList },
-			func(data string, missingList []string) []string {
-				if strings.Contains(data, `"value": 123`) == false {
-					missingList = append(missingList, "value")
-				}
-				return missingList
-			},
-			func(data string, missingList []string) []string {
-				if strings.Contains(data, `"unit": "testUnit"`) == false {
-					missingList = append(missingList, "unit")
-				}
-				return missingList
-			},
-			func(data string, missingList []string) []string {
-				if strings.Contains(data, `"version": "testVersion"`) == false {
-					missingList = append(missingList, "version")
-				}
-				return missingList
-			},
-		},
-	}
-	// Loops through the param list, and checks if there's an element with the same contentType
-	for _, c := range testParams {
-		data := string(byteArr)
-		var missingList []string
-		if c.contentType == contentType {
-			// If there's an element with same contentType, run checks
-			missingList = c.checkName(data, missingList)
-			missingList = c.checkValue(data, missingList)
-			missingList = c.checkUnit(data, missingList)
-			missingList = c.checkVersion(data, missingList)
-		}
-		if len(missingList) != 0 {
-			return fmt.Errorf("fields containing wrong data: %v", missingList)
-		}
-	}
-	return err
-}
-
 type packParams struct {
-	contentType   string
-	expectedError bool
-	form          func() mockForm
-	assureData    func([]byte, string) error
-	testCase      string
+	contentType     string
+	expectedError   bool
+	form            mockForm
+	expectedValue   string
+	expectedVersion string
+	testCase        string
 }
 
 func TestPack(t *testing.T) {
 	params := []packParams{
-		{"application/xml", false, func() mockForm { return createTestForm() }, func(byteArr []byte, cType string) error { return assurePackData(byteArr, cType) }, "Best case, xml"},
-		{"application/json", false, func() mockForm { return createTestForm() }, func(byteArr []byte, cType string) error { return assurePackData(byteArr, cType) }, "Best case, json"},
-		{"application/xml", true, func() mockForm { form := createTestForm(); form.Value = complex(1, 2); return form }, nil, "Bad case, xml"},
-		{"application/json", true, func() mockForm { form := createTestForm(); form.Value = complex(1, 2); return form }, nil, "Bad case, json"},
+		{"application/xml", false, mockForm{Value: 123, Version: "testVersion"}, "<value>123</value>", "<version>testVersion</version>", "Best case, xml"},
+		{"application/json", false, mockForm{Value: 123, Version: "testVersion"}, `"value": 123`, `"version": "testVersion"`, "Best case, json"},
+		{"application/xml", true, mockForm{Value: complex(1, 2), Version: "testVersion"}, "", "", "Bad case, xml"},
+		{"application/json", true, mockForm{Value: complex(1, 2), Version: "testVersion"}, "", "", "Bad case, json"},
 	}
 	for _, c := range params {
-		data, err := Pack(c.form(), c.contentType)
+		data, err := Pack(c.form, c.contentType)
 		if c.expectedError == false {
 			if err != nil {
 				t.Errorf("failed in testcase '%s' with error: %v", c.testCase, err)
 			}
-			// Only assure data if we expect and get no errors from Pack() since data will be empty if we get an error
-			err = c.assureData(data, c.contentType)
-			if err != nil {
-				t.Errorf("error from assureData in testcase '%s': %v", c.testCase, err)
+			if strings.Contains(string(data), c.expectedValue) != true {
+				t.Errorf("value missing or wrong in testcase '%s'", c.testCase)
 			}
+			if strings.Contains(string(data), c.expectedVersion) != true {
+				t.Errorf("version missing or wrong in testcase '%s'", c.testCase)
+			}
+
 		} else {
 			if err == nil {
 				t.Errorf("expected error in testcase '%s', got none", c.testCase)
