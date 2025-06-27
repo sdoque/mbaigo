@@ -2,10 +2,12 @@ package usecases
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
 	"net/http"
 
 	"github.com/sdoque/mbaigo/components"
+	"github.com/sdoque/mbaigo/forms"
 )
 
 // mockTransport is used for replacing the default network Transport (used by
@@ -66,6 +68,25 @@ func (mua mockUnitAsset) GetDetails() map[string][]string {
 }
 
 func (mua mockUnitAsset) Serving(w http.ResponseWriter, r *http.Request, servicePath string) {}
+
+// A mocked form used for testing
+type mockForm struct {
+	XMLName xml.Name `json:"-" xml:"testName"`
+	Value   any      `json:"value" xml:"value"`
+	Unit    string   `json:"unit" xml:"unit"`
+	Version string   `json:"version" xml:"version"`
+}
+
+// NewForm creates a new form
+func (f mockForm) NewForm() forms.Form {
+	f.Version = "testVersion"
+	return f
+}
+
+// FormVersion returns the version of the form
+func (f mockForm) FormVersion() string {
+	return f.Version
+}
 
 // Create a error reader to break json.Unmarshal()
 type errReader int
