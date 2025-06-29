@@ -22,6 +22,7 @@
 package usecases
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -87,9 +88,7 @@ func SetoutServers(sys *components.System) error {
 		// Initiate graceful shutdown on signal reception
 		go func() {
 			<-sys.Ctx.Done()
-			time.Sleep(1 * time.Second) // this line is for the leading service registrar to deregister its own services
-			// log.Printf("Initiating graceful shutdown of the HTTPS server.\n")
-			if err := httpsServer.Shutdown(sys.Ctx); err != nil {
+			if err := httpsServer.Shutdown(context.Background()); err != nil {
 				log.Printf("Error during shutdown: %v", err)
 			}
 		}()
@@ -120,9 +119,7 @@ func SetoutServers(sys *components.System) error {
 		// Initiate graceful shutdown on signal reception
 		go func() {
 			<-sys.Ctx.Done()
-			time.Sleep(1 * time.Second) // this line is for the leading service registrar to deregister its own services
-			// log.Printf("Initiating graceful shutdown of the HTTP server.\n")
-			if err := httpServer.Shutdown(sys.Ctx); err != nil {
+			if err := httpServer.Shutdown(context.Background()); err != nil {
 				log.Printf("Error during shutdown: %v", err)
 			}
 		}()
