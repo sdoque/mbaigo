@@ -69,7 +69,7 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 	}
 
 	if len(bodyBytes) < 1 {
-		return f, fmt.Errorf("got empty response body: %w", err)
+		return f, fmt.Errorf("got empty response body")
 
 	}
 

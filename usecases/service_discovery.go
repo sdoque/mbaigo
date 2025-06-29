@@ -87,7 +87,7 @@ func sendHttpReq(method string, url string, data []byte) (resp *http.Response, e
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp, fmt.Errorf("received non-2xx status code: %d, response: %s from the Orchestrator", resp.StatusCode, http.StatusText(resp.StatusCode))
+		return nil, fmt.Errorf("bad response: %d %s", resp.StatusCode, resp.Status)
 	}
 	return
 }
