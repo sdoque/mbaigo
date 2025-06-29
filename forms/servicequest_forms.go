@@ -30,7 +30,7 @@ import "reflect"
 type ServiceQuest_v1 struct {
 	SysId             int                 `json:"systemId"`
 	RequesterName     string              `json:"requesterName"`
-	ServiceDefinition string              `json:"serrviceDefinition"`
+	ServiceDefinition string              `json:"serviceDefinition"`
 	Protocol          string              `json:"protocol"`
 	Details           map[string][]string `json:"details"`
 	Version           string              `json:"version"`
