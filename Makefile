@@ -7,6 +7,7 @@ lint:
 	test -z $$(gofmt -l .) || (echo "Code isn't gofmt'ed!" && exit 1)
 	go vet $$(go list ./... | grep -v /tmp)
 	gosec -quiet -fmt=golint -exclude-dir="tmp" ./...
+	staticcheck ./...
 	# pointerinterface ./...
 
 # Runs spellchecker on the code and comments
@@ -29,9 +30,10 @@ analyse:
 # Updates 3rd party packages and tools
 installpkgs:
 	go mod download
-	go install github.com/securego/gosec/v2/cmd/gosec@latest
 	go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
-	go install code.larus.se/lmas/pointerinterface@latest
+	go install github.com/securego/gosec/v2/cmd/gosec@latest
+	go install honnef.co/go/tools/cmd/staticcheck@latest
+	# go install code.larus.se/lmas/pointerinterface@latest
 
 # Clean up built binary and other temporary files (ignores errors from rm)
 clean:
