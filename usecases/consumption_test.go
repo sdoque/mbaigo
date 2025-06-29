@@ -57,7 +57,7 @@ var form forms.SignalA_v1a
 
 var errEmptyRespBody = errors.New("got empty response body")
 
-var errUnpack = errors.New("Problem unpacking response body")
+var errUnpack = errors.New("problem unpacking response body")
 
 func createTestBytes() []byte {
 	return []byte("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}")

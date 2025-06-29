@@ -58,11 +58,10 @@ func (ec errorReadCloser) Close() error {
 var errMockTrans = fmt.Errorf("mock error")
 
 type mockTrans struct {
-	status       int
-	body         string
-	err          error
-	errBody      error
-	errBodyClose error
+	status  int
+	body    string
+	err     error
+	errBody error
 }
 
 func newMockTransport() *mockTrans {
@@ -87,10 +86,6 @@ func (t *mockTrans) setBodyError() {
 	t.errBody = errMockTrans
 }
 
-func (t *mockTrans) setBodyCloseError() {
-	t.errBodyClose = errMockTrans
-}
-
 // RoundTrip method is required to fulfil the RoundTripper interface (as required by the DefaultClient).
 // It prevents the request from being sent over the network.
 func (t *mockTrans) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -103,7 +98,7 @@ func (t *mockTrans) RoundTrip(req *http.Request) (*http.Response, error) {
 		Body: errorReadCloser{
 			strings.NewReader(t.body),
 			t.errBody,
-			t.errBodyClose,
+			nil,
 		},
 		ContentLength: int64(len(t.body)),
 		Request:       req,

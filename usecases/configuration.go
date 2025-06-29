@@ -57,7 +57,7 @@ type configFileIn struct {
 	Resources []json.RawMessage       `json:"unit_assets"`
 }
 
-var ErrNewConfig = errors.New("A new configuration file has been created. Please update it and restart the system")
+var ErrNewConfig = errors.New("new config file was created")
 
 func setupDefaultConfig(sys *components.System) (defaultConfig templateOut, err error) {
 	var assetTemplate components.UnitAsset
