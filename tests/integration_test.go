@@ -1,12 +1,16 @@
 package tests
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
+	"runtime"
+	"runtime/pprof"
 	"strings"
 	"testing"
 	"time"
@@ -55,14 +59,13 @@ func addGreeterTemplate(sys *components.System) {
 		// NOTE: must start with lower-case, it gets embedded into another sentence in the web API
 		Description: "greets you with a message",
 	}
-	var ua components.UnitAsset
-	ua = &uaGreeter{
+	ua := components.UnitAsset(&uaGreeter{
 		Name:    "greeter", // WARN: don't use the system name!! this is an asset!
 		Details: map[string][]string{"key2": {"value2"}},
 		ServicesMap: components.Services{
 			greetService.SubPath: greetService,
 		},
-	}
+	})
 	sys.UAssets[ua.GetName()] = &ua
 }
 
@@ -169,6 +172,9 @@ func LoadResources(sys *components.System, rawRes []json.RawMessage, newRes NewR
 		for _, f := range cleanups {
 			f()
 		}
+		// Stops hijacking SIGINT and return signal control to user
+		signal.Stop(sys.Sigs)
+		close(sys.Sigs)
 	}
 	return doCleanups, nil
 }
@@ -268,7 +274,26 @@ func (m *mockTrans) RoundTrip(req *http.Request) (resp *http.Response, err error
 	return resp, nil
 }
 
+func countGoroutines() (int, string) {
+	c := runtime.NumGoroutine()
+	buf := &bytes.Buffer{}
+	// A write to this buffer will always return nil error, so safe to ignore here.
+	// This call will spawn some goroutine too, so need to chill for a little while.
+	_ = pprof.Lookup("goroutine").WriteTo(buf, 2)
+	trace := buf.String()
+	// Calling signal.Notify() will leave an extra goroutine that runs forever,
+	// so it should be subtracted from the count. For more info, see:
+	// https://github.com/golang/go/issues/52619
+	// https://github.com/golang/go/issues/72803
+	// https://github.com/golang/go/issues/21576
+	if strings.Contains(trace, "os/signal.signal_recv") {
+		c -= 1
+	}
+	return c, trace
+}
+
 func TestSimpleSystemIntegration(t *testing.T) {
+	routinesStart, _ := countGoroutines()
 	m := newMockTransport(t)
 	sys, stop, err := newSystem()
 	if err != nil {
@@ -313,5 +338,16 @@ func TestSimpleSystemIntegration(t *testing.T) {
 	m.waitFor(eventUnregister)
 	if m.hits[eventUnregister] != 1 {
 		t.Errorf("system skipped: %s", eventUnregister)
+	}
+
+	// Detect any leaking goroutines
+	// Delay a short moment and let the goroutines finish. Not sure if there's
+	// a better way to wait for an unknown number of goroutines.
+	time.Sleep(1 * time.Second)
+	routinesStop, trace := countGoroutines()
+	if (routinesStop - routinesStart) != 0 {
+		t.Errorf("leaking goroutines, count at start=%d, stop=%d\n%s",
+			routinesStart, routinesStop, trace,
+		)
 	}
 }
