@@ -23,7 +23,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
@@ -82,7 +81,6 @@ func ACServices(w http.ResponseWriter, r *http.Request, ua *components.UnitAsset
 	case "GET":
 		payload, err := GetActivitiesCost(serv)
 		if err != nil {
-			log.Printf("Error in getting the activity costs\n")
 			http.Error(w, "Error marshaling data.", http.StatusInternalServerError)
 			return
 		}
@@ -90,19 +88,19 @@ func ACServices(w http.ResponseWriter, r *http.Request, ua *components.UnitAsset
 		w.WriteHeader(http.StatusOK)
 		_, err = w.Write(payload)
 		if err != nil {
-			log.Printf("Error while writing to response body for ACServices: %v", err)
+			http.Error(w, "Error while writing to response body", http.StatusInternalServerError)
 		}
 		return
 	case "PUT":
 		defer r.Body.Close()
 		bodyBytes, err := io.ReadAll(r.Body) // Use io.ReadAll instead of ioutil.ReadAll
 		if err != nil {
-			log.Printf("Error reading registration response body: %v", err)
+			http.Error(w, "Error reading registration response body", http.StatusBadRequest)
 			return
 		}
 		err = SetActivitiesCost(serv, bodyBytes)
 		if err != nil {
-			log.Printf("there was an error updating the activittiy costs, %s\n", err)
+			http.Error(w, "Error occured while updating activity costs", http.StatusInternalServerError)
 		}
 	default:
 		http.Error(w, "Method is not supported.", http.StatusNotFound)
