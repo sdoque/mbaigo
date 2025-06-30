@@ -1,6 +1,8 @@
 package usecases
 
 import (
+	"io"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -84,7 +86,67 @@ func TestSetActivitiesCost(t *testing.T) {
 	}
 }
 
+// Creates a unitasset with values used for testing
+func createUnitAsset() components.UnitAsset {
+	setTest := &components.Service{
+		ID:            1,
+		Definition:    "test",
+		SubPath:       "test",
+		Details:       map[string][]string{"Forms": {"SignalA_v1a"}},
+		Description:   "A test service",
+		RegPeriod:     45,
+		RegTimestamp:  "now",
+		RegExpiration: "45",
+	}
+	ServicesMap := &components.Services{
+		setTest.SubPath: setTest,
+	}
+	var ua components.UnitAsset
+	ua = &mockUnitAsset{
+		Name:        "testUnitAsset",
+		Details:     map[string][]string{"Test": {"Test"}},
+		ServicesMap: *ServicesMap,
+		CervicesMap: nil,
+	}
+	return ua
+}
+
+type acServicesParams struct {
+	httpMethod  string
+	expectError bool
+	body        string
+	testCase    string
+}
+
 // ACServices(w http.ResponseWriter, r *http.Request, ua *components.UnitAsset, serviceP string)
 func TestACServices(t *testing.T) {
+	testParams := []acServicesParams{
+		// Good case: no errors in GET/PUT
+		{"GET", false, "", "Best case: no errors in GET"},
+		{"PUT", false, `{"activity":"test", "cost": 321, "version":"ActivityCostForm_v1"}`, "Best case: no errors in PUT"},
+		// GET, Bad case: GetActivitiesCost() returns error
+		// GET, Bad case: Couldn't write to responsewriter
+		// PUT, Bad case: Reading response body returns an error
+		// PUT, Bad case: SetActivitesCost() returns error
+		// DEFAULT: Method not supported (POST)
+	}
 
+	for _, c := range testParams {
+		// Setup
+		ua := createUnitAsset()
+		w := httptest.NewRecorder()
+		body := io.NopCloser(strings.NewReader(c.body))
+		r := httptest.NewRequest(c.httpMethod, "http://localhost", body)
+		// Test
+		ACServices(w, r, &ua, "test")
+		if c.expectError == false {
+			if w.Result().StatusCode != 200 {
+				t.Errorf("Expected no errors in '%s'", c.testCase)
+			}
+		} else {
+			if r.Response.StatusCode == 200 {
+				t.Errorf("Expected errors in testcase '%s'", c.testCase)
+			}
+		}
+	}
 }
