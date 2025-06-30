@@ -127,7 +127,7 @@ func TestACServices(t *testing.T) {
 		// GET, Bad case: GetActivitiesCost() returns error
 		// GET, Bad case: Couldn't write to responsewriter
 		// PUT, Bad case: Reading response body returns an error
-		// PUT, Bad case: SetActivitesCost() returns error
+		// PUT, Bad case: SetActivitiesCost() returns error
 		// DEFAULT: Method not supported (POST)
 	}
 

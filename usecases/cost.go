@@ -100,7 +100,7 @@ func ACServices(w http.ResponseWriter, r *http.Request, ua *components.UnitAsset
 		}
 		err = SetActivitiesCost(serv, bodyBytes)
 		if err != nil {
-			http.Error(w, "Error occured while updating activity costs", http.StatusInternalServerError)
+			http.Error(w, "Error occurred while updating activity costs", http.StatusInternalServerError)
 		}
 	default:
 		http.Error(w, "Method is not supported.", http.StatusNotFound)
