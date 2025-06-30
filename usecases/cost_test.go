@@ -1,12 +1,10 @@
 package usecases
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/sdoque/mbaigo/components"
-	"github.com/sdoque/mbaigo/forms"
 )
 
 // GetActivitiesCost(serv *components.Service) (payload []byte, err error)
@@ -31,7 +29,7 @@ func TestGetActivitiesCost(t *testing.T) {
 }
 
 type setACparams struct {
-	createData  func() (data []byte, err error)
+	dataString  string
 	expectError bool
 	testCase    string
 }
@@ -53,60 +51,27 @@ func createTestService() (serv *components.Service) {
 	return testServ
 }
 
-func createACFormBytes(definition string, version string, errRead bool) (data []byte, err error) {
-	var body interface{}
-	if errRead == true {
-		return json.Marshal(errReader(0))
-	}
-	if len(version) == 0 {
-		body = testBodyNoVersion{}
-	} else {
-		body = forms.ActivityCostForm_v1{Activity: definition, Cost: 321, Version: version}
-	}
-
-	data, err = json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
-}
-
 // SetActivitiesCost(serv *components.Service, bodyBytes []byte) (err error)
 func TestSetActivitiesCost(t *testing.T) {
 	testParams := []setACparams{
 		// Best case: No errors
-		{func() (data []byte, err error) {
-			return createACFormBytes("testDefinition", "ActivityCostForm_v1", false)
-		}, false, "Best case, no errors"},
+		{`{"activity":"testDefinition","cost":321,"unit":"","timestamp":"0001-01-01T00:00:00Z","version":"ActivityCostForm_v1"}`, false, "Best case, no errors"},
 		// Bad case: Fail @ unmarshal
-		{func() (data []byte, err error) {
-			return createACFormBytes("testDefinition", "ActivityCostForm_v1", true)
-		}, true, "Bad case, break first unmarshal"},
+		{"", true, "Bad case, break first unmarshal"},
 		// Bad case: No version field in byte array
-		{func() (data []byte, err error) {
-			return createACFormBytes("testDefinition", "", false)
-		}, true, "Bad case, version missing"},
+		{`{"activity":"testDefinition","cost":321,"unit":"","timestamp":"0001-01-01T00:00:00Z"}`, true, "Bad case, version missing"},
 		// Bad case: Unsupported version
-		{func() (data []byte, err error) {
-			return createACFormBytes("testDefinition", "wrongVersion", false)
-		}, true, "Bad case, unsupported version"},
+		{`{"activity":"testDefinition","cost":321,"unit":"","timestamp":"0001-01-01T00:00:00Z","version":"WrongVersion"}`, true, "Bad case, unsupported version"},
 		// Bad case: mismatch between 'serv.Definition' and 'acForm.Activity'
-		{func() (data []byte, err error) {
-			return createACFormBytes("", "ActivityCostForm_v1", false)
-		}, true, "Bad case, serv.Definition != acForm.Activity"},
-		// TODO: Add testcase to test 2nd unmarshal 'Bad case: Fail @ 2nd unmarshal'
+		{`{"activity":"WrongDef","cost":321,"unit":"","timestamp":"0001-01-01T00:00:00Z","version":"ActivityCostForm_v1"}`, true, "Bad case, serv.Definition != acForm.Activity"},
+		// Bad case: Fail @ 2nd unmarshal
+		{`{"activity":"testDefinition","cost":"321","unit":"","timestamp":"0001-01-01T00:00:00Z","version":"ActivityCostForm_v1"}`, true, "Bad case, break first unmarshal"},
 	}
 	testServ := createTestService()
 
 	for _, c := range testParams {
-		// Setup
-		byteArr, err := c.createData()
-		if err != nil {
-			t.Errorf("failed while creating byte array in setup of testcase '%s'", c.testCase)
-		}
-
 		// Test
-		err = SetActivitiesCost(testServ, byteArr)
+		err := SetActivitiesCost(testServ, []byte(c.dataString))
 		if c.expectError != true {
 			if err != nil {
 				t.Errorf("Expected no errors in testcase '%s', got: %v", c.testCase, err)
