@@ -1,6 +1,7 @@
 package usecases
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -13,11 +14,18 @@ import (
 )
 
 type httpProcessGetRequestStruct struct {
-	inputW      http.ResponseWriter
-	inputR      *http.Request
-	inputF      forms.Form
-	expectedErr error
-	testName    string
+	inputW       http.ResponseWriter
+	inputR       *http.Request
+	inputF       forms.Form
+	expectedBody string
+	testName     string
+}
+
+type wrongVersionForm struct {
+	XMLName xml.Name  `json:"-" xml:"testName"`
+	Value   complex64 `json:"value" xml:"value"`
+	Unit    string    `json:"unit" xml:"unit"`
+	Version string    `json:"version" xml:"version"`
 }
 
 type brokenTestValueForm struct {
@@ -41,22 +49,36 @@ func (e *mockResponseWriter) Header() http.Header {
 	return make(http.Header)
 }
 
-func createHttpResponse() func() *http.Response {
-	httpResp := func() *http.Response {
-		return &http.Response{
-			Status:     "200 OK",
-			StatusCode: 200,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"))),
-		}
-	}
-	return httpResp
+func createNewBodyString() string {
+	return "{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"
 }
 
-func createEmptyFormVersion() forms.Form {
-	form.NewForm()
-	form.Version = ""
-	return &form
+func (f wrongVersionForm) NewForm() forms.Form {
+	f.Version = ""
+	return f
+}
+
+func (f wrongVersionForm) FormVersion() string {
+	return f.Version
+}
+
+func createEmptyFormVersion() wrongVersionForm {
+	form := wrongVersionForm{
+		XMLName: xml.Name{},
+		Value:   0,
+		Unit:    "testUnit",
+		Version: "",
+	}
+	return form
+}
+
+func (f brokenTestValueForm) NewForm() forms.Form {
+	f.Version = "testVersion"
+	return f
+}
+
+func (f brokenTestValueForm) FormVersion() string {
+	return f.Version
 }
 
 func createBrokenForm() brokenTestValueForm {
@@ -72,25 +94,32 @@ func createBrokenForm() brokenTestValueForm {
 var mockError error = fmt.Errorf("A mock error")
 
 // TODO: Uncomment this test if we get approval to make it so that HTTPProcessGetRequest returns an error, also make sure the expectedErr gets it proper value then
-/*
+
 var httpProcessGetRequestParams = []httpProcessGetRequestStruct{
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), form.NewForm(), nil, "Good case"},
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), nil, mockError, "Bad case, form is nil"},
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), createEmptyFormVersion(), mockError, "Bad case, form version is empty"},
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), createBrokenForm(), mockError, "Bad case, form value is invalid"},
-	{&mockResponseWriter{}, httptest.NewRequest(http.MethodGet, "/test123", nil), form.NewForm(), mockError, "Bad case, Write fails"},
+	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), form.NewForm(), createNewBodyString(), "Good case"},
+	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), nil, "No payload found.", "Bad case, form is nil"},
+	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), createEmptyFormVersion(), "No payload information found.", "Bad case, form version is empty"},
+	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), createBrokenForm(), "Error packing response:", "Bad case, form value is invalid"},
+	{&mockResponseWriter{}, httptest.NewRequest(http.MethodGet, "/test123", nil), form.NewForm(), "", "Bad case, Write fails"},
 }
 
 func TestHTTPProcessGetRequest(t *testing.T) {
 	for _, testCase := range httpProcessGetRequestParams {
-		err := HTTPProcessGetRequest(testCase.inputW, testCase.inputR, testCase.inputF)
+		HTTPProcessGetRequest(testCase.inputW, testCase.inputR, testCase.inputF)
 
-		if err != testCase.expectedErr {
-			t.Errorf("Expected %v, got: %v", testCase.expectedErr, err)
+		if testCase.testName == "Bad case, Write fails" {
+			if _, ok := testCase.inputW.(*mockResponseWriter); !ok {
+				t.Errorf("Expected inputW to be of type *mockResponseWriter")
+			}
+		}
+		recorder, ok := testCase.inputW.(*httptest.ResponseRecorder)
+		if ok {
+			if !bytes.HasPrefix(recorder.Body.Bytes(), []byte(testCase.expectedBody)) {
+				t.Errorf("Expected %v, got: %v", testCase.expectedBody, recorder.Body.String())
+			}
 		}
 	}
 }
-*/
 
 type httpProcessSetRequestStruct struct {
 	inputW       http.ResponseWriter
@@ -102,6 +131,7 @@ type httpProcessSetRequestStruct struct {
 
 func createForm() forms.SignalA_v1a {
 	form.NewForm()
+	form.Value = 0
 	return form
 }
 
