@@ -20,8 +20,6 @@
 package usecases
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -61,37 +59,23 @@ func HTTPProcessGetRequest(w http.ResponseWriter, r *http.Request, f forms.Form)
 }
 
 // HTTPProcessSetRequest processes a SET request
-func HTTPProcessSetRequest(w http.ResponseWriter, req *http.Request) (f forms.SignalA_v1a, err error) {
+func HTTPProcessSetRequest(w http.ResponseWriter, req *http.Request) (forms.SignalA_v1a, error) {
 	defer req.Body.Close()
 	bodyBytes, err := io.ReadAll(req.Body) // Use io.ReadAll instead of ioutil.ReadAll
 	if err != nil {
 		log.Printf("Error reading request body: %v", err)
-		return
+		return forms.SignalA_v1a{}, err
 	}
-	var jsonData map[string]interface{}
-	err = json.Unmarshal(bodyBytes, &jsonData)
+	headerContentType := req.Header.Get("Content-Type")
+	form, err := Unpack(bodyBytes, headerContentType)
 	if err != nil {
-		log.Printf("Error unmarshalling JSON data: %v", err)
-		return
+		return forms.SignalA_v1a{}, err
 	}
-	formVersion, ok := jsonData["version"].(string)
+	f, ok := form.(*forms.SignalA_v1a)
 	if !ok {
-		log.Printf("Error: 'version' key not found in JSON data")
-		return
+		return forms.SignalA_v1a{}, fmt.Errorf("Form is not of type SignalA_v1a")
 	}
-	switch formVersion {
-	case "SignalA_v1.0":
-		var sig forms.SignalA_v1a
-		err = json.Unmarshal(bodyBytes, &sig)
-		if err != nil {
-			log.Println("Unable to extract signal set request ")
-			return
-		}
-		f = sig
-	default:
-		err = errors.New("unsupported service set request form version")
-	}
-	return
+	return *f, nil
 }
 
 // getBestContentType parses the Accept header and returns the best content type based on q-values
