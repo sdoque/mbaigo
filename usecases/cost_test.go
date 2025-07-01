@@ -33,7 +33,7 @@ func TestGetActivitiesCost(t *testing.T) {
 }
 
 // ------------------------------------------------------ //
-// Helper functions and structs for TestSetActivitesCost()
+// Helper functions and structs for TestSetActivitiesCost()
 // ------------------------------------------------------ //
 
 type setACparams struct {
