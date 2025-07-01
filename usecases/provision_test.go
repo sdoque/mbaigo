@@ -152,6 +152,10 @@ func createBodyWithWrongFormVersion() io.ReadCloser {
 	return io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalB_v1.0\"\n}")))
 }
 
+func createBodyWithSignalBForm() io.ReadCloser {
+	return io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalB_v1.0\"\n}")))
+}
+
 var errReadAll error = fmt.Errorf("forced read error")
 
 var errUnmarshal error = fmt.Errorf("invalid character '\\x00' looking for beginning of value")
@@ -165,6 +169,7 @@ var httpProcessSetRequestParams = []httpProcessSetRequestStruct{
 	{httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/test123", createBodyWithNoformVersion()), true, forms.SignalA_v1a{}, "Bad case, version key missing"},
 	{httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/test123", createBodyWithWrongForm()), true, forms.SignalA_v1a{}, "Bad case, Second Unmarshal breaks"},
 	{httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/test123", createBodyWithWrongFormVersion()), true, forms.SignalA_v1a{}, "Bad case, version is wrong"},
+	{httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/test123", createBodyWithSignalBForm()), true, forms.SignalA_v1a{}, "Bad case, form version is SignalB_v1a"},
 }
 
 func TestHTTPProcessSetRequest(t *testing.T) {
