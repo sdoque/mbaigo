@@ -80,14 +80,9 @@ func TestSetActivitiesCost(t *testing.T) {
 	for _, c := range testParams {
 		// Test
 		err := SetActivitiesCost(testServ, []byte(c.dataString))
-		if c.expectError != true {
-			if err != nil {
-				t.Errorf("Expected no errors in testcase '%s', got: %v", c.testCase, err)
-			}
-		} else {
-			if err == nil {
-				t.Errorf("Expected errors in testcase '%s'", c.testCase)
-			}
+
+		if (c.expectError == true && err == nil) || (c.expectError == false && err != nil) {
+			t.Errorf("Testcase '%s' failed, expectError was %v error was: %v", c.testCase, c.expectError, err)
 		}
 	}
 }

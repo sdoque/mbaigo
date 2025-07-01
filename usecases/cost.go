@@ -46,7 +46,7 @@ func SetActivitiesCost(serv *components.Service, bodyBytes []byte) (err error) {
 	var jsonData map[string]interface{}
 	err = json.Unmarshal(bodyBytes, &jsonData)
 	if err != nil {
-		return fmt.Errorf("error unmarshalling JSON data: %v", err)
+		return fmt.Errorf("unmarshalling JSON data: %w", err)
 	}
 	formVersion, ok := jsonData["version"].(string)
 	if !ok {
