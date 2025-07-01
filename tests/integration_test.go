@@ -8,11 +8,14 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/signal"
+	"path"
 	"runtime"
 	"runtime/pprof"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -103,7 +106,12 @@ func loadUA(ca usecases.ConfigurableAsset, sys *components.System) (components.U
 ////////////////////////////////////////////////////////////////////////////////
 // The most simplest system
 
-const systemName string = "test"
+const (
+	systemName string = "test"
+	systemPort int    = 29999
+)
+
+var serviceURL = "GET /" + path.Join(systemName, unitName, unitService)
 
 func newSystem() (*components.System, func(), error) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -114,7 +122,7 @@ func newSystem() (*components.System, func(), error) {
 	sys.Husk = &components.Husk{
 		Description: " is the most simplest system possible",
 		Details:     map[string][]string{"key3": {"value3"}},
-		ProtoPort:   map[string]int{"http": 29999},
+		ProtoPort:   map[string]int{"http": systemPort},
 	}
 
 	// Setup default config with default unit asset and values
@@ -199,18 +207,19 @@ func LoadResources(sys *components.System, rawRes []json.RawMessage, newRes NewR
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Mock simulating traffic between a system and registrars/orchestrators
 
 type event struct {
 	key  string
 	hits int
+	body []byte
 }
 
 type mockTrans struct {
 	t      *testing.T
 	hits   map[string]int // Used to track http requests
+	mutex  sync.Mutex     // For protecting access to the above map
 	events chan event
-	sys    *components.System
-	ua     components.UnitAsset
 }
 
 func newMockTransport(t *testing.T) *mockTrans {
@@ -224,47 +233,47 @@ func newMockTransport(t *testing.T) *mockTrans {
 	return m
 }
 
-func (m *mockTrans) trackSystem(s *components.System) {
-	m.sys = s
-	m.ua = *s.UAssets[unitName]
-	if m.ua == nil {
-		m.t.Fatalf("missing unit asset %s in system %s", unitName, systemName)
-	}
-}
-
-func (m *mockTrans) waitFor(event string) (int, error) {
+func (m *mockTrans) waitFor(event string) (int, []byte, error) {
 	select {
 	case e := <-m.events:
 		if e.key != event {
-			return 0, fmt.Errorf("got %s, expected %s", e.key, event)
+			return 0, nil, fmt.Errorf("got %s, expected %s", e.key, event)
 		}
-		return e.hits, nil
+		return e.hits, e.body, nil
 	case <-time.Tick(10 * time.Second):
-		return 0, fmt.Errorf("event timeout")
+		return 0, nil, fmt.Errorf("event timeout")
 	}
 }
 
-func (m *mockTrans) newServiceRecord() (b []byte, err error) {
+func newServiceRecord() []byte {
 	f := forms.ServiceRecord_v1{
 		Id:            13, // NOTE: this should match with eventUnregister
 		Created:       time.Now().Format(time.RFC3339),
 		EndOfValidity: time.Now().Format(time.RFC3339),
 		Version:       "ServiceRecord_v1",
 	}
-	return usecases.Pack(&f, "application/json")
+	b, err := usecases.Pack(&f, "application/json")
+	if err != nil {
+		panic(err) // Hard fail if Pack() can't handle the above form
+	}
+	return b
 }
 
-func (m *mockTrans) newServicePoint() (b []byte, err error) {
+func newServicePoint() []byte {
 	f := forms.ServicePoint_v1{
 		// per usecases/registration.go:serviceRegistrationForm()
 		ServNode: fmt.Sprintf("localhost_%s_%s_%s", systemName, unitName, unitService),
 		// per orchestrator/thing.go:selectService()
 		ServLocation: fmt.Sprintf("http://localhost:%d/%s/%s/%s",
-			m.sys.Husk.ProtoPort["http"], systemName, unitName, unitService,
+			systemPort, systemName, unitName, unitService,
 		),
 		Version: "ServicePoint_v1",
 	}
-	return usecases.Pack(&f, "application/json")
+	b, err := usecases.Pack(&f, "application/json")
+	if err != nil {
+		panic(err) // Another hard fail if Pack() can't work with the above form
+	}
+	return b
 }
 
 const (
@@ -275,77 +284,62 @@ const (
 	eventOrchestrate    string = "POST /orchestrator/orchestration/squest"
 )
 
-func (m *mockTrans) RoundTrip(req *http.Request) (*http.Response, error) {
-	resp := &http.Response{
-		StatusCode: http.StatusNotImplemented,
-		Request:    req,
-		Header: map[string][]string{
-			"Content-Type": {"application/json"},
-		},
-	}
-	body, key := "", req.Method+" "+req.URL.Path
-	m.hits[key] += 1
-	switch key {
-
-	// Find leading registrar
-	case eventRegistryStatus:
-		resp.StatusCode, body = 200, components.ServiceRegistrarLeader
-
-	// Register services with registrar
-	case eventRegister:
-		// TODO: validate body
-		// b, err := io.ReadAll(req.Body)
-		// if err != nil {
-		// 	return nil, err
-		// }
-		// defer req.Body.Close()
-		// fmt.Println(string(b))
-		f, err := m.newServiceRecord()
-		if err != nil {
-			return nil, err
-		}
-		m.events <- event{key, m.hits[key]}
-		resp.StatusCode, body = 200, string(f)
-
-	// Unregister services
-	case eventUnregister:
-		m.events <- event{key, m.hits[key]}
-
-	case eventOrchestration:
-		resp.StatusCode = 200
-
-	case eventOrchestrate:
-		// TODO: validate body
-		// b, err := io.ReadAll(req.Body)
-		// if err != nil {
-		// 	return nil, err
-		// }
-		// defer req.Body.Close()
-		// fmt.Println(string(b))
-		f, err := m.newServicePoint()
-		if err != nil {
-			return nil, err
-		}
-		resp.StatusCode, body = 200, string(f)
-
-	case fmt.Sprintf("GET /%s/%s/%s", systemName, unitName, unitService):
-		var err error
-		resp, err = http.DefaultTransport.RoundTrip(req)
-		if err != nil {
-			return nil, err
-		}
-
-	default:
-		m.t.Errorf("unknown request: %s", key)
-	}
-
-	resp.Status = http.StatusText(resp.StatusCode)
-	if len(body) > 0 {
-		resp.Body = io.NopCloser(strings.NewReader(body))
-		resp.ContentLength = int64(len(body))
-	}
-	return resp, nil
+var mockRequests = map[string]struct {
+	sendEvent bool
+	status    int
+	body      []byte
+}{
+	eventRegistryStatus: {false, 200, []byte(components.ServiceRegistrarLeader)},
+	eventRegister:       {true, 200, newServiceRecord()},
+	eventUnregister:     {true, 200, nil},
+	eventOrchestration:  {false, 200, nil},
+	eventOrchestrate:    {true, 200, newServicePoint()},
 }
+
+func (m *mockTrans) RoundTrip(req *http.Request) (*http.Response, error) {
+	m.mutex.Lock() // This lock is mainly for guarding concurrent access to the hits map
+	defer m.mutex.Unlock()
+	key := req.Method + " " + req.URL.Path
+	m.hits[key] += 1
+	if key == serviceURL {
+		// The example service will, through the system, return a proper response
+		return http.DefaultTransport.RoundTrip(req)
+	}
+
+	// Any other requests needs to be mocked, simulating responses from the
+	// service registrar and orchestrator.
+	mock, found := mockRequests[key]
+	if !found {
+		m.t.Errorf("unknown request: %s", key)
+		// Let's see how the system responds to this
+		mock.status = http.StatusNotImplemented
+		mock.body = []byte(http.StatusText(mock.status))
+	}
+	rec := httptest.NewRecorder()
+	rec.Header().Set("Content-Type", "application/json")
+	rec.WriteHeader(mock.status)
+	rec.Write(mock.body) // Safe to ignore the returned error, it's always nil
+
+	// Allows for syncing up the test, with the request flow performed by the system
+	if mock.sendEvent {
+		var b []byte
+		if req.Body != nil {
+			var err error
+			b, err = io.ReadAll(req.Body)
+			if err != nil {
+				m.t.Errorf("failed reading request body: %v", err)
+			}
+			defer req.Body.Close()
+		}
+		// Using a goroutine prevents thread locking
+		go func(k string, h int, b []byte) {
+			m.events <- event{k, h, b}
+		}(key, m.hits[key], b)
+	}
+	return rec.Result(), nil
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 func countGoroutines() (int, string) {
 	c := runtime.NumGoroutine()
@@ -365,44 +359,63 @@ func countGoroutines() (int, string) {
 	return c, trace
 }
 
+func assertNotEq(t *testing.T, got, want any) {
+	if got != want {
+		t.Errorf("got %v, expected %v", got, want)
+	}
+}
+
 func TestSimpleSystemIntegration(t *testing.T) {
 	routinesStart, _ := countGoroutines()
 	m := newMockTransport(t)
-	sys, stop, err := newSystem()
+	sys, stopSystem, err := newSystem()
 	if err != nil {
 		t.Fatalf("expected no error, got: %s", err)
 	}
-	m.trackSystem(sys)
 
 	// Validate service registration
-	hits, err := m.waitFor(eventRegister)
-	if err != nil {
-		t.Fatal(err)
-	}
+	hits, body, err := m.waitFor(eventRegister)
+	assertNotEq(t, err, nil)
 	if hits != 1 {
 		t.Errorf("system skipped: %s", eventRegister)
 	}
+	var sr forms.ServiceRecord_v1
+	err = json.Unmarshal(body, &sr)
+	assertNotEq(t, err, nil)
+	assertNotEq(t, sr.SystemName, systemName)
+	assertNotEq(t, sr.SubPath, path.Join(unitName, unitService))
 
-	// Validate service use
-	service := m.ua.GetCervices()[unitService]
+	// Validate service usage
+	ua := *sys.UAssets[unitName]
+	if ua == nil {
+		t.Fatalf("system missing unit asset: %s", unitName)
+	}
+	service := ua.GetCervices()[unitService]
 	if service == nil {
 		t.Fatalf("unit asset missing cervice: %s", unitService)
 	}
 	f, err := usecases.GetState(service, sys)
-	if err != nil {
-		t.Errorf("error from GetState: %s", err)
-	}
+	assertNotEq(t, err, nil)
 	fs, ok := f.(*forms.SignalA_v1a)
 	if ok == false || fs == nil || fs.Value == 0.0 {
 		t.Errorf("invalid form: %#v", f)
 	}
 
-	// Validate service unregister
-	stop()
-	hits, err = m.waitFor(eventUnregister)
-	if err != nil {
-		t.Fatal(err)
+	// Late validation for service discovery
+	hits, body, err = m.waitFor(eventOrchestrate)
+	assertNotEq(t, err, nil)
+	if hits != 1 {
+		t.Errorf("system skipped: %s", eventUnregister)
 	}
+	var sq forms.ServiceQuest_v1
+	err = json.Unmarshal(body, &sq)
+	assertNotEq(t, err, nil)
+	assertNotEq(t, sq.ServiceDefinition, unitService)
+
+	// Validate service unregister
+	stopSystem()
+	hits, _, err = m.waitFor(eventUnregister) // NOTE: doesn't receive a body
+	assertNotEq(t, err, nil)
 	if hits != 1 {
 		t.Errorf("system skipped: %s", eventUnregister)
 	}
