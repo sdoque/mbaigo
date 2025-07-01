@@ -2,6 +2,8 @@ package usecases
 
 import (
 	"io"
+	"math"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -29,6 +31,10 @@ func TestGetActivitiesCost(t *testing.T) {
 		t.Errorf("ACost/cost doesn't match")
 	}
 }
+
+// ------------------------------------------------------ //
+// Helper functions and structs for TestSetActivitesCost()
+// ------------------------------------------------------ //
 
 type setACparams struct {
 	dataString  string
@@ -86,8 +92,12 @@ func TestSetActivitiesCost(t *testing.T) {
 	}
 }
 
+// ------------------------------------------------------ //
+// Helper functions and structs for TestACServices()
+// ------------------------------------------------------ //
+
 // Creates a unitasset with values used for testing
-func createUnitAsset() components.UnitAsset {
+func createUnitAsset(cost float64) components.UnitAsset {
 	setTest := &components.Service{
 		ID:            1,
 		Definition:    "test",
@@ -97,12 +107,13 @@ func createUnitAsset() components.UnitAsset {
 		RegPeriod:     45,
 		RegTimestamp:  "now",
 		RegExpiration: "45",
+		ACost:         cost,
 	}
 	ServicesMap := &components.Services{
 		setTest.SubPath: setTest,
 	}
-	var ua components.UnitAsset
-	ua = &mockUnitAsset{
+	//var ua components.UnitAsset
+	var ua components.UnitAsset = &mockUnitAsset{
 		Name:        "testUnitAsset",
 		Details:     map[string][]string{"Test": {"Test"}},
 		ServicesMap: *ServicesMap,
@@ -112,40 +123,56 @@ func createUnitAsset() components.UnitAsset {
 }
 
 type acServicesParams struct {
-	httpMethod  string
-	expectError bool
-	body        string
-	testCase    string
+	httpMethod     string
+	responseWriter *httptest.ResponseRecorder
+	expectError    bool
+	request        *http.Request
+	unitAsset      components.UnitAsset
+	testCase       string
 }
 
 // ACServices(w http.ResponseWriter, r *http.Request, ua *components.UnitAsset, serviceP string)
 func TestACServices(t *testing.T) {
 	testParams := []acServicesParams{
 		// Good case: no errors in GET/PUT
-		{"GET", false, "", "Best case: no errors in GET"},
-		{"PUT", false, `{"activity":"test", "cost": 321, "version":"ActivityCostForm_v1"}`, "Best case: no errors in PUT"},
+		{"GET", httptest.NewRecorder(), false, httptest.NewRequest(http.MethodGet, "http://localhost", io.NopCloser(strings.NewReader(``))), createUnitAsset(0), "GET, Best case: no errors in GET"},
+		{"PUT", httptest.NewRecorder(), false, httptest.NewRequest(http.MethodPut, "http://localhost", io.NopCloser(strings.NewReader(`{"activity":"test", "cost": 321, "version":"ActivityCostForm_v1"}`))), createUnitAsset(0), "PUT, Best case: no errors in PUT"},
 		// GET, Bad case: GetActivitiesCost() returns error
-		// GET, Bad case: Couldn't write to responsewriter
+		{"GET", httptest.NewRecorder(), true, httptest.NewRequest(http.MethodGet, "http://localhost", io.NopCloser(strings.NewReader(``))), createUnitAsset(math.NaN()), "GET, Bad case: error from GetActivitiesCost()"},
 		// PUT, Bad case: Reading response body returns an error
+		{"PUT", httptest.NewRecorder(), true, httptest.NewRequest(http.MethodPut, "http://localhost", io.NopCloser(errReader(0))), createUnitAsset(0), "PUT, Bad case: reading response body"},
 		// PUT, Bad case: SetActivitiesCost() returns error
-		// DEFAULT: Method not supported (POST)
+		{"PUT", httptest.NewRecorder(), true, httptest.NewRequest(http.MethodPut, "http://localhost", io.NopCloser(strings.NewReader(``))), createUnitAsset(0), "PUT, Bad case: error updating activities cost"},
+		// DEFAULT: Method not supported (POST),
+		{"POST", httptest.NewRecorder(), true, httptest.NewRequest(http.MethodPost, "http://localhost", io.NopCloser(strings.NewReader(``))), createUnitAsset(0), "POST, Bad case: Method not supported"},
+		// TODO: GET, Bad case: Couldn't write to responsewriter
 	}
 
 	for _, c := range testParams {
 		// Setup
-		ua := createUnitAsset()
-		w := httptest.NewRecorder()
-		body := io.NopCloser(strings.NewReader(c.body))
-		r := httptest.NewRequest(c.httpMethod, "http://localhost", body)
+		ua := c.unitAsset
+		w := c.responseWriter
+		r := c.request
 		// Test
 		ACServices(w, r, &ua, "test")
-		if c.expectError == false {
-			if w.Result().StatusCode != 200 {
-				t.Errorf("Expected no errors in '%s'", c.testCase)
+		switch c.httpMethod {
+		case "GET":
+			if c.expectError == false && w.Result().StatusCode != 200 {
+				t.Errorf("Expected statuscode 200 in testcase '%s'", c.testCase)
 			}
-		} else {
-			if r.Response.StatusCode == 200 {
-				t.Errorf("Expected errors in testcase '%s'", c.testCase)
+			if c.expectError == true && w.Result().StatusCode == 200 {
+				t.Errorf("Expected statuscode not to be 200 in testcase '%s'", c.testCase)
+			}
+		case "PUT":
+			if c.expectError == false && w.Result().StatusCode != 200 {
+				t.Errorf("Expected statuscode 200 in testcase '%s' got: %d", c.testCase, w.Result().StatusCode)
+			}
+			if c.expectError == true && w.Result().StatusCode == 200 {
+				t.Errorf("Expected statuscode not to be 200 in testcase '%s'", c.testCase)
+			}
+		default:
+			if w.Result().StatusCode == 200 {
+				t.Errorf("Expected error code, got %d", r.Response.StatusCode)
 			}
 		}
 	}
