@@ -43,9 +43,23 @@ func HTTPProcessGetRequest(w http.ResponseWriter, r *http.Request, f forms.Form)
 	acceptHeader := r.Header.Get("Accept")
 	bestContentType := getBestContentType(acceptHeader)
 
+	/*
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			log.Printf("Error reading request body. %v", err)
+		}
+		defer r.Body.Close()
+		r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		bestContentType := http.DetectContentType(bodyBytes)
+		if bestContentType == "application/octet-stream" {
+			bestContentType = "application/json"
+		}
+	*/
+
 	responseData, err := Pack(f, bestContentType)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error packing response: %v", err), http.StatusInternalServerError)
+		log.Printf("Error packing response: %v", err)
+		http.Error(w, "Error packing response.", http.StatusInternalServerError)
 		return
 	}
 
@@ -53,8 +67,8 @@ func HTTPProcessGetRequest(w http.ResponseWriter, r *http.Request, f forms.Form)
 	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(responseData)
 	if err != nil {
-		// TODO: More might need to happen here?
 		log.Printf("Error while writing response: %v", err)
+		http.Error(w, "Error writing response.", http.StatusInternalServerError)
 	}
 }
 

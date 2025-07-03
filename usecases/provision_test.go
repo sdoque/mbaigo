@@ -14,7 +14,7 @@ import (
 
 type httpProcessGetRequestStruct struct {
 	inputW       http.ResponseWriter
-	inputR       *http.Request
+	inputBody    string
 	inputF       forms.Form
 	expectedBody string
 	testName     string
@@ -32,10 +32,6 @@ func (e *mockResponseWriter) WriteHeader(statusCode int) {}
 
 func (e *mockResponseWriter) Header() http.Header {
 	return make(http.Header)
-}
-
-func createNewBodyString() string {
-	return "{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"
 }
 
 func createEmptyFormVersion() mockForm {
@@ -59,16 +55,22 @@ func createBrokenForm() mockForm {
 }
 
 var httpProcessGetRequestParams = []httpProcessGetRequestStruct{
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), form.NewForm(), createNewBodyString(), "Good case"},
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), nil, "No payload found.\n", "Bad case, form is nil"},
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), createEmptyFormVersion(), "No payload information found.\n", "Bad case, form version is empty"},
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), createBrokenForm(), "Error packing response: error encoding JSON: json: unsupported type: complex128\n", "Bad case, form value is invalid"},
-	{&mockResponseWriter{}, httptest.NewRequest(http.MethodGet, "/test123", nil), form.NewForm(), "", "Bad case, Write fails"},
+	{httptest.NewRecorder(), "{\n  \"value\": 0,\n  \"unit\": \"\",\n}", form.NewForm(),
+		"{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}", "Good case"},
+	{httptest.NewRecorder(), "<form><value>0</value><unit></unit></form>", nil,
+		"No payload found.\n", "Bad case, form is nil"},
+	{httptest.NewRecorder(), "\n", createEmptyFormVersion(),
+		"No payload information found.\n", "Bad case, form version is empty"},
+	{httptest.NewRecorder(), "", createBrokenForm(),
+		"Error packing response.\n", "Bad case, form value is invalid"},
+	{&mockResponseWriter{}, "", form.NewForm(),
+		"", "Bad case, Write fails"},
 }
 
 func TestHTTPProcessGetRequest(t *testing.T) {
 	for _, testCase := range httpProcessGetRequestParams {
-		HTTPProcessGetRequest(testCase.inputW, testCase.inputR, testCase.inputF)
+		inputR := httptest.NewRequest(http.MethodGet, "/test123", io.NopCloser(strings.NewReader(testCase.inputBody)))
+		HTTPProcessGetRequest(testCase.inputW, inputR, testCase.inputF)
 
 		if testCase.testName == "Bad case, Write fails" {
 			if _, ok := testCase.inputW.(*mockResponseWriter); !ok {
@@ -86,7 +88,7 @@ func TestHTTPProcessGetRequest(t *testing.T) {
 
 type httpProcessSetRequestStruct struct {
 	inputW       http.ResponseWriter
-	inputR       *http.Request
+	inputBody    string
 	expectedErr  bool
 	expectedForm forms.SignalA_v1a
 	testName     string
@@ -98,48 +100,39 @@ func createForm() forms.SignalA_v1a {
 	return form
 }
 
-func createBody() io.ReadCloser {
-	return io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}")))
-}
-
-func createBrokenBody() io.ReadCloser {
-	return io.NopCloser(strings.NewReader(string([]byte{0})))
-}
-
-func createBodyWithNoformVersion() io.ReadCloser {
-	return io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"bersion\": \"SignalA_v1.0\"\n}")))
-}
-
-func createBodyWithWrongForm() io.ReadCloser {
-	return io.NopCloser(strings.NewReader(string("{\n  \"value\": \"not-a-number\",\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}")))
-}
-
-func createBodyWithWrongFormVersion() io.ReadCloser {
-	return io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalB_v1.0\"\n}")))
-}
-
-func createBodyWithSignalBForm() io.ReadCloser {
-	return io.NopCloser(strings.NewReader(string("{\n  \"value\": false,\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalB_v1.0\"\n}")))
-}
-
 var httpProcessSetRequestParams = []httpProcessSetRequestStruct{
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/test123", createBody()), false, createForm(), "Good case"},
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/test123", io.NopCloser(errorReader{})), true, forms.SignalA_v1a{}, "Bad case, ReadAll returns error"},
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/test123", createBrokenBody()), true, forms.SignalA_v1a{}, "Bad case, Unmarshal returns error"},
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/test123", createBodyWithNoformVersion()), true, forms.SignalA_v1a{}, "Bad case, version key missing"},
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/test123", createBodyWithWrongForm()), true, forms.SignalA_v1a{}, "Bad case, Second Unmarshal breaks"},
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/test123", createBodyWithWrongFormVersion()), true, forms.SignalA_v1a{}, "Bad case, version is wrong"},
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/test123", createBodyWithSignalBForm()), true, forms.SignalA_v1a{}, "Bad case, form version is SignalB_v1a"},
+	{httptest.NewRecorder(), "{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}",
+		false, createForm(), "Good case"},
+	{httptest.NewRecorder(), "\n", true, forms.SignalA_v1a{}, "Bad case, Unmarshal returns error"},
+	{httptest.NewRecorder(), "{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"bersion\": \"SignalA_v1.0\"\n}",
+		true, forms.SignalA_v1a{}, "Bad case, version key missing"},
+	{httptest.NewRecorder(), "{\n  \"value\": \"not-a-number\",\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}",
+		true, forms.SignalA_v1a{}, "Bad case, Second Unmarshal breaks"},
+	{httptest.NewRecorder(), "{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalB_v1.0\"\n}",
+		true, forms.SignalA_v1a{}, "Bad case, version is wrong"},
+	{httptest.NewRecorder(), "{\n  \"value\": false,\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalB_v1.0\"\n}",
+		true, forms.SignalA_v1a{}, "Bad case, form version is SignalB_v1a"},
 }
 
 func TestHTTPProcessSetRequest(t *testing.T) {
 	for _, testCase := range httpProcessSetRequestParams {
-		testCase.inputR.Header.Set("Content-Type", "application/json")
-		f, err := HTTPProcessSetRequest(testCase.inputW, testCase.inputR)
+		inputR := httptest.NewRequest(http.MethodPut, "/test123", io.NopCloser(strings.NewReader(testCase.inputBody)))
+		inputR.Header.Set("Content-Type", "application/json")
+		f, err := HTTPProcessSetRequest(testCase.inputW, inputR)
 
 		if f != testCase.expectedForm || (err == nil && testCase.expectedErr == true) || (err != nil && testCase.expectedErr == false) {
 			t.Errorf("Expected %v and %v, got: %v and %v", testCase.expectedForm, testCase.expectedErr, f, err)
 		}
+	}
+
+	// Special case
+	specialRequest := httptest.NewRequest(http.MethodPut, "/test123", io.NopCloser(errorReader{}))
+	specialRequest.Header.Set("Content-Type", "application/json")
+	expectedForm := forms.SignalA_v1a{}
+	f, err := HTTPProcessSetRequest(httptest.NewRecorder(), specialRequest)
+
+	if f != expectedForm || err == nil {
+		t.Errorf("Expected %v, got: %v", expectedForm, f)
 	}
 }
 
