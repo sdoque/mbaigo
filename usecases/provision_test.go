@@ -20,20 +20,6 @@ type httpProcessGetRequestStruct struct {
 	testName     string
 }
 
-type wrongVersionForm struct {
-	XMLName xml.Name  `json:"-" xml:"testName"`
-	Value   complex64 `json:"value" xml:"value"`
-	Unit    string    `json:"unit" xml:"unit"`
-	Version string    `json:"version" xml:"version"`
-}
-
-type brokenTestValueForm struct {
-	XMLName xml.Name  `json:"-" xml:"testName"`
-	Value   complex64 `json:"value" xml:"value"`
-	Unit    string    `json:"unit" xml:"unit"`
-	Version string    `json:"version" xml:"version"`
-}
-
 type mockResponseWriter struct {
 	http.ResponseWriter
 }
@@ -52,17 +38,8 @@ func createNewBodyString() string {
 	return "{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"
 }
 
-func (f wrongVersionForm) NewForm() forms.Form {
-	f.Version = ""
-	return f
-}
-
-func (f wrongVersionForm) FormVersion() string {
-	return f.Version
-}
-
-func createEmptyFormVersion() wrongVersionForm {
-	form := wrongVersionForm{
+func createEmptyFormVersion() mockForm {
+	form := mockForm{
 		XMLName: xml.Name{},
 		Value:   0,
 		Unit:    "testUnit",
@@ -71,17 +48,8 @@ func createEmptyFormVersion() wrongVersionForm {
 	return form
 }
 
-func (f brokenTestValueForm) NewForm() forms.Form {
-	f.Version = "testVersion"
-	return f
-}
-
-func (f brokenTestValueForm) FormVersion() string {
-	return f.Version
-}
-
-func createBrokenForm() brokenTestValueForm {
-	form := brokenTestValueForm{
+func createBrokenForm() mockForm {
+	form := mockForm{
 		XMLName: xml.Name{},
 		Value:   complex(1, 2),
 		Unit:    "testUnit",
@@ -90,13 +58,11 @@ func createBrokenForm() brokenTestValueForm {
 	return form
 }
 
-var mockError error = fmt.Errorf("A mock error")
-
 var httpProcessGetRequestParams = []httpProcessGetRequestStruct{
 	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), form.NewForm(), createNewBodyString(), "Good case"},
 	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), nil, "No payload found.\n", "Bad case, form is nil"},
 	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), createEmptyFormVersion(), "No payload information found.\n", "Bad case, form version is empty"},
-	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), createBrokenForm(), "Error packing response: error encoding JSON: json: unsupported type: complex64\n", "Bad case, form value is invalid"},
+	{httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/test123", nil), createBrokenForm(), "Error packing response: error encoding JSON: json: unsupported type: complex128\n", "Bad case, form value is invalid"},
 	{&mockResponseWriter{}, httptest.NewRequest(http.MethodGet, "/test123", nil), form.NewForm(), "", "Bad case, Write fails"},
 }
 
@@ -153,14 +119,8 @@ func createBodyWithWrongFormVersion() io.ReadCloser {
 }
 
 func createBodyWithSignalBForm() io.ReadCloser {
-	return io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalB_v1.0\"\n}")))
+	return io.NopCloser(strings.NewReader(string("{\n  \"value\": false,\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalB_v1.0\"\n}")))
 }
-
-var errReadAll error = fmt.Errorf("forced read error")
-
-var errUnmarshal error = fmt.Errorf("invalid character '\\x00' looking for beginning of value")
-
-var errVersion error = fmt.Errorf("unsupported service set request form version")
 
 var httpProcessSetRequestParams = []httpProcessSetRequestStruct{
 	{httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/test123", createBody()), false, createForm(), "Good case"},
