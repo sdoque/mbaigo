@@ -11,7 +11,6 @@ import (
 	"github.com/sdoque/mbaigo/components"
 )
 
-// GetActivitiesCost(serv *components.Service) (payload []byte, err error)
 func TestGetActivitiesCost(t *testing.T) {
 	testServ := &components.Service{
 		Definition: "testDef",
@@ -59,26 +58,43 @@ func createTestService() (serv *components.Service) {
 	return testServ
 }
 
-// SetActivitiesCost(serv *components.Service, bodyBytes []byte) (err error)
 func TestSetActivitiesCost(t *testing.T) {
 	testParams := []setACparams{
 		// Best case: No errors
-		{`{"activity":"testDefinition","cost":321,"unit":"","timestamp":"0001-01-01T00:00:00Z","version":"ActivityCostForm_v1"}`, false, "Best case, no errors"},
+		{
+			`{"activity":"testDefinition","cost":321,"unit":"",
+			"timestamp":"0001-01-01T00:00:00Z","version":"ActivityCostForm_v1"}`,
+			false, "Best case, no errors",
+		},
 		// Bad case: Fail @ unmarshal
 		{"", true, "Bad case, break first unmarshal"},
 		// Bad case: No version field in byte array
-		{`{"activity":"testDefinition","cost":321,"unit":"","timestamp":"0001-01-01T00:00:00Z"}`, true, "Bad case, version missing"},
+		{
+			`{"activity":"testDefinition","cost":321,"unit":"","timestamp":"0001-01-01T00:00:00Z"}`,
+			true, "Bad case, version missing",
+		},
 		// Bad case: Unsupported version
-		{`{"activity":"testDefinition","cost":321,"unit":"","timestamp":"0001-01-01T00:00:00Z","version":"WrongVersion"}`, true, "Bad case, unsupported version"},
+		{
+			`{"activity":"testDefinition","cost":321,"unit":"",
+			"timestamp":"0001-01-01T00:00:00Z","version":"WrongVersion"}`,
+			true, "Bad case, unsupported version",
+		},
 		// Bad case: mismatch between 'serv.Definition' and 'acForm.Activity'
-		{`{"activity":"WrongDef","cost":321,"unit":"","timestamp":"0001-01-01T00:00:00Z","version":"ActivityCostForm_v1"}`, true, "Bad case, serv.Definition != acForm.Activity"},
+		{
+			`{"activity":"WrongDef","cost":321,"unit":"",
+			"timestamp":"0001-01-01T00:00:00Z","version":"ActivityCostForm_v1"}`,
+			true, "Bad case, serv.Definition != acForm.Activity",
+		},
 		// Bad case: Fail @ 2nd unmarshal
-		{`{"activity":"testDefinition","cost":"321","unit":"","timestamp":"0001-01-01T00:00:00Z","version":"ActivityCostForm_v1"}`, true, "Bad case, break first unmarshal"},
+		{
+			`{"activity":"testDefinition","cost":"321","unit":"",
+			"timestamp":"0001-01-01T00:00:00Z","version":"ActivityCostForm_v1"}`,
+			true, "Bad case, break first unmarshal",
+		},
 	}
 	testServ := createTestService()
 
 	for _, c := range testParams {
-		// Test
 		err := SetActivitiesCost(testServ, []byte(c.dataString))
 
 		if (c.expectError == true && err == nil) || (c.expectError == false && err != nil) {
@@ -107,7 +123,6 @@ func createUnitAsset(cost float64) components.UnitAsset {
 	ServicesMap := &components.Services{
 		setTest.SubPath: setTest,
 	}
-	//var ua components.UnitAsset
 	var ua components.UnitAsset = &mockUnitAsset{
 		Name:        "testUnitAsset",
 		Details:     map[string][]string{"Test": {"Test"}},
@@ -126,20 +141,52 @@ type acServicesParams struct {
 	testCase       string
 }
 
-// ACServices(w http.ResponseWriter, r *http.Request, ua *components.UnitAsset, serviceP string)
 func TestACServices(t *testing.T) {
 	testParams := []acServicesParams{
 		// Good case: no errors in GET/PUT
-		{"GET", httptest.NewRecorder(), false, httptest.NewRequest(http.MethodGet, "http://localhost", io.NopCloser(strings.NewReader(``))), createUnitAsset(0), "GET, Best case: no errors in GET"},
-		{"PUT", httptest.NewRecorder(), false, httptest.NewRequest(http.MethodPut, "http://localhost", io.NopCloser(strings.NewReader(`{"activity":"test", "cost": 321, "version":"ActivityCostForm_v1"}`))), createUnitAsset(0), "PUT, Best case: no errors in PUT"},
+		{
+			"GET", httptest.NewRecorder(), false,
+			httptest.NewRequest(
+				http.MethodGet,
+				"http://localhost",
+				io.NopCloser(strings.NewReader(``)),
+			),
+			createUnitAsset(0), "GET, Best case: no errors in GET",
+		},
+		{
+			"PUT", httptest.NewRecorder(), false,
+			httptest.NewRequest(
+				http.MethodPut,
+				"http://localhost",
+				io.NopCloser(strings.NewReader(
+					`{"activity":"test", "cost": 321, "version":"ActivityCostForm_v1"}`,
+				)),
+			),
+			createUnitAsset(0), "PUT, Best case: no errors in PUT",
+		},
 		// GET, Bad case: GetActivitiesCost() returns error
-		{"GET", httptest.NewRecorder(), true, httptest.NewRequest(http.MethodGet, "http://localhost", io.NopCloser(strings.NewReader(``))), createUnitAsset(math.NaN()), "GET, Bad case: error from GetActivitiesCost()"},
+		{
+			"GET", httptest.NewRecorder(), true,
+			httptest.NewRequest(http.MethodGet, "http://localhost", io.NopCloser(strings.NewReader(``))),
+			createUnitAsset(math.NaN()), "GET, Bad case: error from GetActivitiesCost()"},
 		// PUT, Bad case: Reading response body returns an error
-		{"PUT", httptest.NewRecorder(), true, httptest.NewRequest(http.MethodPut, "http://localhost", io.NopCloser(errReader(0))), createUnitAsset(0), "PUT, Bad case: reading response body"},
+		{
+			"PUT", httptest.NewRecorder(), true,
+			httptest.NewRequest(http.MethodPut, "http://localhost", io.NopCloser(errReader(0))),
+			createUnitAsset(0), "PUT, Bad case: reading response body",
+		},
 		// PUT, Bad case: SetActivitiesCost() returns error
-		{"PUT", httptest.NewRecorder(), true, httptest.NewRequest(http.MethodPut, "http://localhost", io.NopCloser(strings.NewReader(``))), createUnitAsset(0), "PUT, Bad case: error updating activities cost"},
+		{
+			"PUT", httptest.NewRecorder(), true,
+			httptest.NewRequest(http.MethodPut, "http://localhost", io.NopCloser(strings.NewReader(``))),
+			createUnitAsset(0), "PUT, Bad case: error updating activities cost",
+		},
 		// DEFAULT: Method not supported (POST),
-		{"POST", httptest.NewRecorder(), true, httptest.NewRequest(http.MethodPost, "http://localhost", io.NopCloser(strings.NewReader(``))), createUnitAsset(0), "POST, Bad case: Method not supported"},
+		{
+			"POST", httptest.NewRecorder(), true,
+			httptest.NewRequest(http.MethodPost, "http://localhost", io.NopCloser(strings.NewReader(``))),
+			createUnitAsset(0), "POST, Bad case: Method not supported",
+		},
 		// TODO: GET, Bad case: Couldn't write to responsewriter
 	}
 
@@ -150,25 +197,12 @@ func TestACServices(t *testing.T) {
 		r := c.request
 		// Test
 		ACServices(w, r, &ua, "test")
-		switch c.httpMethod {
-		case "GET":
-			if c.expectError == false && w.Result().StatusCode != 200 {
-				t.Errorf("Expected statuscode 200 in testcase '%s'", c.testCase)
-			}
-			if c.expectError == true && w.Result().StatusCode == 200 {
-				t.Errorf("Expected statuscode not to be 200 in testcase '%s'", c.testCase)
-			}
-		case "PUT":
-			if c.expectError == false && w.Result().StatusCode != 200 {
-				t.Errorf("Expected statuscode 200 in testcase '%s' got: %d", c.testCase, w.Result().StatusCode)
-			}
-			if c.expectError == true && w.Result().StatusCode == 200 {
-				t.Errorf("Expected statuscode not to be 200 in testcase '%s'", c.testCase)
-			}
-		default:
-			if w.Result().StatusCode == 200 {
-				t.Errorf("Expected error code, got %d", r.Response.StatusCode)
-			}
+
+		if c.expectError == false && w.Result().StatusCode != 200 {
+			t.Errorf("Expected statuscode 200 in testcase '%s' got: %d", c.testCase, w.Result().StatusCode)
+		}
+		if c.expectError == true && w.Result().StatusCode == 200 {
+			t.Errorf("Expected statuscode not to be 200 in testcase '%s'", c.testCase)
 		}
 	}
 }

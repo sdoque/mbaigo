@@ -46,7 +46,7 @@ func SetActivitiesCost(serv *components.Service, bodyBytes []byte) (err error) {
 	var jsonData map[string]interface{}
 	err = json.Unmarshal(bodyBytes, &jsonData)
 	if err != nil {
-		return fmt.Errorf("unmarshalling JSON data: %w", err)
+		return fmt.Errorf("unmarshalling cost form: %w", err)
 	}
 	formVersion, ok := jsonData["version"].(string)
 	if !ok {
@@ -58,18 +58,18 @@ func SetActivitiesCost(serv *components.Service, bodyBytes []byte) (err error) {
 		var f forms.ActivityCostForm_v1
 		err = json.Unmarshal(bodyBytes, &f)
 		if err != nil {
-			return fmt.Errorf("unable to extract new activity costs request ")
+			return fmt.Errorf("unmarshalling cost form: %w", err)
 		}
 		acForm = f
 	default:
-		return fmt.Errorf("unsupported version of activity costs form")
+		return fmt.Errorf("unsupported version of activity costs form: %s", formVersion)
 	}
 
-	if serv.Definition == acForm.Activity {
-		serv.ACost = acForm.Cost // update the service's cost
-	} else {
-		return fmt.Errorf("mismatch between service list order")
+	if serv.Definition != acForm.Activity {
+		return fmt.Errorf("service definition and activity cost forms activity field doesn't match")
+
 	}
+	serv.ACost = acForm.Cost // update the service's cost
 	return
 }
 
@@ -90,7 +90,6 @@ func ACServices(w http.ResponseWriter, r *http.Request, ua *components.UnitAsset
 		if err != nil {
 			http.Error(w, "Error while writing to response body", http.StatusInternalServerError)
 		}
-		return
 	case "PUT":
 		defer r.Body.Close()
 		bodyBytes, err := io.ReadAll(r.Body) // Use io.ReadAll instead of ioutil.ReadAll
