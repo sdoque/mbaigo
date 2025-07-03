@@ -74,7 +74,7 @@ func HTTPProcessSetRequest(w http.ResponseWriter, req *http.Request) (forms.Sign
 	}
 	f, ok := form.(*forms.SignalA_v1a)
 	if !ok {
-		return forms.SignalA_v1a{}, fmt.Errorf("Form is not of type SignalA_v1a")
+		return forms.SignalA_v1a{}, fmt.Errorf("form is not of type SignalA_v1a")
 	}
 	return *f, nil
 }
