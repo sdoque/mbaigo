@@ -2,11 +2,11 @@ package tests
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"net/http"
 	"os"
 	"path"
-	"strings"
 
 	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
@@ -120,8 +120,8 @@ func newSystem() (*components.System, func(), error) {
 
 	// Extra check to work around "created config" error. Not required normally!
 	if err != nil {
-		// TODO: once configuration PR is merged, check for ErrCreatedConfig blah instead
-		if !strings.Contains(err.Error(), "a new configuration file") {
+		// Return errors not related to config creation
+		if errors.Is(err, usecases.ErrNewConfig) == false {
 			cancel()
 			return nil, nil, err
 		}
