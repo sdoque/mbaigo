@@ -43,31 +43,16 @@ func GetActivitiesCost(serv *components.Service) (payload []byte, err error) {
 
 // SetActivitiesCost updates the service cost
 func SetActivitiesCost(serv *components.Service, bodyBytes []byte) (err error) {
-	var jsonData map[string]interface{}
-	err = json.Unmarshal(bodyBytes, &jsonData)
+	f, err := Unpack(bodyBytes, "application/json")
 	if err != nil {
 		return fmt.Errorf("unmarshalling cost form: %w", err)
 	}
-	formVersion, ok := jsonData["version"].(string)
+	acForm, ok := f.(*forms.ActivityCostForm_v1)
 	if !ok {
-		return fmt.Errorf("'version' key not found in JSON data")
+		return fmt.Errorf("couldn't convert to correct form")
 	}
-	var acForm forms.ActivityCostForm_v1
-	switch formVersion {
-	case "ActivityCostForm_v1":
-		var f forms.ActivityCostForm_v1
-		err = json.Unmarshal(bodyBytes, &f)
-		if err != nil {
-			return fmt.Errorf("unmarshalling cost form: %w", err)
-		}
-		acForm = f
-	default:
-		return fmt.Errorf("unsupported version of activity costs form: %s", formVersion)
-	}
-
 	if serv.Definition != acForm.Activity {
 		return fmt.Errorf("service definition and activity cost forms activity field doesn't match")
-
 	}
 	serv.ACost = acForm.Cost // update the service's cost
 	return

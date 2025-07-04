@@ -79,7 +79,7 @@ func TestSetActivitiesCost(t *testing.T) {
 			"timestamp":"0001-01-01T00:00:00Z","version":"WrongVersion"}`,
 			true, "Bad case, unsupported version",
 		},
-		// Bad case: mismatch between 'serv.Definition' and 'acForm.Activity'
+		// Bad case: Mismatch between 'serv.Definition' and 'acForm.Activity'
 		{
 			`{"activity":"WrongDef","cost":321,"unit":"",
 			"timestamp":"0001-01-01T00:00:00Z","version":"ActivityCostForm_v1"}`,
@@ -90,6 +90,12 @@ func TestSetActivitiesCost(t *testing.T) {
 			`{"activity":"testDefinition","cost":"321","unit":"",
 			"timestamp":"0001-01-01T00:00:00Z","version":"ActivityCostForm_v1"}`,
 			true, "Bad case, break first unmarshal",
+		},
+		// Bad case: Couldn't convert to ActivityCostForm_v1
+		{
+			`{"file_url":"filepath",
+			"timestamp":"0001-01-01T00:00:00Z","version":"FileForm_v1"}`,
+			true, "Bad case, couldn't convert to ActivityCostForm_v1",
 		},
 	}
 	testServ := createTestService()
