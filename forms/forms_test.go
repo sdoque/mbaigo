@@ -83,7 +83,7 @@ func createTestFolderAndFile(filename string, fileType string) {
 	}
 	defer f.Close()
 
-	data := []byte{}
+	var data []byte
 	switch fileType {
 	case ".jpg", ".jpeg":
 		data = minimalJPEG
