@@ -2,15 +2,11 @@ package tests
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"os/signal"
 	"path"
 	"runtime"
 	"runtime/pprof"
@@ -24,209 +20,25 @@ import (
 	"github.com/sdoque/mbaigo/usecases"
 )
 
-////////////////////////////////////////////////////////////////////////////////
-// The most simplest unit asset
-
-const (
-	unitName    string = "randomiser"
-	unitService string = "random"
-)
-
-// Force type check (fulfilling the interface) at compile time
-var _ components.UnitAsset = &uaRandomiser{}
-
-type uaRandomiser struct {
-	Name        string              `json:"-"`
-	Owner       *components.System  `json:"-"`
-	Details     map[string][]string `json:"-"`
-	ServicesMap components.Services `json:"-"`
-	CervicesMap components.Cervices `json:"-"`
+type requestEvent struct {
+	event string
+	hits  int
+	body  []byte
 }
 
-// Add required functions to fulfil the UnitAsset interface
-func (ua uaRandomiser) GetName() string                  { return ua.Name }
-func (ua uaRandomiser) GetServices() components.Services { return ua.ServicesMap }
-func (ua uaRandomiser) GetCervices() components.Cervices { return ua.CervicesMap }
-func (ua uaRandomiser) GetDetails() map[string][]string  { return ua.Details }
-func (ua uaRandomiser) Serving(w http.ResponseWriter, r *http.Request, servicePath string) {
-	if servicePath != unitService {
-		http.Error(w, "unknown service path: "+servicePath, http.StatusBadRequest)
-		return
-	}
-	f := forms.SignalA_v1a{
-		Value: rand.Float64(),
-	}
-	b, err := usecases.Pack(f.NewForm(), "application/json")
-	if err != nil {
-		http.Error(w, "error from Pack: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if _, err := w.Write(b); err != nil {
-		http.Error(w, "error from Write: "+err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func addUATemplate(sys *components.System) {
-	s := &components.Service{
-		Definition: unitService, // The "name" of the service
-		SubPath:    unitService, // Not "allowed" to be changed afterwards
-		Details:    map[string][]string{"key1": {"value1"}},
-		RegPeriod:  60,
-		// NOTE: must start with lower-case, it gets embedded into another sentence in the web API
-		Description: "returns a random float64",
-	}
-	ua := components.UnitAsset(&uaRandomiser{
-		Name:    unitName, // WARN: don't use the system name!! this is an asset!
-		Details: map[string][]string{"key2": {"value2"}},
-		ServicesMap: components.Services{
-			s.SubPath: s,
-		},
-	})
-	sys.UAssets[ua.GetName()] = &ua
-}
-
-func loadUA(ca usecases.ConfigurableAsset, sys *components.System) (components.UnitAsset, func()) {
-	s := ca.Services[0]
-	ua := &uaRandomiser{
-		Name:        ca.Name,
-		Owner:       sys,
-		Details:     ca.Details,
-		ServicesMap: usecases.MakeServiceMap(ca.Services),
-		// Let it consume its own service
-		CervicesMap: components.Cervices{unitService: &components.Cervice{
-			Definition: s.Definition,
-			Details:    s.Details,
-			// Nodes will be filled up by any discovered cervices
-			Nodes: make(map[string][]string, 0),
-		}},
-	}
-	return ua, func() {}
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// The most simplest system
-
-const (
-	systemName string = "test"
-	systemPort int    = 29999
-)
-
-var serviceURL = "GET /" + path.Join(systemName, unitName, unitService)
-
-func newSystem() (*components.System, func(), error) {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// TODO: want this to return a pointer type instead!
-	// easier to use and pointer is used all the time anyway down below
-	sys := components.NewSystem(systemName, ctx)
-	sys.Husk = &components.Husk{
-		Description: " is the most simplest system possible",
-		Details:     map[string][]string{"key3": {"value3"}},
-		ProtoPort:   map[string]int{"http": systemPort},
-	}
-
-	// Setup default config with default unit asset and values
-	addUATemplate(&sys)
-	rawResources, err := usecases.Configure(&sys)
-
-	// Extra check to work around "created config" error. Not required normally!
-	if err != nil {
-		// TODO: once configuration PR is merged, check for ErrCreatedConfig blah instead
-		if !strings.Contains(err.Error(), "a new configuration file") {
-			cancel()
-			return nil, nil, err
-		}
-		// Since Configure() created the config file, it must be cleaned up when this test is done!
-		defer os.Remove("systemconfig.json")
-		// Default config file was created, redo the func call to load the file
-		rawResources, err = usecases.Configure(&sys)
-		if err != nil {
-			cancel()
-			return nil, nil, err
-		}
-	}
-	// NOTE: if the config file already existed (thus the above error block didn't
-	// get to run), then the config file should be left alone and not removed!
-
-	// Load unit assets defined in the config file
-	cleanups, err := LoadResources(&sys, rawResources, loadUA)
-	if err != nil {
-		cancel()
-		return nil, nil, err
-	}
-
-	// TODO: this is not ready for production yet?
-	// usecases.RequestCertificate(&sys)
-
-	// TODO: prints logs?
-	usecases.RegisterServices(&sys)
-
-	// TODO: prints logs??
-	usecases.SetoutServers(&sys)
-
-	stop := func() {
-		cancel()
-		// TODO: a waitgroup or something should be used to make sure all goroutines have stopped
-		// Not doing much in the mock cleanups so this works fine for now...?
-		cleanups()
-	}
-	return &sys, stop, nil
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// PROPOSAL: new additions to usecases/configuration.go?
-
-// TODO: this function really needs an error return too
-type NewResourceFunc func(usecases.ConfigurableAsset, *components.System) (components.UnitAsset, func())
-
-func LoadResources(sys *components.System, rawRes []json.RawMessage, newRes NewResourceFunc) (func(), error) {
-	// Resets this map so it can be filled with loaded unit assets (rather than templates)
-	sys.UAssets = make(map[string]*components.UnitAsset)
-
-	var cleanups []func()
-	for _, raw := range rawRes {
-		var ca usecases.ConfigurableAsset
-		if err := json.Unmarshal(raw, &ca); err != nil {
-			return func() {}, err
-		}
-
-		ua, f := newRes(ca, sys)
-		sys.UAssets[ua.GetName()] = &ua
-		cleanups = append(cleanups, f)
-	}
-
-	doCleanups := func() {
-		for _, f := range cleanups {
-			f()
-		}
-		// Stops hijacking SIGINT and return signal control to user
-		signal.Stop(sys.Sigs)
-		close(sys.Sigs)
-	}
-	return doCleanups, nil
-}
-
-////////////////////////////////////////////////////////////////////////////////
 // Mock simulating traffic between a system and registrars/orchestrators
-
-type event struct {
-	key  string
-	hits int
-	body []byte
-}
-
 type mockTrans struct {
 	t      *testing.T
-	hits   map[string]int // Used to track http requests
-	mutex  sync.Mutex     // For protecting access to the above map
-	events chan event
+	hits   map[string]int    // Used to track http requests
+	mutex  sync.Mutex        // For protecting access to the above map
+	events chan requestEvent // Tracks service "events" and requests to the cloud services
 }
 
 func newMockTransport(t *testing.T) *mockTrans {
 	m := &mockTrans{
 		t:      t,
 		hits:   make(map[string]int),
-		events: make(chan event),
+		events: make(chan requestEvent),
 	}
 	// Hijack the default http client so no actual http requests are sent over the network
 	http.DefaultClient.Transport = m
@@ -236,8 +48,8 @@ func newMockTransport(t *testing.T) *mockTrans {
 func (m *mockTrans) waitFor(event string) (int, []byte, error) {
 	select {
 	case e := <-m.events:
-		if e.key != event {
-			return 0, nil, fmt.Errorf("got %s, expected %s", e.key, event)
+		if e.event != event {
+			return 0, nil, fmt.Errorf("got %s, expected %s", e.event, event)
 		}
 		return e.hits, e.body, nil
 	case <-time.Tick(10 * time.Second):
@@ -299,18 +111,18 @@ var mockRequests = map[string]struct {
 func (m *mockTrans) RoundTrip(req *http.Request) (*http.Response, error) {
 	m.mutex.Lock() // This lock is mainly for guarding concurrent access to the hits map
 	defer m.mutex.Unlock()
-	key := req.Method + " " + req.URL.Path
-	m.hits[key] += 1
-	if key == serviceURL {
+	event := req.Method + " " + req.URL.Path
+	m.hits[event] += 1
+	if event == serviceURL {
 		// The example service will, through the system, return a proper response
 		return http.DefaultTransport.RoundTrip(req)
 	}
 
 	// Any other requests needs to be mocked, simulating responses from the
 	// service registrar and orchestrator.
-	mock, found := mockRequests[key]
+	mock, found := mockRequests[event]
 	if !found {
-		m.t.Errorf("unknown request: %s", key)
+		m.t.Errorf("unknown request: %s", event)
 		// Let's see how the system responds to this
 		mock.status = http.StatusNotImplemented
 		mock.body = []byte(http.StatusText(mock.status))
@@ -332,9 +144,9 @@ func (m *mockTrans) RoundTrip(req *http.Request) (*http.Response, error) {
 			defer req.Body.Close()
 		}
 		// Using a goroutine prevents thread locking
-		go func(k string, h int, b []byte) {
-			m.events <- event{k, h, b}
-		}(key, m.hits[key], b)
+		go func(e string, h int, b []byte) {
+			m.events <- requestEvent{e, h, b}
+		}(event, m.hits[event], b)
 	}
 	return rec.Result(), nil
 }
@@ -423,6 +235,7 @@ func TestSimpleSystemIntegration(t *testing.T) {
 	// Detect any leaking goroutines
 	// Delay a short moment and let the goroutines finish. Not sure if there's
 	// a better way to wait for an _unknown number_ of goroutines.
+	// This might give flaky test results in slower environments!
 	time.Sleep(1 * time.Second)
 	routinesStop, trace := countGoroutines()
 	if (routinesStop - routinesStart) != 0 {
