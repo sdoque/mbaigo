@@ -67,7 +67,6 @@ func NewDevice() *HostingDevice {
 func Hostname() (string, error) {
 	name, err := os.Hostname()
 	if err != nil {
-		log.Println(err.Error())
 		return "", err
 	}
 	return name, nil

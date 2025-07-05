@@ -30,6 +30,8 @@ import (
 )
 
 // HTTPProcessSetRequest processes a Get request
+// TODO: this function should really return an error too and behave like everyone
+// else. And causing http.Errors is an ugly side effect.
 func HTTPProcessGetRequest(w http.ResponseWriter, r *http.Request, f forms.Form) {
 	if f == nil {
 		http.Error(w, "No payload found.", http.StatusNotFound)
@@ -60,23 +62,25 @@ func HTTPProcessGetRequest(w http.ResponseWriter, r *http.Request, f forms.Form)
 }
 
 // HTTPProcessSetRequest processes a SET request
-func HTTPProcessSetRequest(w http.ResponseWriter, req *http.Request) (forms.SignalA_v1a, error) {
-	defer req.Body.Close()
+func HTTPProcessSetRequest(w http.ResponseWriter, req *http.Request) (sig forms.SignalA_v1a, err error) {
 	bodyBytes, err := io.ReadAll(req.Body) // Use io.ReadAll instead of ioutil.ReadAll
 	if err != nil {
-		log.Printf("Error reading request body: %v", err)
-		return forms.SignalA_v1a{}, err
+		err = fmt.Errorf("reading request body: %w", err)
+		return
 	}
+	defer req.Body.Close()
 	headerContentType := req.Header.Get("Content-Type")
-	form, err := Unpack(bodyBytes, headerContentType)
+	f, err := Unpack(bodyBytes, headerContentType)
 	if err != nil {
-		return forms.SignalA_v1a{}, err
+		return
 	}
-	f, ok := form.(*forms.SignalA_v1a)
+	temp, ok := f.(*forms.SignalA_v1a)
 	if !ok {
-		return forms.SignalA_v1a{}, fmt.Errorf("form is not of type SignalA_v1a")
+		err = fmt.Errorf("form is not of type SignalA_v1a")
+		return
 	}
-	return *f, nil
+	sig = *temp // Stupid type conversion because return type was picked incorrectly
+	return
 }
 
 // getBestContentType parses the Accept header and returns the best content type based on q-values
@@ -99,8 +103,7 @@ func getBestContentType(acceptHeader string) string {
 		if len(parts) > 1 && strings.HasPrefix(parts[1], "q=") {
 			_, err := fmt.Sscanf(parts[1], "q=%f", &qValue)
 			if err != nil {
-				// TODO: More might need to happen here?
-				log.Printf("Error while scanning parts of mimeType: %v", err)
+				continue
 			}
 		}
 
