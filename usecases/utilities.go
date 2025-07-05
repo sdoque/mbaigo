@@ -94,7 +94,7 @@ func Unpack(data []byte, contentType string) (forms.Form, error) {
 	// Look up the form type in the map
 	formType, exists := forms.FormTypeMap[formVersion]
 	if !exists {
-		return nil, fmt.Errorf("unsupported form version: " + formVersion)
+		return nil, fmt.Errorf("unsupported form version: %s", formVersion)
 	}
 
 	// Create a new instance of the form
