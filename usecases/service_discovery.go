@@ -24,7 +24,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 
 	"github.com/sdoque/mbaigo/components"
@@ -52,12 +51,12 @@ func ExtractQuestForm(bodyBytes []byte) (rec forms.ServiceQuest_v1, err error) {
 	var jsonData map[string]interface{}
 	err = json.Unmarshal(bodyBytes, &jsonData)
 	if err != nil {
-		log.Printf("Error unmarshalling JSON data: %v", err)
+		err = fmt.Errorf("unmarshalling JSON data: %v", err)
 		return
 	}
 	formVersion, ok := jsonData["version"].(string)
 	if !ok {
-		log.Printf("'version' key not found in JSON data")
+		err = fmt.Errorf("'version' key not found in JSON data")
 		return
 	}
 
@@ -66,7 +65,7 @@ func ExtractQuestForm(bodyBytes []byte) (rec forms.ServiceQuest_v1, err error) {
 		var f forms.ServiceQuest_v1
 		err = json.Unmarshal(bodyBytes, &f)
 		if err != nil {
-			log.Println("Unable to extract the discovery form request ")
+			err = fmt.Errorf("unable to extract the discovery form request ")
 			return
 		}
 		rec = f
@@ -97,29 +96,25 @@ func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocat
 	// Create a new HTTP request to the Orchestrator system (for now the Service Registrar)
 	orURL, err := components.GetRunningCoreSystemURL(sys, "orchestrator")
 	if err != nil {
-		return servLocation, err
+		return
 	}
 	// prepare the payload to perform a service quest
 	orURL = orURL + "/squest"
 	jsonQF, err := json.MarshalIndent(qf, "", "  ")
 	if err != nil {
-		return servLocation, err
+		return
 	}
 	resp, err := sendHttpReq(http.MethodPost, orURL, jsonQF)
 	if err != nil {
-		return servLocation, err
+		return
 	}
 	defer resp.Body.Close()
 	// Read the response /////////////////////////////////
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return servLocation, err
+		return
 	}
-	servLocation, err = ExtractDiscoveryForm(body)
-	if err != nil {
-		return servLocation, err
-	}
-	return servLocation, err
+	return ExtractDiscoveryForm(body)
 }
 
 // Search4Services requests from the core systems the address of resources' services that meet the need
@@ -194,7 +189,7 @@ func ExtractDiscoveryForm(bodyBytes []byte) (sLoc forms.ServicePoint_v1, err err
 	var jsonData map[string]interface{}
 	err = json.Unmarshal(bodyBytes, &jsonData)
 	if err != nil {
-		log.Printf("Error unmarshalling JSON data: %v", err)
+		err = fmt.Errorf("unmarshalling JSON data: %v", err)
 		return
 	}
 	formVersion, ok := jsonData["version"].(string)
@@ -208,7 +203,7 @@ func ExtractDiscoveryForm(bodyBytes []byte) (sLoc forms.ServicePoint_v1, err err
 		f.NewForm()
 		err = json.Unmarshal(bodyBytes, &f)
 		if err != nil {
-			log.Println("Unable to extract registration request ")
+			err = fmt.Errorf("unmarshalling JSON data: %v", err)
 			return
 		}
 		sLoc = f

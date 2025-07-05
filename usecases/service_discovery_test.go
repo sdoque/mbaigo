@@ -117,9 +117,9 @@ func TestExtractQuestForm(t *testing.T) {
 		}
 		// Do the test
 		rec, err := ExtractQuestForm(data)
-		if x.testCase == "No errors" || x.testCase == "Missing version" {
+		if x.testCase == "No errors" {
 			if err != nil {
-				t.Errorf("Test case: '%s' got error: %e", x.testCase, err)
+				t.Errorf("Test case: '%s' got error: %v", x.testCase, err)
 			}
 			if x.testCase == "Missing version" && rec.Version != "" {
 				t.Errorf("---\tExpected no version, got %s", rec.Version)
