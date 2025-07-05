@@ -201,7 +201,10 @@ func TestRegisterService(t *testing.T) {
 
 	// Good case, everything works, service gets registered
 	newMockTransport(respFunc, 0, nil)
-	test := registerService(&testSys, registrar, mua, serv)
+	test, err := registerService(&testSys, registrar, mua, serv)
+	if err != nil {
+		t.Errorf("Expected no errors, got: %v", err)
+	}
 	if int(test.Seconds()) > 0 {
 		t.Errorf("Expected the delay to be negative, got: %d", int(test.Seconds()))
 	}
@@ -209,7 +212,7 @@ func TestRegisterService(t *testing.T) {
 	// Bad case: when NewRequest with PUT method fails
 	newMockTransport(respFunc, 0, nil)
 	registrar = brokenUrl
-	test = registerService(&testSys, registrar, mua, serv)
+	test, _ = registerService(&testSys, registrar, mua, serv)
 	if int(test.Seconds()) != 15 {
 		t.Errorf("Expected the delay to be 15 since NewRequest with PUT method should have failed, got: %d", int(test.Seconds()))
 	}
@@ -241,7 +244,7 @@ func TestRegisterService(t *testing.T) {
 
 	// Good case when making POST instead
 	newMockTransport(respFunc, 0, nil)
-	test = registerService(&testSys, registrar, mua, serv)
+	test, _ = registerService(&testSys, registrar, mua, serv)
 	if int(test.Seconds()) > 0 {
 		t.Errorf("Expected the delay to be negative, got: %d", int(test.Seconds()))
 	}
@@ -249,7 +252,7 @@ func TestRegisterService(t *testing.T) {
 	// Bad case: when NewRequest with POST method fails
 	newMockTransport(respFunc, 0, nil)
 	registrar = brokenUrl
-	test = registerService(&testSys, registrar, mua, serv)
+	test, _ = registerService(&testSys, registrar, mua, serv)
 	if int(test.Seconds()) != 15 {
 		t.Errorf("Expected the delay to be 15 since NewRequest with POST method should have failed, got: %d", int(test.Seconds()))
 	}
@@ -258,14 +261,14 @@ func TestRegisterService(t *testing.T) {
 	// Bad case: when http.DefaultClient.Do() fails with a err.Timeout()
 	timeoutErr := timeoutError{}
 	newMockTransport(respFunc, 1, timeoutErr)
-	test = registerService(&testSys, registrar, mua, serv)
+	test, _ = registerService(&testSys, registrar, mua, serv)
 	if int(test.Seconds()) != 15 {
 		t.Errorf("Expected the delay to be 15 since the executed request should fail, got %d", int(test.Seconds()))
 	}
 
 	// Bad case: when http.DefaultClient.Do() fails but not with a err.Timeout()
 	newMockTransport(respFunc, 1, errHTTP)
-	test = registerService(&testSys, registrar, mua, serv)
+	test, _ = registerService(&testSys, registrar, mua, serv)
 	if int(test.Seconds()) != 15 {
 		t.Errorf("Expected the delay to be 15 since the executed request should fail, got %d", int(test.Seconds()))
 	}
@@ -281,7 +284,7 @@ func TestRegisterService(t *testing.T) {
 
 	// Bad case: when io.ReadAll() returns an error
 	newMockTransport(respFunc, 0, nil)
-	test = registerService(&testSys, registrar, mua, serv)
+	test, _ = registerService(&testSys, registrar, mua, serv)
 	if int(test.Seconds()) != 15 {
 		t.Errorf("Expected the delay to be 15 since the io.ReadAll() call should fail, got %d", int(test.Seconds()))
 	}
@@ -297,7 +300,7 @@ func TestRegisterService(t *testing.T) {
 
 	// Bad case: when Unpack() fails because of a non-existent "Content-Type" in the Header of the response
 	newMockTransport(respFunc, 0, nil)
-	test = registerService(&testSys, registrar, mua, serv)
+	test, _ = registerService(&testSys, registrar, mua, serv)
 	if int(test.Seconds()) != 15 {
 		t.Errorf("Expected the delay to be 15 since the Header had a non-existent/invalid Content-Type, got: %d", int(test.Seconds()))
 	}
@@ -318,7 +321,7 @@ func TestRegisterService(t *testing.T) {
 
 	// Bad case: Error parsing the EndOfValidity into the RFC3339 time format
 	newMockTransport(respFunc, 0, nil)
-	test = registerService(&testSys, registrar, mua, serv)
+	test, _ = registerService(&testSys, registrar, mua, serv)
 	if int(test.Seconds()) != 15 {
 		t.Errorf("Expected the delay to be 15 since the EndOfValidity has a faulty time format, got: %d", int(test.Seconds()))
 	}

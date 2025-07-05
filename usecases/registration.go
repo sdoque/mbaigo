@@ -23,9 +23,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"strconv"
 	"sync"
@@ -83,12 +83,16 @@ func RegisterServices(sys *components.System) {
 		for _, service := range servs {
 			go func(theUnitAsset *components.UnitAsset, theService *components.Service) {
 				delay := 1 * time.Second
+				var err error
 				for {
 					select {
 					case <-time.Tick(delay):
-						delay = registerService(sys, registrar.get(), theUnitAsset, theService)
+						delay, err = registerService(sys, registrar.get(), theUnitAsset, theService)
+						if err != nil {
+							log.Println("registering service:", err)
+						}
 					case <-sys.Ctx.Done():
-						err := unregisterService(registrar.get(), theService)
+						err = unregisterService(registrar.get(), theService)
 						if err != nil {
 							log.Println("unregistering service:", err)
 						}
@@ -101,16 +105,16 @@ func RegisterServices(sys *components.System) {
 }
 
 // registerService makes a POST or PUT request to register or register individual services
-func registerService(sys *components.System, registrar string, ua *components.UnitAsset, serv *components.Service) (delay time.Duration) {
+func registerService(sys *components.System, registrar string, ua *components.UnitAsset, serv *components.Service) (delay time.Duration, err error) {
 	delay = 15 * time.Second
 	if registrar == "" {
-		return delay
+		return
 	}
 
 	// Prepare request
 	reqPayload, err := serviceRegistrationForm(sys, ua, serv, "ServiceRecord_v1")
 	if err != nil {
-		log.Println("Registration marshall error, ", err)
+		err = fmt.Errorf("registration marshall: %w", err)
 		return
 	}
 	registrationURL := registrar + "/register"
@@ -119,13 +123,13 @@ func registerService(sys *components.System, registrar string, ua *components.Un
 	if serv.ID == 0 {
 		req, err = http.NewRequest("POST", registrationURL, bytes.NewBuffer(reqPayload))
 		if err != nil {
-			log.Printf("unable to register service %s with lead registrar\n", serv.Definition)
+			err = fmt.Errorf("unable to register service %s with lead registrar", serv.Definition)
 			return
 		}
 	} else {
 		req, err = http.NewRequest("PUT", registrationURL, bytes.NewBuffer(reqPayload))
 		if err != nil {
-			log.Printf("unable to confirm the %s service with lead registrar", serv.Definition)
+			err = fmt.Errorf("unable to confirm the %s service with lead registrar", serv.Definition)
 			return
 		}
 	}
@@ -133,54 +137,45 @@ func registerService(sys *components.System, registrar string, ua *components.Un
 
 	resp, err := http.DefaultClient.Do(req) // execute the request and get the reply
 	if err != nil {
-		switch err := err.(type) {
-		case net.Error:
-			if err.Timeout() {
-				log.Printf("registry timeout with lead registrar %s\n", registrationURL)
-			} else {
-				log.Printf("unable to (re-)register service %s with lead registrar\n", serv.Definition)
-			}
-		default:
-			log.Printf("registration request error with %s, and error %s\n", registrationURL, err)
-		}
+		err = fmt.Errorf("registration request: %w", err)
 		serv.ID = 0 // if re-registration failed, a complete new one should be made (POST)
 		return
 	}
 
 	// Handle response ------------------------------------------------
 
-	if resp != nil {
-		defer resp.Body.Close()
-		bodyBytes, err := io.ReadAll(resp.Body) // Use io.ReadAll instead of ioutil.ReadAll
-		if err != nil {
-			log.Printf("Error reading registration response body: %v", err)
-			return
-		}
-
-		headerContentType := resp.Header.Get("Content-Type")
-		rRecord, err := Unpack(bodyBytes, headerContentType)
-		if err != nil {
-			log.Printf("error extracting the registration record reply %v\n", err)
-		}
-
-		// Perform a type assertion to convert the returned Form to ServiceRecord_v1
-		rr, ok := rRecord.(*forms.ServiceRecord_v1)
-		if !ok {
-			log.Println("Problem unpacking the service registration reply")
-			return
-		}
-
-		serv.ID = rr.Id
-		serv.RegTimestamp = rr.Created
-		serv.RegExpiration = rr.EndOfValidity
-		parsedTime, err := time.Parse(time.RFC3339, rr.EndOfValidity)
-		if err != nil {
-			log.Printf("Error parsing input: %s", err)
-			return
-		}
-		// should not wait until the deadline to start to confirm live status
-		delay = time.Until(parsedTime.Add(-5 * time.Second))
+	var b []byte
+	b, err = io.ReadAll(resp.Body) // Use io.ReadAll instead of ioutil.ReadAll
+	if err != nil {
+		err = fmt.Errorf("reading registration response body: %w", err)
+		return
 	}
+	defer resp.Body.Close()
+
+	headerContentType := resp.Header.Get("Content-Type")
+	rRecord, err := Unpack(b, headerContentType)
+	if err != nil {
+		err = fmt.Errorf("extracting the registration record reply: %w", err)
+		return
+	}
+
+	// Perform a type assertion to convert the returned Form to ServiceRecord_v1
+	rr, ok := rRecord.(*forms.ServiceRecord_v1)
+	if !ok {
+		err = fmt.Errorf("invalid form from the service registration reply")
+		return
+	}
+
+	serv.ID = rr.Id
+	serv.RegTimestamp = rr.Created
+	serv.RegExpiration = rr.EndOfValidity
+	parsedTime, err := time.Parse(time.RFC3339, rr.EndOfValidity)
+	if err != nil {
+		err = fmt.Errorf("parsing time: %w", err)
+		return
+	}
+	// should not wait until the deadline to start to confirm live status
+	delay = time.Until(parsedTime.Add(-5 * time.Second))
 	return
 }
 
