@@ -8,6 +8,7 @@ lint:
 	go vet $$(go list ./... | grep -v /tmp)
 	gosec -quiet -fmt=golint -exclude-dir="tmp" ./...
 	staticcheck ./...
+	govulncheck -test ./...
 	# pointerinterface ./...
 
 # Runs spellchecker on the code and comments
@@ -33,6 +34,7 @@ installpkgs:
 	go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
 	go install github.com/securego/gosec/v2/cmd/gosec@latest
 	go install honnef.co/go/tools/cmd/staticcheck@latest
+	go install golang.org/x/vuln/cmd/govulncheck@latest
 	# go install code.larus.se/lmas/pointerinterface@latest
 
 # Clean up built binary and other temporary files (ignores errors from rm)
