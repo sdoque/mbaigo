@@ -48,7 +48,7 @@ func KGraphing(w http.ResponseWriter, req *http.Request, sys *components.System)
 	w.Header().Set("Content-Type", "text/turtle")
 	_, err := w.Write([]byte(rdf))
 	if err != nil {
-		fmt.Println("Failed to write KGraphing information: ", err)
+		log.Println("Failed to write KGraphing information: ", err)
 	}
 }
 

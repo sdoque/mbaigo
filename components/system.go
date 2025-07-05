@@ -137,6 +137,8 @@ var (
 )
 
 func getBuildInfo() {
+	// TODO: This info should be updated when setting up version release tools
+	// Leaving the fmt.Prints as is for now.
 	if AppName != "" {
 		fmt.Printf("System: %s - %s\n", AppName, Version)
 		fmt.Printf("Build date: %s\n", BuildDate)
