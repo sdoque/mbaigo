@@ -2,7 +2,6 @@ package forms
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -67,38 +66,31 @@ var fileTypeMap = map[string][]byte{
 		0x00, 0x00, 0x02, 0x00, 0x69, 0x73, 0x6F, 0x6D, 0x69, 0x73, 0x6F, 0x32},
 }
 
-func createTestFolderAndFile(filename string, fileType string) {
-	fullPath := filepath.Join(dirString, filename)
-	err := os.MkdirAll(dirString, 0755)
+func createTestFolderAndFile(filename string, fileType string) error {
+	fullPath := filepath.Join(fileDir, filename)
+	err := os.MkdirAll(fileDir, 0755)
 	if err != nil {
-		log.Fatalf("Error creating test directory: %v", err)
-		return
+		return err
 	}
 
 	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
-		log.Fatalf("Error creating file: %v", err)
-		return
+		return err
 	}
 	defer f.Close()
 
-	err = os.WriteFile(fullPath, fileTypeMap[fileType], 0644)
-	if err != nil {
-		log.Fatalf("Error encoding to jpeg: %v", err)
-	}
+	return os.WriteFile(fullPath, fileTypeMap[fileType], 0644)
 }
 
-func removeTestFolderAndFile() {
-	if err := os.RemoveAll(dirString); err != nil {
-		log.Fatalf("Error deleting directory: %v", err)
-	}
+func removeTestFolderAndFile() error {
+	return os.RemoveAll(fileDir)
 }
 
 func TestTransferFile(t *testing.T) {
 	for _, testCase := range transferFileTestParams {
-		fullPath := "/" + path.Join(dirString, testCase.filename)
+		fileURL := "/" + path.Join(fileDir, testCase.filename)
 		inputW := httptest.NewRecorder()
-		inputR := httptest.NewRequest(http.MethodPost, fullPath, nil)
+		inputR := httptest.NewRequest(http.MethodPost, fileURL, nil)
 		if testCase.testName == "Bad case, parsing url fails" {
 			inputR.URL.Path = "/foo%ZZbar"
 		}
@@ -106,9 +98,16 @@ func TestTransferFile(t *testing.T) {
 			inputR.URL.Path = "/files/doesNotExist.error"
 		}
 
-		createTestFolderAndFile(testCase.filename, testCase.fileType)
+		err := createTestFolderAndFile(testCase.filename, testCase.fileType)
+		if err != nil {
+			t.Error(err)
+			continue
+		}
 		TransferFile(inputW, inputR)
-		removeTestFolderAndFile()
+		err = removeTestFolderAndFile()
+		if err != nil {
+			t.Error(err)
+		}
 
 		if inputW.Body.String() != testCase.expectedBody || inputW.Code != testCase.expectedCode {
 			t.Errorf("Expected: %s and %d, got: %s and %d", testCase.expectedBody, testCase.expectedCode, inputW.Body.String(), inputW.Code)
@@ -119,9 +118,16 @@ func TestTransferFile(t *testing.T) {
 	fullPath := "/files/test.txt"
 	specialRecorder := &mockResponseWriter{}
 	inputR := httptest.NewRequest(http.MethodPost, fullPath, nil)
-	createTestFolderAndFile("test.txt", ".txt")
+	err := createTestFolderAndFile("test.txt", ".txt")
+	if err != nil {
+		t.Error(err)
+		return
+	}
 	TransferFile(specialRecorder, inputR)
-	removeTestFolderAndFile()
+	err = removeTestFolderAndFile()
+	if err != nil {
+		t.Error(err)
+	}
 
 	if specialRecorder.statusCode != 300 {
 		t.Errorf("Expected status code 300, got: %d", specialRecorder.statusCode)
