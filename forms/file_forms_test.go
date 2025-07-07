@@ -133,3 +133,13 @@ func TestTransferFile(t *testing.T) {
 		t.Errorf("Expected status code 300, got: %d", specialRecorder.statusCode)
 	}
 }
+
+func TestFileEscape(t *testing.T) {
+	inputW := httptest.NewRecorder()
+	inputR := httptest.NewRequest(http.MethodPost, "http://localhost/../signal_forms.go", nil)
+	TransferFile(inputW, inputR)
+
+	if inputW.Code != 404 {
+		t.Errorf("Expected error code 404, got: %d", inputW.Code)
+	}
+}
