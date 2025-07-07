@@ -60,6 +60,7 @@ func SetActivitiesCost(serv *components.Service, bodyBytes []byte) (err error) {
 
 // ACServices handles the http request for the cost of a service
 func ACServices(w http.ResponseWriter, r *http.Request, ua *components.UnitAsset, serviceP string) {
+	// Has to use (*ua) in order to reach the methods for the interface UnitAsset, since ua is a pointer to an interface
 	servicesList := (*ua).GetServices()
 	serv := servicesList[serviceP]
 	switch r.Method {
