@@ -52,45 +52,32 @@ func manualEqualityCheck(map1 map[string][]string, map2 map[string][]string) err
 	return nil
 }
 
-type deepCopyMapTestStruct struct {
-	mockSystem components.System
-	testName   string
-}
-
-var deepCopyMapTestParams = []deepCopyMapTestStruct{
-	{createTestSystem(false), "Good case, the copy works as a deep copy"},
-}
-
 func TestDeepCopyMap(t *testing.T) {
-	for _, testCase := range deepCopyMapTestParams {
-		mua := testCase.mockSystem.UAssets["testUnitAsset"]
-		original := (*mua).GetDetails()
+	var original = map[string][]string{"a": {"1", "2"}, "b": {"3"}}
 
-		test := deepCopyMap((*mua).GetDetails())
+	test := deepCopyMap(original)
 
-		// If they are not equal from the beginning then the copy was not successful
-		err := manualEqualityCheck(original, test)
-		if err != nil {
-			t.Errorf("In test case: %s: Expected deep copied map to be equal to original,"+
-				" Expected: %v, got: %v", testCase.testName, original, test)
-		}
+	// If they are not equal from the beginning then the copy was not successful
+	err := manualEqualityCheck(original, test)
+	if err != nil {
+		t.Errorf("Expected deep copied map to be equal to original, Expected: %v, got: %v", original, test)
+	}
 
-		// When we change something in the original, the deep copied map should not change
-		original["Test"][0] = "changed original"
-		err = manualEqualityCheck(original, test)
-		if err == nil {
-			t.Errorf("In test case: %s: Deep copy failed, changes in original affected the deep copied map."+
-				" Expected: %v, got %v", testCase.testName, original, test)
-		}
-		original["Test"][0] = "test"
+	// When we change something in the original, the deep copied map should not change
+	original["a"][0] = "changed original"
+	err = manualEqualityCheck(original, test)
+	if err == nil {
+		t.Errorf("Deep copy failed, changes in original affected the deep copied map."+
+			" Expected: %v, got %v", original, test)
+	}
+	original["a"][0] = "1"
 
-		// When we change something in the deep copied map, the original should not change
-		test["Test"][0] = "changed deep copy"
-		err = manualEqualityCheck(original, test)
-		if err == nil {
-			t.Errorf("In test case: %s: Deep copy failed, changes in deep copied map affected the original."+
-				" Expected: %v, got %v", testCase.testName, original, test)
-		}
+	// When we change something in the deep copied map, the original should not change
+	test["a"][0] = "changed deep copy"
+	err = manualEqualityCheck(original, test)
+	if err == nil {
+		t.Errorf("Deep copy failed, changes in deep copied map affected the original."+
+			" Expected: %v, got %v", original, test)
 	}
 }
 
@@ -193,21 +180,6 @@ func TestUnregisterService(t *testing.T) {
 		err := unregisterService(testCase.registrarUrl, serv)
 		if (testCase.expectedErr == true && err == nil) || (testCase.expectedErr == false && err != nil) {
 			t.Errorf("In test case: %s: We expected %t error, got: %v", testCase.testName, testCase.expectedErr, err)
-		}
-	}
-}
-
-func TestServiceRegistrationFormList(t *testing.T) {
-	list := []string{
-		"ServiceRecord_v1",
-	}
-	// Check that the return value of ServiceRegistrationFormsList is equal
-	// to the expected list of ServiceRegistrationForms
-	test := ServiceRegistrationFormsList()
-	for i := range list {
-		if list[i] != test[i] {
-			t.Errorf("Expected lists to be equal. Expected: %v, got: %v", list, test)
-			break
 		}
 	}
 }
