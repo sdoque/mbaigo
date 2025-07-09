@@ -256,7 +256,6 @@ func createMultiHttpResp(statusCode int, broken bool, allowedReads int) func() *
 func TestSearch4Service(t *testing.T) {
 	// Test parameters
 	params := []search4ServiceParams{
-		//{ expectError, response, transport, testCase }
 		{
 			false,
 			createMultiHttpResp(200, false, 0),

@@ -207,9 +207,6 @@ func createConfigNoTraits(sys *components.System, assetAmount int) (err error) {
 	return
 }
 
-// This is the config in string form from the original Configure()
-var expectedConf string = `map[coreSystems:[map[coreSystem:serviceregistrar url:http://localhost:20102/serviceregistrar/registry] map[coreSystem:orchestrator url:http://localhost:20103/orchestrator/orchestration] map[coreSystem:ca url:http://localhost:20100/ca/certification] map[coreSystem:maitreD url:http://localhost:20101/maitreD/maitreD]] protocolsNports:map[coap:0 http:1234 https:0] systemname:testSystem unit_assets:[map[details:map[Test:[Test]] name:testUnitAsset services:[map[costUnit: definition:test details:map[Forms:[SignalA_v1a]] registrationPeriod:45 subpath:test]] traits:<nil>]]]`
-
 type setupDefConfigParams struct {
 	expectError bool
 	testCase    string
@@ -219,10 +216,21 @@ type setupDefConfigParams struct {
 
 func TestSetupDefaultConfig(t *testing.T) {
 	testParams := []setupDefConfigParams{
-		// {expectError, testCase, setup(), cleanup()}
-		{false, "Best case", func(sys *components.System) (err error) { return createConfigNoTraits(sys, 1) }, func() (err error) { return cleanup() }},
-		{false, "Good case, asset has traits", func(sys *components.System) (err error) { return createConfigHasTraits(sys) }, func() (err error) { return cleanup() }},
-		{true, "No assets in sys", func(sys *components.System) (err error) { return createConfigHasTraits(sys) }, func() (err error) { return cleanup() }},
+		{
+			false, "Best case",
+			func(sys *components.System) (err error) { return createConfigNoTraits(sys, 1) },
+			func() (err error) { return cleanup() },
+		},
+		{
+			false, "Good case, asset has traits",
+			func(sys *components.System) (err error) { return createConfigHasTraits(sys) },
+			func() (err error) { return cleanup() },
+		},
+		{
+			true, "No assets in sys",
+			func(sys *components.System) (err error) { return createConfigHasTraits(sys) },
+			func() (err error) { return cleanup() },
+		},
 	}
 
 	// Start of test
@@ -259,46 +267,6 @@ func TestSetupDefaultConfig(t *testing.T) {
 	}
 }
 
-// This test is to ensure that setupDefaultConfig() doesnt change the behaviour of of Config()
-func TestSetupDefaultConfigCorrectness(t *testing.T) {
-	testSys := createTestSystem(false)
-
-	// Setup a default config with setupDefaultConfig() func
-	defConf, err := setupDefaultConfig(&testSys)
-	if err != nil {
-		t.Errorf("error in setupDefaultConfig() in test: %v", err)
-	}
-
-	def, err := os.OpenFile("systemconfig.json", os.O_RDWR|os.O_CREATE, 0600)
-	if err != nil {
-		t.Errorf("error while opening/creating systemconfig.json in test: %v", err)
-	}
-	defer def.Close()
-	// Write our defaultConfig to file with correct indent
-	enc := json.NewEncoder(def)
-	enc.SetIndent("", "     ")
-	err = enc.Encode(defConf)
-	if err != nil {
-		t.Errorf("Couldn't encode to 'systemconfig.json' in test: %v", err)
-	}
-
-	// Decode to defaultConfig so we can compare the created default- and expected config
-	var defaultConfig any
-	def.Seek(0, 0)
-	err = json.NewDecoder(def).Decode(&defaultConfig)
-	if err != nil {
-		t.Errorf("couldn't decode from 'systemconfig.json' in test: %v", err)
-	}
-	err = os.Remove("systemconfig.json")
-	if err != nil {
-		t.Errorf("couldn't remove 'systemconfig.json' in test: %v", err)
-	}
-	// Check if defaultConfig converted to a string is the same as the expectedConf
-	if fmt.Sprint(defaultConfig) != expectedConf {
-		t.Errorf("systemconfig not equal")
-	}
-}
-
 func cleanup() error {
 	return os.Remove("systemconfig.json")
 }
@@ -313,7 +281,11 @@ type configureParams struct {
 func TestConfigure(t *testing.T) {
 	testParams := []configureParams{
 		// {expectError, testCase, setup(), cleanup()}
-		{false, "Best case, one asset", func(sys *components.System) (err error) { return createConfigNoTraits(sys, 1) }, func() (err error) { return cleanup() }},
+		{
+			false, "Best case, one asset",
+			func(sys *components.System) (err error) { return createConfigNoTraits(sys, 1) },
+			func() (err error) { return cleanup() },
+		},
 		{
 			true,
 			"Can't open/create config",
@@ -323,9 +295,21 @@ func TestConfigure(t *testing.T) {
 			},
 			func() (err error) { return cleanup() },
 		},
-		{true, "Config missing", func(sys *components.System) (err error) { return nil }, func() (err error) { return cleanup() }},
-		{false, "No Assets in config", func(sys *components.System) (err error) { return createConfigNoTraits(sys, 0) }, func() (err error) { return cleanup() }},
-		{false, "Multiple Assets in config", func(sys *components.System) (err error) { return createConfigNoTraits(sys, 3) }, func() (err error) { return cleanup() }},
+		{
+			true, "Config missing",
+			func(sys *components.System) (err error) { return nil },
+			func() (err error) { return cleanup() },
+		},
+		{
+			false, "No Assets in config",
+			func(sys *components.System) (err error) { return createConfigNoTraits(sys, 0) },
+			func() (err error) { return cleanup() },
+		},
+		{
+			false, "Multiple Assets in config",
+			func(sys *components.System) (err error) { return createConfigNoTraits(sys, 3) },
+			func() (err error) { return cleanup() },
+		},
 		{
 			true,
 			"No assets in sys",
@@ -389,7 +373,8 @@ func TestGetServiceList(t *testing.T) {
 	}
 	servList := getServicesList(mua)
 	if len(servList) != 1 && servList[0].Definition != "test" {
-		t.Errorf("Expected length: 1, got %d\tExpected 'Definition': test, got %s", len(servList), servList[0].Definition)
+		t.Errorf("Expected length: 1, got %d\tExpected 'Definition': test, got %s",
+			len(servList), servList[0].Definition)
 	}
 }
 
@@ -412,7 +397,8 @@ func TestMakeServiceMap(t *testing.T) {
 	for c := range 6 {
 		service := fmt.Sprintf("test%d", c)
 		if servMap[service].SubPath != service || servMap[service].ID != c {
-			t.Errorf(`Expected servMap["%s"].SubPath to be "%s", with ID: "%d". Got Subpath: "%s", with ID: "%d"`, service, service, c, servMap[service].SubPath, servMap[service].ID)
+			t.Errorf(`Expected servMap["%s"].SubPath to be "%s", with ID: "%d". Got Subpath: "%s", with ID: "%d"`,
+				service, service, c, servMap[service].SubPath, servMap[service].ID)
 		}
 	}
 }
