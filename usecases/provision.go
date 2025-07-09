@@ -124,6 +124,11 @@ func getBestContentType(acceptHeader string) string {
 }
 
 func RegisterMessenger(w http.ResponseWriter, r *http.Request, s *components.System) {
+	if r.Method != "POST" {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
 	b, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Printf("read request body: %v\n", err)
@@ -132,6 +137,7 @@ func RegisterMessenger(w http.ResponseWriter, r *http.Request, s *components.Sys
 		return
 	}
 	defer r.Body.Close()
+
 	f, err := Unpack(b, r.Header.Get("Content-Type"))
 	if err != nil {
 		log.Printf("unpack: %v\n", err)
@@ -142,6 +148,11 @@ func RegisterMessenger(w http.ResponseWriter, r *http.Request, s *components.Sys
 	if !ok {
 		log.Println("form is not a MessengerRegistration_v1")
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	if _, found := s.Messengers.Load(reg.Host); found {
+		// The system already knows the messenger, avoid re-storing it so that
+		// the error count don't get reset
 		return
 	}
 	s.Messengers.Store(reg.Host, 0) // Registers the host with 0 errors
