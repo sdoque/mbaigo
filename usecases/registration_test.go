@@ -71,14 +71,16 @@ func TestDeepCopyMap(t *testing.T) {
 		// If they are not equal from the beginning then the copy was not successful
 		err := manualEqualityCheck(original, test)
 		if err != nil {
-			t.Errorf("In test case: %s: Expected deep copied map to be equal to original, Expected: %v, got: %v", testCase.testName, original, test)
+			t.Errorf("In test case: %s: Expected deep copied map to be equal to original,"+
+				" Expected: %v, got: %v", testCase.testName, original, test)
 		}
 
 		// When we change something in the original, the deep copied map should not change
 		original["Test"][0] = "changed original"
 		err = manualEqualityCheck(original, test)
 		if err == nil {
-			t.Errorf("In test case: %s: Deep copy failed, changes in original affected the deep copied map. Expected: %v, got %v", testCase.testName, original, test)
+			t.Errorf("In test case: %s: Deep copy failed, changes in original affected the deep copied map."+
+				" Expected: %v, got %v", testCase.testName, original, test)
 		}
 		original["Test"][0] = "test"
 
@@ -86,7 +88,8 @@ func TestDeepCopyMap(t *testing.T) {
 		test["Test"][0] = "changed deep copy"
 		err = manualEqualityCheck(original, test)
 		if err == nil {
-			t.Errorf("In test case: %s: Deep copy failed, changes in deep copied map affected the original. Expected: %v, got %v", testCase.testName, original, test)
+			t.Errorf("In test case: %s: Deep copy failed, changes in deep copied map affected the original."+
+				" Expected: %v, got %v", testCase.testName, original, test)
 		}
 	}
 }
@@ -145,7 +148,8 @@ func TestServiceRegistrationForm(t *testing.T) {
 	}
 
 	// Special case
-	// Check that when the Service RegPeriod equals 0, ServiceRegistrationForm defaults to its RegLife default value of 30
+	// Check that when the Service RegPeriod equals 0,
+	// ServiceRegistrationForm defaults to its RegLife default value of 30
 	testSys := createTestSystem(false)
 	mua := testSys.UAssets["testUnitAsset"]
 	serv := (*testSys.UAssets["testUnitAsset"]).GetServices()["test"]
@@ -197,7 +201,8 @@ func TestServiceRegistrationFormList(t *testing.T) {
 	list := []string{
 		"ServiceRecord_v1",
 	}
-	// Check that the return value of ServiceRegistrationFormsList is equal to the expected list of ServiceRegistrationForms
+	// Check that the return value of ServiceRegistrationFormsList is equal
+	// to the expected list of ServiceRegistrationForms
 	test := ServiceRegistrationFormsList()
 	for i := range list {
 		if list[i] != test[i] {
@@ -219,8 +224,10 @@ type registerServiceTestStruct struct {
 	testName         string
 }
 
-func createWorkingRegisterServiceBody(mua *components.UnitAsset, serv *components.Service, correctTime bool, contentType string, brokenBody bool) func() *http.Response {
-	payload, err := serviceRegistrationForm(&testSys, mua, serv, "ServiceRecord_v1")
+func createWorkingRegisterServiceBody(mockSys components.System, mua *components.UnitAsset, serv *components.Service,
+	correctTime bool, contentType string, brokenBody bool) func() *http.Response {
+
+	payload, err := serviceRegistrationForm(&mockSys, mua, serv, "ServiceRecord_v1")
 	if err != nil {
 		log.Fatalf("The service Record version was wrong")
 	}
@@ -262,7 +269,8 @@ func createWorkingRegisterServiceBody(mua *components.UnitAsset, serv *component
 	}
 }
 
-func createMockSysMockUnitAssetandMockService(id int) (mockSys components.System, mua *components.UnitAsset, mockServ *components.Service) {
+func createMockSysMockUnitAssetandMockService(id int) (mockSys components.System, mua *components.UnitAsset,
+	mockServ *components.Service) {
 	mockSys = createTestSystem(false)
 	mua = mockSys.UAssets["testUnitAsset"]
 	mockServ = (*mockSys.UAssets["testUnitAsset"]).GetServices()["test"]
@@ -271,16 +279,26 @@ func createMockSysMockUnitAssetandMockService(id int) (mockSys components.System
 }
 
 var registerServiceTestParams = []registerServiceTestStruct{
-	{"https://leadingregistrar", "application/json", 1, true, false, false, 0, nil, "Good case, with PUT method"},
-	{"https://leadingregistrar", "application/json", 0, true, false, false, 0, nil, "Good case, with POST method"},
-	{"https://leadingregistrar", "application/json", 1, true, false, true, 1, timeoutError{}, "Bad case, timeout error"},
-	{"https://leadingregistrar", "application/json", 1, true, false, true, 1, errHTTP, "Bad case, error in defaultClint"},
-	{"https://leadingregistrar", "application/json", 1, true, true, true, 0, nil, "Bad case, error in ReadAll"},
-	{"https://leadingregistrar", "", 1, true, false, true, 0, nil, "Bad case, error in Unpack"},
-	{"https://leadingregistrar", "application/json", 1, false, false, true, 0, nil, "Bad case, error parsing time"},
-	{"", "application/json", 1, true, false, false, 0, nil, "Good case, no leading registrar URL sent in"},
-	{brokenUrl, "application/json", 1, true, false, true, 0, nil, "Bad case, broken URL with PUT method"},
-	{brokenUrl, "application/json", 0, true, false, true, 0, nil, "Bad case, broken URL with POST method"},
+	{"https://leadingregistrar", "application/json", 1, true, false, false, 0, nil,
+		"Good case, with PUT method"},
+	{"https://leadingregistrar", "application/json", 0, true, false, false, 0, nil,
+		"Good case, with POST method"},
+	{"https://leadingregistrar", "application/json", 1, true, false, true, 1, timeoutError{},
+		"Bad case, timeout error"},
+	{"https://leadingregistrar", "application/json", 1, true, false, true, 1, errHTTP,
+		"Bad case, error in defaultClint"},
+	{"https://leadingregistrar", "application/json", 1, true, true, true, 0, nil,
+		"Bad case, error in ReadAll"},
+	{"https://leadingregistrar", "", 1, true, false, true, 0, nil,
+		"Bad case, error in Unpack"},
+	{"https://leadingregistrar", "application/json", 1, false, false, true, 0, nil,
+		"Bad case, error parsing time"},
+	{"", "application/json", 1, true, false, false, 0, nil,
+		"Good case, no leading registrar URL sent in"},
+	{brokenUrl, "application/json", 1, true, false, true, 0, nil,
+		"Bad case, broken URL with PUT method"},
+	{brokenUrl, "application/json", 0, true, false, true, 0, nil,
+		"Bad case, broken URL with POST method"},
 }
 
 var delay = time.Duration(15) * time.Second
@@ -288,7 +306,8 @@ var delay = time.Duration(15) * time.Second
 func TestRegisterService(t *testing.T) {
 	for _, testCase := range registerServiceTestParams {
 		mockSys, mua, mockServ := createMockSysMockUnitAssetandMockService(testCase.mockServID)
-		respFunc := createWorkingRegisterServiceBody(mua, mockServ, testCase.correctTime, testCase.contentType, testCase.brokenBody)
+		respFunc := createWorkingRegisterServiceBody(mockSys, mua, mockServ, testCase.correctTime,
+			testCase.contentType, testCase.brokenBody)
 		newMockTransport(respFunc, testCase.mockTransportErr, testCase.errHTTP)
 
 		test, err := registerService(&mockSys, testCase.registrarUrl, mua, mockServ)
@@ -296,18 +315,21 @@ func TestRegisterService(t *testing.T) {
 		// Special case
 		if testCase.registrarUrl == "" {
 			if err != nil || test != delay {
-				t.Errorf("In test case: %s: Did we expect error? %t, got: %v and %d delay.", testCase.testName, testCase.expectedErr, err, test)
+				t.Errorf("In test case: %s: Did we expect error? %t, got: %v and %d delay.",
+					testCase.testName, testCase.expectedErr, err, test)
 			}
 			continue
 		}
 
 		if testCase.expectedErr == false {
 			if err != nil || test == delay {
-				t.Errorf("In test case: %s: Did we expect error? %t, got: %v and %d delay.", testCase.testName, testCase.expectedErr, err, test)
+				t.Errorf("In test case: %s: Did we expect error? %t, got: %v and %d delay.",
+					testCase.testName, testCase.expectedErr, err, test)
 			}
 		} else {
 			if err == nil || test != delay {
-				t.Errorf("In test case: %s: Did we expect error? %t, got: %v and %d delay.", testCase.testName, testCase.expectedErr, err, test)
+				t.Errorf("In test case: %s: Did we expect error? %t, got: %v and %d delay.",
+					testCase.testName, testCase.expectedErr, err, test)
 			}
 		}
 	}

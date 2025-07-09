@@ -129,7 +129,8 @@ func TestMerge(t *testing.T) {
 	if testService.Definition != testOriginalService.Definition ||
 		testService.SubPath != testOriginalService.SubPath ||
 		testService.Description != testOriginalService.Description {
-		t.Errorf("Expected the test service to be the same as the original test service %s, got: %s", testOriginalService.Definition, testService.Definition)
+		t.Errorf("Expected the test service to be the same as the original test service %s, got: %s",
+			testOriginalService.Definition, testService.Definition)
 	}
 }
 

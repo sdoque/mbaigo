@@ -37,20 +37,26 @@ func (e *mockResponseWriter) Header() http.Header {
 }
 
 var transferFileTestParams = []transferFileTestStruct{
-	{"test.jpeg", "\xff\xd8", 200, ".jpeg", "Good case, jpeg works"},
-	{"test.zip", "\x50\x4b\x03\x04", 200, ".zip", "Good case, zip works"},
+	{"test.jpeg", "\xff\xd8",
+		200, ".jpeg", "Good case, jpeg works"},
+	{"test.zip", "\x50\x4b\x03\x04",
+		200, ".zip", "Good case, zip works"},
 	{"test.txt", "\n", 200, ".txt", "Good case, txt works"},
 	{"test.owl", `<?xml version="1.0"?><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"` +
-		`xmlns:owl="http://www.w3.org/2002/07/owl#"><owl:Ontology rdf:about=""/></rdf:RDF>`, 200, ".owl", "Good case, owl works"},
-	{"test.ttl", "@prefix : <#> .@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .", 200,
-		".ttl", "Good case, ttl works"},
+		`xmlns:owl="http://www.w3.org/2002/07/owl#"><owl:Ontology rdf:about=""/></rdf:RDF>`,
+		200, ".owl", "Good case, owl works"},
+	{"test.ttl", "@prefix : <#> .@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .",
+		200, ".ttl", "Good case, ttl works"},
 	{"test.html", "<!DOCTYPE html><html><head><title></title></head><body></body></html>",
 		200, ".html", "Good case, html works"},
-	{"test.csv", "id,name\n", 200, ".csv", "Good case, csv works"},
+	{"test.csv", "id,name\n",
+		200, ".csv", "Good case, csv works"},
 	{"test.mp4", "\x00\x00\x00\x18\x66\x74\x79\x70\x69\x73\x6f\x6d\x00\x00\x02\x00\x69\x73\x6f\x6d\x69\x73\x6f\x32",
 		200, ".mp4", "Good case, mp4 works"},
-	{"test.txt", "Internal Server Error\n", 500, ".txt", "Bad case, parsing url fails"},
-	{"wrong.txt", "Not Found\n", 404, ".txt", "Bad case, file not found"},
+	{"test.txt", "Internal Server Error\n",
+		500, ".txt", "Bad case, parsing url fails"},
+	{"wrong.txt", "Not Found\n",
+		404, ".txt", "Bad case, file not found"},
 }
 
 var fileTypeMap = map[string][]byte{
@@ -110,7 +116,8 @@ func TestTransferFile(t *testing.T) {
 		}
 
 		if inputW.Body.String() != testCase.expectedBody || inputW.Code != testCase.expectedCode {
-			t.Errorf("Expected: %s and %d, got: %s and %d", testCase.expectedBody, testCase.expectedCode, inputW.Body.String(), inputW.Code)
+			t.Errorf("Expected: %s and %d, got: %s and %d",
+				testCase.expectedBody, testCase.expectedCode, inputW.Body.String(), inputW.Code)
 		}
 	}
 
