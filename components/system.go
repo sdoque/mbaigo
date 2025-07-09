@@ -30,6 +30,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 )
 
@@ -43,6 +44,7 @@ type System struct {
 	Ctx           context.Context       // create a context that can be cancelled
 	Sigs          chan os.Signal        // channel to initiate a graceful shutdown when Ctrl+C is pressed
 	RegistrarChan chan *CoreSystem      // channel for the lead service registrar
+	Messengers    sync.Map              // Tracks which hosts to send log msgs to (and how many errors were encountered, before being removed)
 }
 
 // CoreSystem struct holds details about the core system included in the configuration file

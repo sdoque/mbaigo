@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
 )
 
@@ -120,4 +121,28 @@ func getBestContentType(acceptHeader string) string {
 	}
 
 	return bestType
+}
+
+func RegisterMessenger(w http.ResponseWriter, r *http.Request, s *components.System) {
+	b, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("read request body: %v\n", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError),
+			http.StatusInternalServerError)
+		return
+	}
+	defer r.Body.Close()
+	f, err := Unpack(b, r.Header.Get("Content-Type"))
+	if err != nil {
+		log.Printf("unpack: %v\n", err)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	reg, ok := f.(*forms.MessengerRegistration_v1)
+	if !ok {
+		log.Println("form is not a MessengerRegistration_v1")
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	s.Messengers.Store(reg.Host, 0) // Registers the host with 0 errors
 }
