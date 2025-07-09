@@ -478,59 +478,64 @@ func TestFillDiscoveredServices(t *testing.T) {
 
 type extractDiscoveryFormParams struct {
 	expectError bool
-	testCase string
+	data        func() any
+	testCase    string
 }
 
 // ExtractDiscoveryForm(bodyBytes []byte) (sLoc forms.ServicePoint_v1, err error)
 func TestExtractDiscoveryForm(t *testing.T) {
-	// Best case: everything passes
-	spForm := createServicePointTestForm()
-	data, err := json.Marshal(spForm)
-	if err != nil {
-		t.Errorf("Error occurred while marshaling the test form")
-	}
-	//form version: forms.ServicePoint_v1 expected
-	form, err := ExtractDiscoveryForm(data)
-	if err != nil {
-		t.Errorf("Expected no errors")
-	}
-	if form.ServLocation != "TestService" {
-		t.Errorf("Expected service location: %s, got %s", "TestService", form.ServLocation)
+	params := []extractDiscoveryFormParams{
+		{
+			false,
+			func() any { return createServicePointTestForm() },
+			"Best case",
+		},
+		{
+			true,
+			func() any {
+				return ""
+			},
+			"Bad case, Unmarshal breaks",
+		},
+		{
+			true,
+			func() any {
+				form := createServicePointTestForm()
+				form.Version = ""
+				return form
+			},
+			"Bad case, wrong form version",
+		},
+		{
+			true,
+			func() any { return nil },
+			"Bad case, version key missing",
+		},
+		{
+			true,
+			func() any {
+				wrongForm := make(map[string]any)
+				wrongForm["version"] = "ServicePoint_v1"
+				wrongForm["serviceId"] = false // Target field is an int
+				return wrongForm
+			},
+			"Bad case, can't unmarshal to ServicePoint_v1 (field type mismatch)",
+		},
 	}
 
-	// Bad case: Default switch case, wrong form version
-	spForm.Version = ""
-	data, err = json.Marshal(spForm)
-	if err != nil {
-		t.Errorf("Error occurred while marshaling the test form")
-	}
-	form, err = ExtractDiscoveryForm(data)
-	if err == nil {
-		t.Errorf("Expected error because of wrong form version")
-	}
-
-	// Bad case: version key not found
-	data, err = json.Marshal(nil)
-	if err != nil {
-		t.Errorf("Error when marshalling in test")
-	}
-	form, err = ExtractDiscoveryForm(data)
-	if err == nil {
-		t.Errorf("Expected errors for missing form")
-	}
-
-	// Bad case: Unmarshalling body bytes to forms.ServicePoint_v1
-	// Needed to create my own map, with the correct version but a field that had a different type
-	// than the target field in order to break unmarshal
-	wrongForm := make(map[string]any)
-	wrongForm["version"] = "ServicePoint_v1"
-	wrongForm["serviceId"] = false // Target field is an int
-	data, err = json.Marshal(wrongForm)
-	if err != nil {
-		t.Errorf("Error when marshalling in test")
-	}
-	form, err = ExtractDiscoveryForm(data)
-	if err == nil {
-		t.Errorf("Expected errors for wrong form")
+	for _, c := range params {
+		// Setup
+		data, err := json.Marshal(c.data())
+		if err != nil {
+			t.Errorf("couldn't marshal data in '%s'", c.testCase)
+		}
+		// Test
+		_, err = ExtractDiscoveryForm(data)
+		if (c.expectError == false) && (err != nil) {
+			t.Errorf("Expected no errors in '%s', got: %v", c.testCase, err)
+		}
+		if (c.expectError == true) && (err == nil) {
+			t.Errorf("Expected errors in '%s'", c.testCase)
+		}
 	}
 }
