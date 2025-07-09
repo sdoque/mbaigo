@@ -22,8 +22,10 @@ package usecases
 import (
 	"fmt"
 	"io"
+	"log"
 
 	"net/http"
+	"net/url"
 
 	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
@@ -75,4 +77,55 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 
 	headerContentType := resp.Header.Get("Content-Type")
 	return Unpack(bodyBytes, headerContentType)
+}
+
+const messengerMaxErrors int = 3
+
+func Log(sys *components.System, lvl forms.MessageLevel, msg string, args ...any) {
+	sm := forms.NewSystemMessage_v1(lvl, fmt.Sprintf(msg+"\n", args...), sys.Name)
+	body, err := Pack(forms.Form(&sm), "application/json")
+	if err != nil {
+		log.Print(sm.Body)
+		log.Printf("failed to pack SystemMessage: %v\n", err)
+		return
+	}
+
+	// Iterate over all messengers and try sending a copy of the log msg
+	// (can't use a regular for-loop for this type)
+	sys.Messengers.Range(func(k, v any) bool {
+		host, ok1 := k.(string) // Should always be a host string!
+		errors, ok2 := v.(int)
+		if !ok1 || !ok2 {
+			sys.Messengers.Delete(k) // if not, removes the unusable cruft
+			return true
+		}
+
+		newErrors := 0 // If there's no error while sending msg, the count is reset
+		if err := sendLogMessage(host, body); err != nil {
+			if errors >= messengerMaxErrors {
+				// Too many errors indicates a problematic messenger
+				sys.Messengers.Delete(k)
+				return true
+			}
+			newErrors = errors + 1
+		}
+		sys.Messengers.Store(k, newErrors)
+		return true
+	})
+}
+
+// Hard-coding the path is ugly but it skips an extra service discovery cycle for now
+const messengerPath string = "/messenger/log/message"
+
+func sendLogMessage(h string, b []byte) error {
+	u, err := url.Parse("http://" + h + messengerPath)
+	if err != nil {
+		return err
+	}
+	resp, err := sendHTTPReq("POST", u.String(), b)
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close() // Don't care about the body or any errors it might cause
+	return nil
 }
