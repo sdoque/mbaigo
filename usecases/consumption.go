@@ -55,7 +55,7 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 		}
 	}
 
-	resp, err := sendHttpReq(httpMethod, serviceUrl, bodyBytes)
+	resp, err := sendHTTPReq(httpMethod, serviceUrl, bodyBytes)
 	if err != nil {
 		cer.Nodes = make(map[string][]string) // Failed to get the resource at that location: reset the providers list, which will trigger a new service search
 		return f, err

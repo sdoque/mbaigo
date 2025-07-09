@@ -199,7 +199,7 @@ func TestSendHttpReq(t *testing.T) {
 			lastLoopErr = true
 		}
 		// Run the test
-		_, err = sendHttpReq(c.method, c.url, c.data)
+		_, err = sendHTTPReq(c.method, c.url, c.data)
 		if c.expectError == false {
 			if err != nil {
 				t.Errorf("Unexpected error in '%s' test case: %e", c.testCase, err)
