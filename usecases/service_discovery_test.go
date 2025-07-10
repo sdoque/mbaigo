@@ -157,14 +157,11 @@ func TestSendHttpReq(t *testing.T) {
 		}
 		// Run the test
 		_, err = sendHttpReq(c.method, c.url, c.data)
-		if c.expectError == false {
-			if err != nil {
-				t.Errorf("Unexpected error in '%s' test case: %e", c.testCase, err)
-			}
-		} else {
-			if err == nil {
-				t.Errorf("Expected error in '%s' test case, got none", c.testCase)
-			}
+		if c.expectError == false && err != nil {
+			t.Errorf("Unexpected error in '%s' test case: %e", c.testCase, err)
+		}
+		if c.expectError == true && err == nil {
+			t.Errorf("Expected error in '%s' test case, got none", c.testCase)
 		}
 	}
 }
@@ -414,14 +411,11 @@ func TestFillDiscoveredServices(t *testing.T) {
 	versionList := []string{"ServiceRecordList_v1", "default"}
 	for _, version := range versionList {
 		_, err := FillDiscoveredServices(dsList, version)
-		if version != "ServiceRecordList_v1" {
-			if err == nil {
-				t.Errorf("Expected error in default case")
-			}
-		} else {
-			if err != nil {
-				t.Errorf("Unexpected error during testing: %v", err)
-			}
+		if version != "ServiceRecordList_v1" && err == nil {
+			t.Errorf("Expected error in default case")
+		}
+		if version == "ServiceRecordList_v1" && err != nil {
+			t.Errorf("Unexpected error during testing: %v", err)
 		}
 	}
 }
