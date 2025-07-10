@@ -48,6 +48,8 @@ func (mua mockUnitAssetWithTraits) Serving(w http.ResponseWriter, r *http.Reques
 // with/without any asset traits
 // --------------------------------------------------------- //
 
+// This is pretty much a copy of setupDefaultConfig() in configuration.go,
+// but this also creates and writes to a systemconfig.json file
 func createConfigHasTraits(sys *components.System) (err error) {
 	var defaultConfig templateOut
 
@@ -86,6 +88,7 @@ func createConfigHasTraits(sys *components.System) (err error) {
 	}
 	var muaInterface components.UnitAsset = mua
 	sys.UAssets[mua.GetName()] = &muaInterface
+
 	// If the asset exposes traits, serialize them and store as raw JSON
 	if assetWithTraits, ok := assetTemplate.(components.HasTraits); ok {
 		if traits := assetWithTraits.GetTraits(); traits != nil {
@@ -134,6 +137,8 @@ func createConfigHasTraits(sys *components.System) (err error) {
 	return
 }
 
+// This is pretty much a copy of setupDefaultConfig() in configuration.go,
+// but this also creates and writes to a systemconfig.json file
 func createConfigNoTraits(sys *components.System, assetAmount int) (err error) {
 	var defaultConfig templateOut
 
