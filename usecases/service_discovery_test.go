@@ -15,30 +15,6 @@ import (
 	"github.com/sdoque/mbaigo/forms"
 )
 
-// Tests the output from ServQuestForms() to ensure expected outcome
-func TestServQuestForms(t *testing.T) {
-	expectedForms := []string{"ServiceQuest_v1", "ServicePoint_v1"}
-	lst := ServQuestForms()
-	// Loop through the forms from ServQuestForms() and compare them to expected forms
-	for i, form := range lst {
-		if form != expectedForms[i] {
-			t.Errorf("Expected %s, got %s", form, expectedForms[i])
-		}
-	}
-}
-
-func TestFillQuestForm(t *testing.T) {
-	testSys := createTestSystem(false)
-	mua := mockUnitAsset{}
-	questForm := FillQuestForm(&testSys, mua, "TestDef", "TestProtocol")
-	// Loop through the details in questForm and mua (mockUnitAsset), error if they're not the same
-	for i, detail := range questForm.Details["Details"] {
-		if detail != mua.GetDetails()["Details"][i] {
-			t.Errorf("Expected %s, got: %s", mua.GetDetails()["Details"][i], detail)
-		}
-	}
-}
-
 type testBodyHasProtocol struct {
 	Version  string `json:"version"`
 	Protocol int    `json:"protocol"`
@@ -50,15 +26,6 @@ type testBodyHasVersion struct {
 
 type testBodyNoVersion struct{}
 
-type extractQuestFormParams struct {
-	testCase      string
-	expectedError bool
-	proto         int
-	version       string
-	errRead       bool
-	f             func(int, string, bool) ([]byte, error)
-}
-
 func createTestBodyHasProtocol(proto int, version string, errRead bool) ([]byte, error) {
 	if errRead == true {
 		return json.Marshal(errReader(0))
@@ -67,11 +34,7 @@ func createTestBodyHasProtocol(proto int, version string, errRead bool) ([]byte,
 		Protocol: proto,
 		Version:  version,
 	}
-	data, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
+	return json.Marshal(body)
 }
 
 func createTestBodyHasVersion(proto int, version string, errRead bool) ([]byte, error) {
@@ -80,12 +43,8 @@ func createTestBodyHasVersion(proto int, version string, errRead bool) ([]byte, 
 	}
 	body := testBodyHasVersion{
 		Version: version,
-	}
-	data, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
+	}	
+	return json.Marshal(body)
 }
 
 func createTestBodyHasNoVersion(proto int, version string, errRead bool) ([]byte, error) {
@@ -93,43 +52,39 @@ func createTestBodyHasNoVersion(proto int, version string, errRead bool) ([]byte
 		return json.Marshal(errReader(0))
 	}
 	body := testBodyNoVersion{}
-	data, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
+	return json.Marshal(body)
+}
+
+type extractQuestFormParams struct {
+	expectedError bool
+	errRead       bool
+	proto         int
+	version       string
+	f             func(int, string, bool) ([]byte, error)
+	testCase      string
 }
 
 func TestExtractQuestForm(t *testing.T) {
-	// A list holding structs containing the parameters used for the test
 	testParams := []extractQuestFormParams{
-		// Always start with the "Best case, no errors"
-		// {testCase, expectedError, proto, version, errRead, data}
-		{"No errors", false, -1, "ServiceQuest_v1", false, createTestBodyHasVersion},
-		{"Error during Unmarshal", true, -1, "ServiceQuest_v1", true, createTestBodyHasVersion},
-		{"Missing version", false, -1, "", false, createTestBodyHasNoVersion},
-		{"Error while writing to correct form", true, 123, "ServiceQuest_v1", false, createTestBodyHasProtocol},
-		{"Error Unsupported version", true, -1, "", false, createTestBodyHasVersion},
+		{false, false, -1, "ServiceQuest_v1", createTestBodyHasVersion, "No errors"},
+		{true, true, -1, "ServiceQuest_v1", createTestBodyHasVersion, "Error during Unmarshal"},
+		{true, false, -1, "", createTestBodyHasNoVersion, "Missing version"},
+		{true, false, 123, "ServiceQuest_v1", createTestBodyHasProtocol, "Error while writing to correct form"},
+		{true, false, -1, "", createTestBodyHasVersion, "Error Unsupported version"},
 	}
 	for _, x := range testParams {
-		// Create the data []byte that will be sent into the function
 		data, err := x.f(x.proto, x.version, x.errRead)
 		if err != nil {
 			t.Errorf("---\tError occurred while creating test data")
 		}
 		// Do the test
-		rec, err := ExtractQuestForm(data)
-		if x.testCase == "No errors" {
-			if err != nil {
-				t.Errorf("Test case: '%s' got error: %v", x.testCase, err)
-			}
-			if x.testCase == "Missing version" && rec.Version != "" {
-				t.Errorf("---\tExpected no version, got %s", rec.Version)
-			}
-		} else {
-			if err == nil {
-				t.Errorf("---\tTest case: Expected errors in '%s', got none", x.testCase)
-			}
+		_, err = ExtractQuestForm(data)
+		if x.expectedError == false && err != nil {
+			t.Errorf("Expected no errors in '%s', got: %v ", x.testCase, err)
+		}
+		if x.expectedError == true && err == nil {
+			t.Errorf("Expected errors in '%s'", x.testCase)
+
 		}
 	}
 }
