@@ -269,7 +269,7 @@ func TestSearch4Services(t *testing.T) {
 			false,
 			func() (cer *components.Cervice, sys components.System) {
 				sys = createTestSystem(false)
-				cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 				return
 			},
 			createMultiHttpResp(200, false, 0),
@@ -280,7 +280,7 @@ func TestSearch4Services(t *testing.T) {
 			true,
 			func() (cer *components.Cervice, sys components.System) {
 				sys = createTestSystem(false)
-				cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 				return
 			},
 			createMultiHttpResp(200, false, 0),
@@ -296,7 +296,7 @@ func TestSearch4Services(t *testing.T) {
 						(*sys.CoreS[i]).Url = ""
 					}
 				}
-				cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 				return
 			},
 			createMultiHttpResp(200, false, 0),
@@ -307,7 +307,7 @@ func TestSearch4Services(t *testing.T) {
 			true,
 			func() (cer *components.Cervice, sys components.System) {
 				sys = createTestSystem(false)
-				cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 				return
 			},
 			createMultiHttpResp(200, false, 0),
@@ -318,7 +318,7 @@ func TestSearch4Services(t *testing.T) {
 			true,
 			func() (cer *components.Cervice, sys components.System) {
 				sys = createTestSystem(false)
-				cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 				return
 			},
 			createMultiHttpResp(200, true, 2),
@@ -329,7 +329,7 @@ func TestSearch4Services(t *testing.T) {
 			true,
 			func() (cer *components.Cervice, sys components.System) {
 				sys = createTestSystem(false)
-				cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 				return
 			},
 			func() *http.Response {
@@ -347,7 +347,7 @@ func TestSearch4Services(t *testing.T) {
 			true,
 			func() (cer *components.Cervice, sys components.System) {
 				sys = createTestSystem(false)
-				cer = (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 				return
 			},
 			func() *http.Response {
