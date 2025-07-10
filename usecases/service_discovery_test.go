@@ -43,7 +43,7 @@ func createTestBodyHasVersion(proto int, version string, errRead bool) ([]byte, 
 	}
 	body := testBodyHasVersion{
 		Version: version,
-	}	
+	}
 	return json.Marshal(body)
 }
 
