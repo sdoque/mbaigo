@@ -43,6 +43,11 @@ func (mua mockUnitAssetWithTraits) GetDetails() map[string][]string {
 func (mua mockUnitAssetWithTraits) Serving(w http.ResponseWriter, r *http.Request, servicePath string) {
 }
 
+// --------------------------------------------------------- //
+// Helpfunctions that creates a default config file
+// with/without any asset traits
+// --------------------------------------------------------- //
+
 func createConfigHasTraits(sys *components.System) (err error) {
 	var defaultConfig templateOut
 
@@ -92,7 +97,7 @@ func createConfigHasTraits(sys *components.System) (err error) {
 			}
 		}
 	}
-	defaultConfig.Assets = []ConfigurableAsset{confAsset} // this is a list of unit assets
+	defaultConfig.Assets = []ConfigurableAsset{confAsset}
 
 	leadingRegistrar := components.CoreSystem{
 		Name: "serviceregistrar",
@@ -120,9 +125,9 @@ func createConfigHasTraits(sys *components.System) (err error) {
 	}
 	defer defaultConfigFile.Close()
 
-	enc := json.NewEncoder(defaultConfigFile) // Create an encoder that allows writing to a file
+	enc := json.NewEncoder(defaultConfigFile)
 	enc.SetIndent("", "     ")
-	err = enc.Encode(defaultConfig) // Write defaultConfig template to file
+	err = enc.Encode(defaultConfig)
 	if err != nil {
 		return fmt.Errorf("jsonEncode: %v", err)
 	}
@@ -132,11 +137,11 @@ func createConfigHasTraits(sys *components.System) (err error) {
 func createConfigNoTraits(sys *components.System, assetAmount int) (err error) {
 	var defaultConfig templateOut
 
-	if assetAmount == 1 {
+	for x := range assetAmount {
 		setTest := components.Service{
-			ID:            1,
-			Definition:    "test",
-			SubPath:       "test",
+			ID:            x,
+			Definition:    fmt.Sprintf("test%d", x),
+			SubPath:       fmt.Sprintf("test%d", x),
 			Details:       map[string][]string{"Forms": {"SignalA_v1a"}},
 			Description:   "A test service",
 			RegPeriod:     45,
@@ -145,31 +150,11 @@ func createConfigNoTraits(sys *components.System, assetAmount int) (err error) {
 		}
 		servList := []components.Service{setTest}
 		mua := ConfigurableAsset{
-			Name:     "testUnitAsset",
+			Name:     fmt.Sprintf("testUnitAsset%d", x),
 			Details:  map[string][]string{"Test": {"Test"}},
 			Services: servList,
 		}
 		defaultConfig.Assets = append(defaultConfig.Assets, mua)
-	} else {
-		for x := range assetAmount {
-			setTest := components.Service{
-				ID:            x,
-				Definition:    fmt.Sprintf("test%d", x),
-				SubPath:       fmt.Sprintf("test%d", x),
-				Details:       map[string][]string{"Forms": {"SignalA_v1a"}},
-				Description:   "A test service",
-				RegPeriod:     45,
-				RegTimestamp:  "now",
-				RegExpiration: "45",
-			}
-			servList := []components.Service{setTest}
-			mua := ConfigurableAsset{
-				Name:     fmt.Sprintf("testUnitAsset%d", x),
-				Details:  map[string][]string{"Test": {"Test"}},
-				Services: servList,
-			}
-			defaultConfig.Assets = append(defaultConfig.Assets, mua)
-		}
 	}
 
 	leadingRegistrar := components.CoreSystem{
@@ -198,38 +183,49 @@ func createConfigNoTraits(sys *components.System, assetAmount int) (err error) {
 	}
 	defer defaultConfigFile.Close()
 
-	enc := json.NewEncoder(defaultConfigFile) // Create an encoder that allows writing to a file
+	enc := json.NewEncoder(defaultConfigFile)
 	enc.SetIndent("", "     ")
-	err = enc.Encode(defaultConfig) // Write defaultConfig template to file
+	err = enc.Encode(defaultConfig)
 	if err != nil {
 		return fmt.Errorf("jsonEncode: %v", err)
 	}
 	return
 }
 
+// --------------------------------------------------------- //
+// Helpfunctions and structs for testing SetupDefaultConfig()
+// --------------------------------------------------------- //
+
+func cleanup() error {
+	return os.Remove("systemconfig.json")
+}
+
 type setupDefConfigParams struct {
 	expectError bool
-	testCase    string
 	setup       func(*components.System) (err error)
 	cleanup     func() (err error)
+	testCase    string
 }
 
 func TestSetupDefaultConfig(t *testing.T) {
 	testParams := []setupDefConfigParams{
 		{
-			false, "Best case",
+			false,
 			func(sys *components.System) (err error) { return createConfigNoTraits(sys, 1) },
 			func() (err error) { return cleanup() },
+			"Best case",
 		},
 		{
-			false, "Good case, asset has traits",
+			false,
 			func(sys *components.System) (err error) { return createConfigHasTraits(sys) },
 			func() (err error) { return cleanup() },
+			"Good case, asset has traits",
 		},
 		{
-			true, "No assets in sys",
+			true,
 			func(sys *components.System) (err error) { return createConfigHasTraits(sys) },
 			func() (err error) { return cleanup() },
+			"No assets in sys",
 		},
 	}
 
@@ -249,14 +245,11 @@ func TestSetupDefaultConfig(t *testing.T) {
 
 		// Test
 		_, err = setupDefaultConfig(&testSys)
-		if c.expectError != true {
-			if err != nil {
-				t.Errorf("Expected no errors in testcase '%s', got: %v", c.testCase, err)
-			}
-		} else {
-			if err == nil {
-				t.Errorf("expected errors in testcase '%s', got none", c.testCase)
-			}
+		if c.expectError == false && err != nil {
+			t.Errorf("Expected no errors in testcase '%s', got: %v", c.testCase, err)
+		}
+		if c.expectError == true && err == nil {
+			t.Errorf("expected errors in testcase '%s', got none", c.testCase)
 		}
 
 		// Cleanup
@@ -267,57 +260,61 @@ func TestSetupDefaultConfig(t *testing.T) {
 	}
 }
 
-func cleanup() error {
-	return os.Remove("systemconfig.json")
-}
+// --------------------------------------------------------- //
+// Helpfunctions and structs for testing Configure()
+// --------------------------------------------------------- //
 
 type configureParams struct {
 	expectError bool
-	testCase    string
-	setup       func(*components.System) (err error)
-	cleanup     func() (err error)
+
+	setup    func(*components.System) (err error)
+	cleanup  func() (err error)
+	testCase string
 }
 
 func TestConfigure(t *testing.T) {
 	testParams := []configureParams{
-		// {expectError, testCase, setup(), cleanup()}
 		{
-			false, "Best case, one asset",
+			false,
 			func(sys *components.System) (err error) { return createConfigNoTraits(sys, 1) },
 			func() (err error) { return cleanup() },
+			"Best case, one asset",
 		},
 		{
 			true,
-			"Can't open/create config",
 			func(sys *components.System) (err error) {
 				_, err = os.OpenFile("systemconfig.json", os.O_RDWR|os.O_CREATE, 0000)
 				return
 			},
 			func() (err error) { return cleanup() },
-		},
-		{
-			true, "Config missing",
-			func(sys *components.System) (err error) { return nil },
-			func() (err error) { return cleanup() },
-		},
-		{
-			false, "No Assets in config",
-			func(sys *components.System) (err error) { return createConfigNoTraits(sys, 0) },
-			func() (err error) { return cleanup() },
-		},
-		{
-			false, "Multiple Assets in config",
-			func(sys *components.System) (err error) { return createConfigNoTraits(sys, 3) },
-			func() (err error) { return cleanup() },
+			"Can't open/create config",
 		},
 		{
 			true,
-			"No assets in sys",
+			func(sys *components.System) (err error) { return nil },
+			func() (err error) { return cleanup() },
+			"Config missing",
+		},
+		{
+			false,
+			func(sys *components.System) (err error) { return createConfigNoTraits(sys, 0) },
+			func() (err error) { return cleanup() },
+			"No Assets in config",
+		},
+		{
+			false,
+			func(sys *components.System) (err error) { return createConfigNoTraits(sys, 3) },
+			func() (err error) { return cleanup() },
+			"Multiple Assets in config",
+		},
+		{
+			true,
 			func(sys *components.System) (err error) {
 				sys.UAssets = nil
 				return createConfigNoTraits(sys, 1)
 			},
 			func() (err error) { return cleanup() },
+			"No assets in sys",
 		},
 	}
 
@@ -333,14 +330,11 @@ func TestConfigure(t *testing.T) {
 
 		// Test
 		_, err = Configure(&testSys)
-		if testCase.expectError == false {
-			if err != nil {
-				t.Errorf("Expected no errors in '%s', got: %v", testCase.testCase, err)
-			}
-		} else {
-			if err == nil {
-				t.Errorf("Expected errors in testcase '%s' got none", testCase.testCase)
-			}
+		if testCase.expectError == false && err != nil {
+			t.Errorf("Expected no errors in '%s', got: %v", testCase.testCase, err)
+		}
+		if testCase.expectError == true && err == nil {
+			t.Errorf("Expected errors in testcase '%s'", testCase.testCase)
 		}
 
 		//Cleanup
@@ -350,6 +344,10 @@ func TestConfigure(t *testing.T) {
 		}
 	}
 }
+
+// --------------------------------------------------------- //
+// Testing GetServiceList()
+// --------------------------------------------------------- //
 
 func TestGetServiceList(t *testing.T) {
 	setTest := &components.Service{
@@ -378,6 +376,10 @@ func TestGetServiceList(t *testing.T) {
 	}
 }
 
+// --------------------------------------------------------- //
+// Testing MakeServiceMap()
+// --------------------------------------------------------- //
+
 func TestMakeServiceMap(t *testing.T) {
 	var servList []components.Service
 	for x := range 6 {
@@ -397,7 +399,7 @@ func TestMakeServiceMap(t *testing.T) {
 	for c := range 6 {
 		service := fmt.Sprintf("test%d", c)
 		if servMap[service].SubPath != service || servMap[service].ID != c {
-			t.Errorf(`Expected servMap["%s"].SubPath to be "%s", with ID: "%d". Got Subpath: "%s", with ID: "%d"`,
+			t.Errorf(`Expected servMap["%s"].SubPath to be "%s", with ID: "%d". Got: "%s", with ID: "%d"`,
 				service, service, c, servMap[service].SubPath, servMap[service].ID)
 		}
 	}
