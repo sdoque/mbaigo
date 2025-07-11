@@ -176,8 +176,9 @@ func registerService(sys *components.System, registrar string, ua *components.Un
 	}
 	// should not wait until the deadline to start to confirm live status
 	delay = time.Until(parsedTime.Add(-5 * time.Second))
-	if delay < 30*time.Second {
-		delay = 30 * time.Second
+	if delay < 1*time.Second {
+		// Avoid using zero/negative delays
+		delay = 1 * time.Second
 	}
 	return
 }
