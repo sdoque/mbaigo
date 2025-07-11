@@ -5,10 +5,44 @@ import (
 	"testing"
 )
 
-type mergeDetailsTestStruct struct {
-	map1     map[string][]string
-	map2     map[string][]string
-	expected map[string][]string
+func manualEqualityCheck(map1 map[string][]string, map2 map[string][]string) error {
+	if len(map1) != len(map2) {
+		return fmt.Errorf("Expected map length %d, got %d", len(map2), len(map1))
+	}
+	for key, value := range map2 {
+		mv, ok := map1[key]
+		if !ok {
+			return fmt.Errorf("Expected key %q not found in merged map", key)
+		}
+		if len(mv) != len(value) {
+			return fmt.Errorf("For key %q, expected slice length %d, got %d", key, len(value), len(mv))
+		}
+		for i := range value {
+			if mv[i] != value[i] {
+				return fmt.Errorf("For key %q, at index %d, expected %q, got %q", key, i, value[i], mv[i])
+			}
+		}
+	}
+	for key := range map1 {
+		if _, ok := map2[key]; !ok {
+			return fmt.Errorf("Unexpected key %q found in merged map", key)
+		}
+	}
+	return nil
+}
+
+var testServiceWithEmptyDetails = Service{
+	ID:            1,
+	Definition:    "original one",
+	SubPath:       "testOriginalSubPath",
+	Details:       make(map[string][]string),
+	RegPeriod:     45,
+	RegTimestamp:  "",
+	RegExpiration: "",
+	Description:   "A test original service",
+	SubscribeAble: false,
+	ACost:         0,
+	CUnit:         "",
 }
 
 var testService = Service{
@@ -39,97 +73,13 @@ var testOriginalService = Service{
 	CUnit:         "",
 }
 
-var testServiceWithEmptyDetails = Service{
-	ID:            1,
-	Definition:    "original one",
-	SubPath:       "testOriginalSubPath",
-	Details:       make(map[string][]string),
-	RegPeriod:     45,
-	RegTimestamp:  "",
-	RegExpiration: "",
-	Description:   "A test original service",
-	SubscribeAble: false,
-	ACost:         0,
-	CUnit:         "",
-}
-
-func makeNewTestService(id int, definition string) *Service {
-	return &Service{
-		ID:            id,
-		Definition:    definition,
-		SubPath:       "newTestServiceSubPath",
-		Details:       make(map[string][]string),
-		RegPeriod:     45,
-		RegTimestamp:  "",
-		RegExpiration: "",
-		Description:   "A new test Service",
-		SubscribeAble: false,
-		ACost:         0,
-		CUnit:         "",
-	}
-}
-
-func makeNewMap(key string, value string) map[string][]string {
-	newMap := map[string][]string{
-		key: {value},
-	}
-	return newMap
-}
-
-var expectedRegularMerge = map[string][]string{
-	"a": {"1"},
-	"b": {"2"},
-}
-
-var expectedKeyOverlapMerge = map[string][]string{
-	"a": {"1", "3"},
-}
-
-var expectedOneEmptyMapMerge = map[string][]string{
-	"a": {"1"},
-}
-
-var expectedBothEmptyMapMerge = map[string][]string{}
-
-var mergeDetailsTestParams = []mergeDetailsTestStruct{
-	{makeNewMap("a", "1"), makeNewMap("b", "2"), expectedRegularMerge},
-	{makeNewMap("a", "1"), makeNewMap("a", "3"), expectedKeyOverlapMerge},
-	{makeNewMap("a", "1"), make(map[string][]string), expectedOneEmptyMapMerge},
-	{make(map[string][]string), make(map[string][]string), expectedBothEmptyMapMerge},
-}
-
-func manualEqualityCheck(map1 map[string][]string, map2 map[string][]string) error {
-	if len(map1) != len(map2) {
-		return fmt.Errorf("Expected map length %d, got %d", len(map2), len(map1))
-	}
-	for key, value := range map2 {
-		mv, ok := map1[key]
-		if !ok {
-			return fmt.Errorf("Expected key %q not found in merged map", key)
-		}
-		if len(mv) != len(value) {
-			return fmt.Errorf("For key %q, expected slice length %d, got %d", key, len(value), len(mv))
-		}
-		for i := range value {
-			if mv[i] != value[i] {
-				return fmt.Errorf("For key %q, at index %d, expected %q, got %q", key, i, value[i], mv[i])
-			}
-		}
-	}
-	for key := range map1 {
-		if _, ok := map2[key]; !ok {
-			return fmt.Errorf("Unexpected key %q found in merged map", key)
-		}
-	}
-	return nil
-}
-
 func TestMerge(t *testing.T) {
 	testService.Merge(&testOriginalService)
 	if testService.Definition != testOriginalService.Definition ||
 		testService.SubPath != testOriginalService.SubPath ||
 		testService.Description != testOriginalService.Description {
-		t.Errorf("Expected the test service to be the same as the original test service %s, got: %s", testOriginalService.Definition, testService.Definition)
+		t.Errorf("Expected the test service to be the same as the original test service %s, got: %s",
+			testOriginalService.Definition, testService.Definition)
 	}
 }
 
@@ -148,6 +98,22 @@ func TestDeepCopy(t *testing.T) {
 	res = testServiceWithEmptyDetails.DeepCopy()
 	if len(res.Details) != 0 {
 		t.Errorf("DeepCopy failed, expected details map to be empty after copy, got: %v", res.Details)
+	}
+}
+
+func makeNewTestService(id int, definition string) *Service {
+	return &Service{
+		ID:            id,
+		Definition:    definition,
+		SubPath:       "newTestServiceSubPath",
+		Details:       make(map[string][]string),
+		RegPeriod:     45,
+		RegTimestamp:  "",
+		RegExpiration: "",
+		Description:   "A new test Service",
+		SubscribeAble: false,
+		ACost:         0,
+		CUnit:         "",
 	}
 }
 
@@ -184,6 +150,41 @@ func TestCloneServices(t *testing.T) {
 	if len(cloned) != 1 {
 		t.Errorf("Expected 1 entry, got %d", len(cloned))
 	}
+}
+
+func makeNewMap(key string, value string) map[string][]string {
+	newMap := map[string][]string{
+		key: {value},
+	}
+	return newMap
+}
+
+var expectedRegularMerge = map[string][]string{
+	"a": {"1"},
+	"b": {"2"},
+}
+
+var expectedKeyOverlapMerge = map[string][]string{
+	"a": {"1", "3"},
+}
+
+var expectedOneEmptyMapMerge = map[string][]string{
+	"a": {"1"},
+}
+
+var expectedBothEmptyMapMerge = map[string][]string{}
+
+type mergeDetailsTestStruct struct {
+	map1     map[string][]string
+	map2     map[string][]string
+	expected map[string][]string
+}
+
+var mergeDetailsTestParams = []mergeDetailsTestStruct{
+	{makeNewMap("a", "1"), makeNewMap("b", "2"), expectedRegularMerge},
+	{makeNewMap("a", "1"), makeNewMap("a", "3"), expectedKeyOverlapMerge},
+	{makeNewMap("a", "1"), make(map[string][]string), expectedOneEmptyMapMerge},
+	{make(map[string][]string), make(map[string][]string), expectedBothEmptyMapMerge},
 }
 
 func TestMergeDetails(t *testing.T) {

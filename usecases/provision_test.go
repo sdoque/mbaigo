@@ -56,7 +56,8 @@ func createBrokenForm() mockForm {
 
 var httpProcessGetRequestParams = []httpProcessGetRequestStruct{
 	{httptest.NewRecorder(), "{\n  \"value\": 0,\n  \"unit\": \"\",\n}", form.NewForm(),
-		"{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}", "Good case"},
+		"{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n " +
+			" \"version\": \"SignalA_v1.0\"\n}", "Good case"},
 	{httptest.NewRecorder(), "<form><value>0</value><unit></unit></form>", nil,
 		"No payload found.\n", "Bad case, form is nil"},
 	{httptest.NewRecorder(), "\n", createEmptyFormVersion(),
@@ -101,16 +102,21 @@ func createForm() forms.SignalA_v1a {
 }
 
 var httpProcessSetRequestParams = []httpProcessSetRequestStruct{
-	{httptest.NewRecorder(), "{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}",
+	{httptest.NewRecorder(), "{\n  \"value\": 0,\n  \"unit\": \"\",\n " +
+		" \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}",
 		false, createForm(), "Good case"},
 	{httptest.NewRecorder(), "\n", true, forms.SignalA_v1a{}, "Bad case, Unmarshal returns error"},
-	{httptest.NewRecorder(), "{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"bersion\": \"SignalA_v1.0\"\n}",
+	{httptest.NewRecorder(), "{\n  \"value\": 0,\n  \"unit\": \"\",\n " +
+		" \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"bersion\": \"SignalA_v1.0\"\n}",
 		true, forms.SignalA_v1a{}, "Bad case, version key missing"},
-	{httptest.NewRecorder(), "{\n  \"value\": \"not-a-number\",\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}",
+	{httptest.NewRecorder(), "{\n  \"value\": \"not-a-number\",\n  \"unit\": \"\",\n " +
+		" \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}",
 		true, forms.SignalA_v1a{}, "Bad case, Second Unmarshal breaks"},
-	{httptest.NewRecorder(), "{\n  \"value\": 0,\n  \"unit\": \"\",\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalB_v1.0\"\n}",
+	{httptest.NewRecorder(), "{\n  \"value\": 0,\n  \"unit\": \"\",\n " +
+		" \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalB_v1.0\"\n}",
 		true, forms.SignalA_v1a{}, "Bad case, version is wrong"},
-	{httptest.NewRecorder(), "{\n  \"value\": false,\n  \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalB_v1.0\"\n}",
+	{httptest.NewRecorder(), "{\n  \"value\": false,\n " +
+		" \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalB_v1.0\"\n}",
 		true, forms.SignalA_v1a{}, "Bad case, form version is SignalB_v1a"},
 }
 
@@ -120,7 +126,8 @@ func TestHTTPProcessSetRequest(t *testing.T) {
 		inputR.Header.Set("Content-Type", "application/json")
 		f, err := HTTPProcessSetRequest(testCase.inputW, inputR)
 
-		if f != testCase.expectedForm || (err == nil && testCase.expectedErr == true) || (err != nil && testCase.expectedErr == false) {
+		if f != testCase.expectedForm || (err == nil && testCase.expectedErr == true) ||
+			(err != nil && testCase.expectedErr == false) {
 			t.Errorf("Expected %v and %v, got: %v and %v", testCase.expectedForm, testCase.expectedErr, f, err)
 		}
 	}
@@ -143,12 +150,18 @@ type getBestContentTypeStruct struct {
 }
 
 var getBestContentTypeParams = []getBestContentTypeStruct{
-	{"", "application/json", "Good case, no accept header provided"},
-	{"application/xml", "application/xml", "Good case, accept header provided without q-values"},
-	{"application/xml;q=0.7, application/json;q=0.9", "application/json", "Good case, accept header provided with q-values"},
-	{"application/xml;q=wrong, application/json;q=1.1", "application/json", "Good case, xml gets skipped"},
-	{"application/xml;q=0.9, application/json;q=0.9", "application/xml", "Good case, equal q-values selects the first one"},
-	{"application/xml;q=-0.9", "application/json", "Good case, no MIME type found"},
+	{"", "application/json",
+		"Good case, no accept header provided"},
+	{"application/xml", "application/xml",
+		"Good case, accept header provided without q-values"},
+	{"application/xml;q=0.7, application/json;q=0.9", "application/json",
+		"Good case, accept header provided with q-values"},
+	{"application/xml;q=wrong, application/json;q=1.1", "application/json",
+		"Good case, xml gets skipped"},
+	{"application/xml;q=0.9, application/json;q=0.9", "application/xml",
+		"Good case, equal q-values selects the first one"},
+	{"application/xml;q=-0.9", "application/json",
+		"Good case, no MIME type found"},
 }
 
 func TestGetBestContentType(t *testing.T) {
