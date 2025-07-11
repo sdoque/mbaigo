@@ -166,8 +166,8 @@ type unregisterServiceTestStruct struct {
 var unregisterServiceTestParams = []unregisterServiceTestStruct{
 	{"https://leadingregistrar", false, 0, nil, "Good case, an unregistered service tries to unregister"},
 	{"https://leadingregistrar", false, 0, nil, "Good case, an registered service tries to unregister"},
-	{"https://leadingregistrar", true, 1, errHTTP, "Bad case, error in response body"},
 	{"", false, 0, nil, "Good case, no leading registrar URL was sent in"},
+	{"https://leadingregistrar", false, 1, errHTTP, "Bad case, empty error from response body"},
 	{brokenUrl, true, 0, nil, "Bad case, broken URL"},
 }
 
