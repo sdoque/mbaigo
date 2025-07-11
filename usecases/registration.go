@@ -187,14 +187,16 @@ func unregisterService(registrar string, serv *components.Service) error {
 	if registrar == "" {
 		return nil // there is no need to deregister if there is no leading registrar
 	}
-	unregisterURL := registrar + "/unregister/" + strconv.Itoa(serv.ID)
-	req, err := http.NewRequest("DELETE", unregisterURL, nil) // create a new request using http
+	u := registrar + "/unregister/" + strconv.Itoa(serv.ID)
+	req, err := http.NewRequest("DELETE", u, nil)
 	if err != nil {
 		return err
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		// Can't do anything about network errors. Don't care much either,
+		// since this system is shutting down. Ignorering this error for now.
+		return nil
 	}
 	defer resp.Body.Close()
 	return nil
