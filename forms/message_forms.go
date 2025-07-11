@@ -1,6 +1,7 @@
 package forms
 
 import (
+	"fmt"
 	"reflect"
 )
 
@@ -64,6 +65,23 @@ func NewSystemMessage_v1(l MessageLevel, b string, s string) SystemMessage_v1 {
 		System:  s,
 		Version: systemMessageVersion,
 	}
+}
+
+func (f SystemMessage_v1) String() string {
+	var lvl string
+	switch f.Level {
+	case LevelDebug:
+		lvl = "DEBUG"
+	case LevelInfo:
+		lvl = "INFO"
+	case LevelWarn:
+		lvl = "WARN"
+	case LevelError:
+		lvl = "ERROR"
+	default:
+		lvl = "UNKNOWN"
+	}
+	return fmt.Sprintf("%s %s", lvl, f.Body)
 }
 
 // NewForm resets the form and defaults to using LevelInfo.

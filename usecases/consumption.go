@@ -43,7 +43,7 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 
 func stateHandler(httpMethod string, cer *components.Cervice, sys *components.System, bodyBytes []byte) (f forms.Form, err error) {
 	if len(cer.Nodes) == 0 {
-		err := Search4Services(cer, sys)
+		err = Search4Services(cer, sys)
 		if err != nil {
 			return f, err
 		}
@@ -81,11 +81,28 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 
 const messengerMaxErrors int = 3
 
+func LogDebug(sys *components.System, msg string, args ...any) {
+	Log(sys, forms.LevelDebug, msg, args...)
+}
+
+func LogInfo(sys *components.System, msg string, args ...any) {
+	Log(sys, forms.LevelInfo, msg, args...)
+}
+
+func LogWarn(sys *components.System, msg string, args ...any) {
+	Log(sys, forms.LevelWarn, msg, args...)
+}
+
+func LogError(sys *components.System, msg string, args ...any) {
+	Log(sys, forms.LevelError, msg, args...)
+}
+
 func Log(sys *components.System, lvl forms.MessageLevel, msg string, args ...any) {
-	sm := forms.NewSystemMessage_v1(lvl, fmt.Sprintf(msg+"\n", args...), sys.Name)
+	sm := forms.NewSystemMessage_v1(lvl, fmt.Sprintf(msg, args...), sys.Name)
+	log.Println(sm.String()) // Always print the msg locally
+
 	body, err := Pack(forms.Form(&sm), "application/json")
 	if err != nil {
-		log.Print(sm.Body)
 		log.Printf("failed to pack SystemMessage: %v\n", err)
 		return
 	}
@@ -94,20 +111,20 @@ func Log(sys *components.System, lvl forms.MessageLevel, msg string, args ...any
 	// (can't use a regular for-loop for this type)
 	sys.Messengers.Range(func(k, v any) bool {
 		host, ok1 := k.(string) // Should always be a host string!
-		errors, ok2 := v.(int)
+		errors, ok2 := v.(int)  // and an error count
 		if !ok1 || !ok2 {
 			sys.Messengers.Delete(k) // if not, removes the unusable cruft
-			return true
+			return true              // and continue iterating
 		}
 
 		newErrors := 0 // If there's no error while sending msg, the count is reset
 		if err := sendLogMessage(host, body); err != nil {
-			if errors >= messengerMaxErrors {
-				// Too many errors indicates a problematic messenger
-				sys.Messengers.Delete(k)
-				return true
-			}
 			newErrors = errors + 1
+		}
+		if newErrors >= messengerMaxErrors {
+			// Too many errors indicates a problematic messenger
+			sys.Messengers.Delete(k)
+			return true
 		}
 		sys.Messengers.Store(k, newErrors)
 		return true
