@@ -150,10 +150,12 @@ func RegisterMessenger(w http.ResponseWriter, r *http.Request, s *components.Sys
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	if _, found := s.Messengers.Load(reg.Host); found {
+	s.Mutex.Lock()
+	defer s.Mutex.Unlock()
+	if _, found := s.Messengers[reg.Host]; found {
 		// The system already knows the messenger, avoid re-storing it so that
 		// the error count don't get reset
 		return
 	}
-	s.Messengers.Store(reg.Host, 0) // Registers the host with 0 errors
+	s.Messengers[reg.Host] = 0 // Registers the new messenger with zero errors
 }

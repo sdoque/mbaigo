@@ -44,7 +44,9 @@ type System struct {
 	Ctx           context.Context       // create a context that can be cancelled
 	Sigs          chan os.Signal        // channel to initiate a graceful shutdown when Ctrl+C is pressed
 	RegistrarChan chan *CoreSystem      // channel for the lead service registrar
-	Messengers    *sync.Map             // Tracks which hosts to send log msgs to (and how many errors were encountered, before being removed)
+	// Tracks which hosts to send log msgs to (and how many errors were encountered, before being removed)
+	Messengers map[string]int
+	Mutex      *sync.Mutex
 }
 
 // CoreSystem struct holds details about the core system included in the configuration file
@@ -67,9 +69,10 @@ func NewSystem(name string, ctx context.Context) System {
 	// be a pointer instead (usually not normal) and initialised (usually not needed)
 	// in order to avoid linter errors.
 	// The errors is due to this func returning a copy of newSystem and attempts
-	// to copy the map too, but it's not allowed for sync objects.
+	// to copy the mutex too, but it's not allowed for sync objects.
 	// Reference: https://stackoverflow.com/questions/37242009/function-returns-lock-by-value
-	newSystem.Messengers = &sync.Map{}
+	newSystem.Messengers = make(map[string]int)
+	newSystem.Mutex = &sync.Mutex{}
 	return newSystem
 }
 

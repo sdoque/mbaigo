@@ -101,20 +101,20 @@ func Log(sys *components.System, lvl forms.MessageLevel, msg string, args ...any
 	sm := forms.NewSystemMessage_v1(lvl, fmt.Sprintf(msg, args...), sys.Name)
 	log.Println(sm.String()) // Always print the msg locally
 
-	body, err := Pack(forms.Form(&sm), "application/json")
-	if err != nil {
-		log.Printf("failed to pack SystemMessage: %v\n", err)
-		return
-	}
+	var body []byte
+	sys.Mutex.Lock()
+	defer sys.Mutex.Unlock()
 
 	// Iterate over all messengers and try sending a copy of the log msg
-	// (can't use a regular for-loop for this type)
-	sys.Messengers.Range(func(k, v any) bool {
-		host, ok1 := k.(string) // Should always be a host string!
-		errors, ok2 := v.(int)  // and an error count
-		if !ok1 || !ok2 {
-			sys.Messengers.Delete(k) // if not, removes the unusable cruft
-			return true              // and continue iterating
+	for host, errors := range sys.Messengers {
+		// Lazy-load the packed body, only at the first iteration
+		if body == nil {
+			var err error
+			body, err = Pack(forms.Form(&sm), "application/json")
+			if err != nil {
+				log.Printf("failed to pack SystemMessage: %v\n", err)
+				return
+			}
 		}
 
 		newErrors := 0 // If there's no error while sending msg, the count is reset
@@ -123,26 +123,26 @@ func Log(sys *components.System, lvl forms.MessageLevel, msg string, args ...any
 		}
 		if newErrors >= messengerMaxErrors {
 			// Too many errors indicates a problematic messenger
-			sys.Messengers.Delete(k)
-			return true
+			delete(sys.Messengers, host)
+			continue
 		}
-		sys.Messengers.Store(k, newErrors)
-		return true
-	})
+		sys.Messengers[host] = newErrors
+	}
 }
 
 // Hard-coding the path is ugly but it skips an extra service discovery cycle for now
-const messengerPath string = "/messenger/log/message"
+const logMessagePath string = "/log/message"
 
 func sendLogMessage(h string, b []byte) error {
-	u, err := url.Parse("http://" + h + messengerPath)
+	u, err := url.Parse(h)
 	if err != nil {
 		return err
 	}
-	resp, err := sendHTTPReq("POST", u.String(), b)
+	u = u.JoinPath(logMessagePath)
+	resp, err := sendHTTPReq(http.MethodPost, u.String(), b)
 	if err != nil {
 		return err
 	}
-	_ = resp.Body.Close() // Don't care about the body or any errors it might cause
+	_ = resp.Body.Close() // Don't care about the response body or any errors it might cause
 	return nil
 }
