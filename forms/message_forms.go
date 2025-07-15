@@ -47,6 +47,21 @@ const (
 	LevelError MessageLevel = 8
 )
 
+func LevelToString(lvl MessageLevel) string {
+	switch lvl {
+	case LevelDebug:
+		return "DEBUG"
+	case LevelInfo:
+		return "INFO"
+	case LevelWarn:
+		return "WARN"
+	case LevelError:
+		return "ERROR"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 // A SystemMessage is a log message sent from a system to one or many messengers.
 // The receiving messengers will note the message's time of arrival.
 type SystemMessage_v1 struct {
@@ -68,20 +83,7 @@ func NewSystemMessage_v1(l MessageLevel, b string, s string) SystemMessage_v1 {
 }
 
 func (f SystemMessage_v1) String() string {
-	var lvl string
-	switch f.Level {
-	case LevelDebug:
-		lvl = "DEBUG"
-	case LevelInfo:
-		lvl = "INFO"
-	case LevelWarn:
-		lvl = "WARN"
-	case LevelError:
-		lvl = "ERROR"
-	default:
-		lvl = "UNKNOWN"
-	}
-	return fmt.Sprintf("%s %s", lvl, f.Body)
+	return fmt.Sprintf("%s %s", LevelToString(f.Level), f.Body)
 }
 
 // NewForm resets the form and defaults to using LevelInfo.
