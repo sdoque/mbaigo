@@ -121,16 +121,18 @@ type sampleGetRunningCoreSystem struct {
 
 var tableGetRunningCoreSystem = []sampleGetRunningCoreSystem{
 	// Tests for non-registrars
+	// Case: unrelated system
+	{"bad name", "", true, nil},
 	// Case: url.Parse() error
 	{coreFake.Name, "", true, func(m *mockTrans) { coreFake.Url = string(rune(0)) }},
-	// Case: http.Get() error
-	{coreFake.Name, "", true, func(m *mockTrans) { m.setError() }},
-	// Case: io.ReadAll() error
-	{coreFake.Name, "", true, func(m *mockTrans) { m.setBodyError() }},
-	// Case: http < 200 error
-	{coreFake.Name, "", true, func(m *mockTrans) { m.setResponse(199, "") }},
-	// Case: http > 299 error
-	{coreFake.Name, "", true, func(m *mockTrans) { m.setResponse(300, "") }},
+	// Case: http.Get() no error
+	{coreFake.Name, coreFake.Url, false, func(m *mockTrans) { m.setError() }},
+	// Case: io.ReadAll() no error
+	{coreFake.Name, coreFake.Url, false, func(m *mockTrans) { m.setBodyError() }},
+	// Case: http < 200 no error
+	{coreFake.Name, coreFake.Url, false, func(m *mockTrans) { m.setResponse(199, "") }},
+	// Case: http > 299 no error
+	{coreFake.Name, coreFake.Url, false, func(m *mockTrans) { m.setResponse(300, "") }},
 	// Case: return url
 	{coreFake.Name, coreFake.Url, false, nil},
 
@@ -150,7 +152,8 @@ var tableGetRunningCoreSystem = []sampleGetRunningCoreSystem{
 	// Case: return url
 	{coreReg.Name, coreReg.Url, false, func(m *mockTrans) {
 		m.setResponse(200, ServiceRegistrarLeader)
-	}},
+	},
+	},
 }
 
 func TestGetRunningCoreSystem(t *testing.T) {

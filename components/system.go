@@ -115,7 +115,7 @@ func GetRunningCoreSystemURL(sys *System, systemType string) (string, error) {
 		}
 
 		// Skips non-leading registrars
-		if bytes.HasPrefix(body, []byte(ServiceRegistrarLeader)) == false {
+		if !bytes.HasPrefix(body, []byte(ServiceRegistrarLeader)) {
 			continue
 		}
 		return coreSystemURL, nil

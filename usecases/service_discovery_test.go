@@ -223,12 +223,12 @@ func TestSearch4Service(t *testing.T) {
 		{
 			true,
 			createMultiHttpResp(200, false, 0),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 2, errHTTP) },
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 1, errHTTP) },
 			"Bad case, error sending http request",
 		},
 		{
 			true,
-			createMultiHttpResp(200, true, 2),
+			createMultiHttpResp(200, true, 1),
 			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
 			"Bad case, error reading response body",
 		},
@@ -311,7 +311,7 @@ func TestSearch4Services(t *testing.T) {
 				return
 			},
 			createMultiHttpResp(200, false, 0),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 2, errHTTP) },
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 1, errHTTP) },
 			"Bad case, sendHttpReq() returns an error",
 		},
 		{
@@ -321,7 +321,7 @@ func TestSearch4Services(t *testing.T) {
 				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 				return
 			},
-			createMultiHttpResp(200, true, 2),
+			createMultiHttpResp(200, true, 1),
 			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
 			"Bad case, error while reading body",
 		},
