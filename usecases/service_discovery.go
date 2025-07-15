@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
@@ -165,6 +166,67 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 	}
 	cer.Nodes[df.ServNode] = append(cer.Nodes[df.ServNode], df.ServLocation)
 	return nil
+}
+
+func Search4MultipleServices(cer *components.Cervice, sys *components.System) (err error) {
+	questForm := forms.ServiceQuest_v1{
+		SysId:             0,
+		RequesterName:     sys.Name,
+		ServiceDefinition: cer.Definition,
+		Protocol:          "http",
+		Details:           cer.Details,
+		Version:           "ServiceQuest_v1",
+	}
+	// Pack the service quest form
+	qf, err := Pack(&questForm, "application/json")
+	if err != nil {
+		return err
+	}
+	// Search for an Orchestrator system within the local cloud
+	orURL, err := components.GetRunningCoreSystemURL(sys, "orchestrator")
+	if err != nil {
+		return err
+	}
+	if orURL == "" {
+		return fmt.Errorf("failed to locate an orchestrator")
+	}
+	orURL = orURL + "/squests"
+	// Prepare the request to the orchestrator
+	resp, err := sendHttpReq(http.MethodPost, orURL, qf)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	// Read the response /////////////////////////////////
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	headerContentType := resp.Header.Get("Content-Type")
+	discoveryForm, err := Unpack(bodyBytes, headerContentType)
+	if err != nil {
+		return err
+	}
+	srList, ok := discoveryForm.(*forms.ServiceRecordList_v1)
+	if !ok {
+		return fmt.Errorf("unable to unpack discovery request form")
+	}
+	for _, values := range srList.List {
+		sp := convertToServicePoint(values)
+		cer.Nodes[sp.ServNode] = append(cer.Nodes[sp.ServNode], sp.ServLocation)
+	}
+	return nil
+}
+
+func convertToServicePoint(sr forms.ServiceRecord_v1) (sp forms.ServicePoint_v1) {
+	rec := sr
+	sp.NewForm()
+	sp.ProviderName = rec.SystemName
+	sp.ServiceDefinition = rec.ServiceDefinition
+	sp.Details = rec.Details
+	sp.ServLocation = "http://" + rec.IPAddresses[0] + ":" + strconv.Itoa(rec.ProtoPort["http"]) + "/" + rec.SystemName + "/" + rec.SubPath
+	sp.ServNode = rec.ServiceNode
+	return
 }
 
 // FillDiscoveredServices returns a json data byte array with a slice of matching services (e.g., Service Registrar)
