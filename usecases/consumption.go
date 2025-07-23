@@ -117,16 +117,17 @@ func Log(sys *components.System, lvl forms.MessageLevel, msg string, args ...any
 			}
 		}
 
-		newErrors := 0 // If there's no error while sending msg, the count is reset
+		errCount := 0 // If there's no error while sending msg, the count is reset
 		if err := sendLogMessage(host, body); err != nil {
-			newErrors = errors + 1
+			// Don't care what kinds of errors might be returned
+			errCount = errors + 1
 		}
-		if newErrors >= messengerMaxErrors {
+		if errCount >= messengerMaxErrors {
 			// Too many errors indicates a problematic messenger
 			delete(sys.Messengers, host)
 			continue
 		}
-		sys.Messengers[host] = newErrors
+		sys.Messengers[host] = errCount
 	}
 }
 

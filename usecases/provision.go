@@ -138,18 +138,23 @@ func RegisterMessenger(w http.ResponseWriter, r *http.Request, s *components.Sys
 	}
 	defer r.Body.Close()
 
+	// Won't bother logging the following errors as they are caused by bad/poor
+	// client requests, which we don't really care about on the server side.
 	f, err := Unpack(b, r.Header.Get("Content-Type"))
 	if err != nil {
-		log.Printf("unpack: %v\n", err)
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 	reg, ok := f.(*forms.MessengerRegistration_v1)
 	if !ok {
-		log.Println("form is not a MessengerRegistration_v1")
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
+	if len(reg.Host) < 1 {
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+
 	s.Mutex.Lock()
 	defer s.Mutex.Unlock()
 	if _, found := s.Messengers[reg.Host]; found {
