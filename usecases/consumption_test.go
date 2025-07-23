@@ -1,8 +1,10 @@
 package usecases
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -224,5 +226,62 @@ func TestSetState(t *testing.T) {
 		} else if err == nil {
 			t.Errorf("Test case: %s got error: %v:", test.testCase, err)
 		}
+	}
+}
+
+type logTransportMock struct {
+	t *testing.T
+}
+
+func newLogTransportMock(t *testing.T) *logTransportMock {
+	lt := &logTransportMock{t}
+	http.DefaultClient.Transport = lt
+	return lt
+}
+
+var logError = fmt.Errorf("mock error")
+
+func (lt *logTransportMock) RoundTrip(req *http.Request) (res *http.Response, err error) {
+	b, err := io.ReadAll(req.Body)
+	if err != nil {
+		lt.t.Errorf("unexpected error while reading request body: %v", err)
+		return
+	}
+	defer req.Body.Close()
+	f, err := Unpack(b, req.Header.Get("Content-Type"))
+	if err != nil {
+		lt.t.Errorf("unexpected error from unpack: %v", err)
+		return
+	}
+	m, ok := f.(*forms.SystemMessage_v1)
+	if !ok {
+		lt.t.Error("unexpected form")
+		return
+	}
+	if m.System != testLogSys || m.Body != testLogMsg {
+		lt.t.Errorf("unexpected message: %v", m)
+	}
+	err = fmt.Errorf("mock error")
+	return
+}
+
+const testLogHost = "host"
+const testLogSys = "test system"
+const testLogMsg = "test msg"
+
+func TestLog(t *testing.T) {
+	newLogTransportMock(t)
+	s := components.NewSystem(testLogSys, context.Background())
+	s.Messengers[testLogHost] = 0
+	Log(&s, forms.LevelDebug, testLogMsg)
+	if got, want := s.Messengers[testLogHost], 1; got != want {
+		t.Errorf("expected error count %d, got %d", want, got)
+	}
+
+	s.Messengers[testLogHost] = messengerMaxErrors
+	Log(&s, forms.LevelDebug, testLogMsg)
+	_, found := s.Messengers[testLogHost]
+	if found {
+		t.Errorf("expected messenger being removed")
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"testing"
 
 	"net/http"
 	"net/url"
@@ -99,8 +100,10 @@ func LogError(sys *components.System, msg string, args ...any) {
 
 func Log(sys *components.System, lvl forms.MessageLevel, msg string, args ...any) {
 	sm := forms.NewSystemMessage_v1(lvl, fmt.Sprintf(msg, args...), sys.Name)
-	log.Println(sm.String()) // Always print the msg locally
-
+	if !testing.Testing() {
+		// Only print the msg locally if not running go test
+		log.Println(sm.String())
+	}
 	var body []byte
 	sys.Mutex.Lock()
 	defer sys.Mutex.Unlock()
