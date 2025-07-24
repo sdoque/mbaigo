@@ -131,9 +131,7 @@ func RegisterMessenger(w http.ResponseWriter, r *http.Request, s *components.Sys
 
 	b, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Printf("read request body: %v\n", err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError),
-			http.StatusInternalServerError)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	defer r.Body.Close()
