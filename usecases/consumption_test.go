@@ -94,7 +94,7 @@ func createDoubleHttpResp() func() *http.Response {
 	count := 0
 	return func() *http.Response {
 		count++
-		if count == 2 || count == 5 {
+		if count == 1 || count == 3 {
 			return &http.Response{
 				Status:     "200 OK",
 				StatusCode: 200,
@@ -190,7 +190,12 @@ func TestGetState(t *testing.T) {
 
 		if test.expectedfForm != nil {
 			expected := test.expectedfForm.(*forms.SignalA_v1a)
-			actual := res.(*forms.SignalA_v1a)
+			actual, ok := res.(*forms.SignalA_v1a)
+			if !ok {
+				t.Fatalf("Test case: %s, got %v, expected a forms.Form",
+					test.testCase, res,
+				)
+			}
 			if expected.Value != actual.Value || expected.Unit != actual.Unit ||
 				expected.Timestamp != actual.Timestamp || expected.Version != actual.Version ||
 				err != test.expectedErr {
@@ -217,7 +222,12 @@ func TestSetState(t *testing.T) {
 
 		if test.expectedfForm != nil {
 			expected := test.expectedfForm.(*forms.SignalA_v1a)
-			actual := res.(*forms.SignalA_v1a)
+			actual, ok := res.(*forms.SignalA_v1a)
+			if !ok {
+				t.Fatalf("Test case: %s, got %v, expected a forms.Form",
+					test.testCase, res,
+				)
+			}
 			if expected.Value != actual.Value || expected.Unit != actual.Unit ||
 				expected.Timestamp != actual.Timestamp || expected.Version != actual.Version ||
 				err != test.expectedErr {

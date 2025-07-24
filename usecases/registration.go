@@ -142,6 +142,12 @@ func registerService(sys *components.System, registrar string, ua *components.Un
 		return
 	}
 
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		err = fmt.Errorf("bad registration response: %s", resp.Status)
+		serv.ID = 0
+		return
+	}
+
 	// Handle response ------------------------------------------------
 
 	var b []byte

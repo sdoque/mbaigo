@@ -112,24 +112,24 @@ func GetRunningCoreSystemURL(sys *System, systemType string) (string, error) {
 			lastErr = fmt.Errorf("parsing core URL: %w", err)
 			continue
 		}
+
 		coreSystemURL := coreURL.String() // Preserves the original URL
-		if systemType == ServiceRegistrarName {
-			coreURL = coreURL.JoinPath("status")
+		if core.Name != ServiceRegistrarName {
+			return coreSystemURL, nil
 		}
 
+		// Perform extra checks on the response from a service registrar
+		coreURL = coreURL.JoinPath("status")
 		body, err := verifyStatus(coreURL)
 		if err != nil {
-			lastErr = fmt.Errorf("verifying core URL: %w", err)
+			lastErr = fmt.Errorf("verifying registrar: %w", err)
 			continue
 		}
 
 		// Skips non-leading registrars
-		// TODO: race condition when the lead drops and no other registrar have
-		// picked up the slack yet? - Alex
-		if systemType == ServiceRegistrarName && !bytes.HasPrefix(body, []byte(ServiceRegistrarLeader)) {
+		if !bytes.HasPrefix(body, []byte(ServiceRegistrarLeader)) {
 			continue
 		}
-
 		return coreSystemURL, nil
 	}
 
