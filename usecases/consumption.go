@@ -101,7 +101,7 @@ func LogError(sys *components.System, msg string, args ...any) {
 func Log(sys *components.System, lvl forms.MessageLevel, msg string, args ...any) {
 	sm := forms.NewSystemMessage_v1(lvl, fmt.Sprintf(msg, args...), sys.Name)
 	if !testing.Testing() {
-		// Only print the msg locally if not running go test
+		// Only print the msg locally if not running during `go test`
 		log.Println(sm.String())
 	}
 	var body []byte

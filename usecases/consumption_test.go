@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -230,17 +231,21 @@ func TestSetState(t *testing.T) {
 }
 
 type logTransportMock struct {
-	t *testing.T
+	t           *testing.T
+	errResponse error
 }
 
 func newLogTransportMock(t *testing.T) *logTransportMock {
-	lt := &logTransportMock{t}
+	lt := &logTransportMock{t, nil}
 	http.DefaultClient.Transport = lt
 	return lt
 }
 
-var logError = fmt.Errorf("mock error")
+func (lt *logTransportMock) setError(err error) {
+	lt.errResponse = err
+}
 
+// This mock transport also verifies that the system message forms are valid.
 func (lt *logTransportMock) RoundTrip(req *http.Request) (res *http.Response, err error) {
 	b, err := io.ReadAll(req.Body)
 	if err != nil {
@@ -261,27 +266,46 @@ func (lt *logTransportMock) RoundTrip(req *http.Request) (res *http.Response, er
 	if m.System != testLogSys || m.Body != testLogMsg {
 		lt.t.Errorf("unexpected message: %v", m)
 	}
-	err = fmt.Errorf("mock error")
-	return
+
+	if lt.errResponse != nil {
+		return nil, lt.errResponse
+	}
+	rec := httptest.NewRecorder()
+	rec.WriteHeader(http.StatusOK)
+	return rec.Result(), nil
 }
 
 const testLogHost = "host"
 const testLogSys = "test system"
 const testLogMsg = "test msg"
 
+// NOTE: this test also covers sendLogMessage function
+
 func TestLog(t *testing.T) {
-	newLogTransportMock(t)
+	lt := newLogTransportMock(t)
+	lt.setError(fmt.Errorf("mock err"))
 	s := components.NewSystem(testLogSys, context.Background())
+
+	// Case: increase error count by one
 	s.Messengers[testLogHost] = 0
 	Log(&s, forms.LevelDebug, testLogMsg)
 	if got, want := s.Messengers[testLogHost], 1; got != want {
 		t.Errorf("expected error count %d, got %d", want, got)
 	}
 
+	// Case: removes messenger after too many errors
 	s.Messengers[testLogHost] = messengerMaxErrors
 	Log(&s, forms.LevelDebug, testLogMsg)
 	_, found := s.Messengers[testLogHost]
 	if found {
 		t.Errorf("expected messenger being removed")
+	}
+
+	// Case: transfer ok
+	lt.setError(nil)
+	s.Messengers[testLogHost] = 0
+	Log(&s, forms.LevelDebug, testLogMsg)
+	if got, want := s.Messengers[testLogHost], 0; got != want {
+		t.Errorf("expected error count %d, got %d", want, got)
 	}
 }
