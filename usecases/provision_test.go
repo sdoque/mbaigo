@@ -1,6 +1,7 @@
 package usecases
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
 )
 
@@ -171,5 +173,76 @@ func TestGetBestContentType(t *testing.T) {
 		if res != testCase.bestContentTypeOutput {
 			t.Errorf("Expected %v, got: %v in test case: %s", testCase.bestContentTypeOutput, res, testCase.testName)
 		}
+	}
+}
+
+const testMessenger string = "testmessenger"
+const testRegMesForm string = `{"version": "MessengerRegistration_v1", "host": "` + testMessenger + `"}`
+
+func TestRegisterMessenger(t *testing.T) {
+	table := []struct {
+		method         string
+		contentType    string
+		body           io.ReadCloser
+		expectedStatus int
+	}{
+		// Bad method
+		{http.MethodGet, "application/json", nil, http.StatusMethodNotAllowed},
+		// Bad body
+		{http.MethodPost, "application/json", errReader(0), http.StatusInternalServerError},
+		// Bad unpack
+		{http.MethodPost, "bad type", nil, http.StatusBadRequest},
+		// Bad form
+		{http.MethodPost, "application/json",
+			io.NopCloser(strings.NewReader(`{"version": "SystemMessage_v1"}`)),
+			http.StatusBadRequest,
+		},
+		// Missing host
+		{http.MethodPost, "application/json",
+			io.NopCloser(strings.NewReader(`{"version": "MessengerRegistration_v1"}`)),
+			http.StatusBadRequest,
+		},
+		// All good
+		// WARN: this case is expected to be the last one in this table, as its
+		// result is being used in the special cases!
+		{http.MethodPost, "application/json",
+			io.NopCloser(strings.NewReader(testRegMesForm)),
+			http.StatusOK,
+		},
+	}
+
+	sys := components.NewSystem("testsys", context.Background())
+	testFunc := func(method, content string, body io.ReadCloser) *http.Response {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(method, "/msg", body)
+		req.Header.Set("Content-Type", content)
+		RegisterMessenger(rec, req, &sys)
+
+		return rec.Result()
+	}
+	for _, test := range table {
+		res := testFunc(test.method, test.contentType, test.body)
+		if got, want := res.StatusCode, test.expectedStatus; got != want {
+			t.Errorf("expected status %d, got %d", want, got)
+		}
+	}
+
+	// Verify the messenger was registered from the last test case
+	errors, found := sys.Messengers[testMessenger]
+	if errors != 0 || found == false {
+		t.Errorf("expected registered messenger, found none")
+	}
+
+	// Verify duplicate registration doesn't lose error count
+	errCount := -1
+	sys.Messengers[testMessenger] = errCount
+	res := testFunc(http.MethodPost, "application/json",
+		io.NopCloser(strings.NewReader(testRegMesForm)),
+	)
+	if got, want := res.StatusCode, http.StatusOK; got != want {
+		t.Errorf("expected status %d, got %d", want, got)
+	}
+	if got, want := sys.Messengers[testMessenger], errCount; got != want {
+		t.Errorf("expected error count %d, got %d", want, got)
 	}
 }

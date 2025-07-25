@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
 )
 
@@ -120,4 +121,44 @@ func getBestContentType(acceptHeader string) string {
 	}
 
 	return bestType
+}
+
+func RegisterMessenger(resp http.ResponseWriter, req *http.Request, sys *components.System) {
+	if req.Method != "POST" {
+		http.Error(resp, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		http.Error(resp, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	defer req.Body.Close()
+
+	// Won't bother logging the following errors as they are caused by bad/poor
+	// client requests, which we don't really care about on the server side.
+	form, err := Unpack(body, req.Header.Get("Content-Type"))
+	if err != nil {
+		http.Error(resp, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	registration, ok := form.(*forms.MessengerRegistration_v1)
+	if !ok {
+		http.Error(resp, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	if len(registration.Host) < 1 {
+		http.Error(resp, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+
+	sys.Mutex.Lock()
+	defer sys.Mutex.Unlock()
+	if _, found := sys.Messengers[registration.Host]; found {
+		// The system already knows the messenger, avoid re-storing it so that
+		// the error count don't get reset
+		return
+	}
+	sys.Messengers[registration.Host] = 0 // Registers the new messenger with zero errors
 }

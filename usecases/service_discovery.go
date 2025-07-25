@@ -20,7 +20,6 @@
 package usecases
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -75,22 +74,6 @@ func ExtractQuestForm(bodyBytes []byte) (rec forms.ServiceQuest_v1, err error) {
 	return
 }
 
-func sendHttpReq(method string, url string, data []byte) (resp *http.Response, err error) {
-	req, err := http.NewRequest(method, url, bytes.NewBuffer(data))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json") // set the Content-Type header
-	resp, err = http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("bad response: %d %s", resp.StatusCode, resp.Status)
-	}
-	return
-}
-
 // Search4Service requests from the core systems the address of resources's services that meet the need
 func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocation forms.ServicePoint_v1, err error) {
 	// Create a new HTTP request to the Orchestrator system (for now the Service Registrar)
@@ -104,7 +87,7 @@ func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocat
 	if err != nil {
 		return
 	}
-	resp, err := sendHttpReq(http.MethodPost, orURL, jsonQF)
+	resp, err := sendHTTPReq(http.MethodPost, orURL, jsonQF)
 	if err != nil {
 		return
 	}
@@ -143,7 +126,7 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 	}
 	orURL = orURL + "/squest"
 	// Prepare the request to the orchestrator
-	resp, err := sendHttpReq(http.MethodPost, orURL, qf)
+	resp, err := sendHTTPReq(http.MethodPost, orURL, qf)
 	if err != nil {
 		return err
 	}

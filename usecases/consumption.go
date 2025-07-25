@@ -22,8 +22,11 @@ package usecases
 import (
 	"fmt"
 	"io"
+	"log"
+	"testing"
 
 	"net/http"
+	"net/url"
 
 	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
@@ -41,7 +44,7 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 
 func stateHandler(httpMethod string, cer *components.Cervice, sys *components.System, bodyBytes []byte) (f forms.Form, err error) {
 	if len(cer.Nodes) == 0 {
-		err := Search4Services(cer, sys)
+		err = Search4Services(cer, sys)
 		if err != nil {
 			return f, err
 		}
@@ -55,7 +58,7 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 		}
 	}
 
-	resp, err := sendHttpReq(httpMethod, serviceUrl, bodyBytes)
+	resp, err := sendHTTPReq(httpMethod, serviceUrl, bodyBytes)
 	if err != nil {
 		cer.Nodes = make(map[string][]string) // Failed to get the resource at that location: reset the providers list, which will trigger a new service search
 		return f, err
@@ -75,4 +78,75 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 
 	headerContentType := resp.Header.Get("Content-Type")
 	return Unpack(bodyBytes, headerContentType)
+}
+
+const messengerMaxErrors int = 3
+
+func LogDebug(sys *components.System, msg string, args ...any) {
+	Log(sys, forms.LevelDebug, msg, args...)
+}
+
+func LogInfo(sys *components.System, msg string, args ...any) {
+	Log(sys, forms.LevelInfo, msg, args...)
+}
+
+func LogWarn(sys *components.System, msg string, args ...any) {
+	Log(sys, forms.LevelWarn, msg, args...)
+}
+
+func LogError(sys *components.System, msg string, args ...any) {
+	Log(sys, forms.LevelError, msg, args...)
+}
+
+func Log(sys *components.System, lvl forms.MessageLevel, msg string, args ...any) {
+	sm := forms.NewSystemMessage_v1(lvl, fmt.Sprintf(msg, args...), sys.Name)
+	if !testing.Testing() {
+		// Only print the msg locally if not running during `go test`
+		log.Println(sm.String())
+	}
+	var body []byte
+	sys.Mutex.Lock()
+	defer sys.Mutex.Unlock()
+
+	// Iterate over all messengers and try sending a copy of the log msg
+	for host, errors := range sys.Messengers {
+		// Lazy-load the packed body, only at the first iteration
+		if body == nil {
+			var err error
+			body, err = Pack(forms.Form(&sm), "application/json")
+			if err != nil {
+				log.Printf("failed to pack SystemMessage: %v\n", err)
+				return
+			}
+		}
+
+		errCount := 0 // If there's no error while sending msg, the count is reset
+		if err := sendLogMessage(host, body); err != nil {
+			// Don't care what kinds of errors might be returned
+			errCount = errors + 1
+		}
+		if errCount >= messengerMaxErrors {
+			// Too many errors indicates a problematic messenger
+			delete(sys.Messengers, host)
+			continue
+		}
+		sys.Messengers[host] = errCount
+	}
+}
+
+// Hard-coding the path is ugly but it skips an extra service discovery cycle for now
+const logMessagePath string = "/log/message"
+
+func sendLogMessage(host string, body []byte) error {
+	u, err := url.Parse(host)
+	if err != nil {
+		return err
+	}
+	u = u.JoinPath(logMessagePath)
+	resp, err := sendHTTPReq(http.MethodPost, u.String(), body)
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close() // Don't care about the response body or any errors it might cause
+	return nil
 }
