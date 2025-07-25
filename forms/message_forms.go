@@ -73,11 +73,11 @@ type SystemMessage_v1 struct {
 
 const systemMessageVersion string = "SystemMessage_v1"
 
-func NewSystemMessage_v1(l MessageLevel, b string, s string) SystemMessage_v1 {
+func NewSystemMessage_v1(lvl MessageLevel, body string, system string) SystemMessage_v1 {
 	return SystemMessage_v1{
-		Level:   l,
-		Body:    b,
-		System:  s,
+		Level:   lvl,
+		Body:    body,
+		System:  system,
 		Version: systemMessageVersion,
 	}
 }

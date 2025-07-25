@@ -251,34 +251,34 @@ func newLogTransportMock(t *testing.T) *logTransportMock {
 	return lt
 }
 
-func (lt *logTransportMock) setError(err error) {
-	lt.errResponse = err
+func (mock *logTransportMock) setError(err error) {
+	mock.errResponse = err
 }
 
 // This mock transport also verifies that the system message forms are valid.
-func (lt *logTransportMock) RoundTrip(req *http.Request) (res *http.Response, err error) {
-	b, err := io.ReadAll(req.Body)
+func (mock *logTransportMock) RoundTrip(req *http.Request) (res *http.Response, err error) {
+	body, err := io.ReadAll(req.Body)
 	if err != nil {
-		lt.t.Errorf("unexpected error while reading request body: %v", err)
+		mock.t.Errorf("unexpected error while reading request body: %v", err)
 		return
 	}
 	defer req.Body.Close()
-	f, err := Unpack(b, req.Header.Get("Content-Type"))
+	form, err := Unpack(body, req.Header.Get("Content-Type"))
 	if err != nil {
-		lt.t.Errorf("unexpected error from unpack: %v", err)
+		mock.t.Errorf("unexpected error from unpack: %v", err)
 		return
 	}
-	m, ok := f.(*forms.SystemMessage_v1)
+	message, ok := form.(*forms.SystemMessage_v1)
 	if !ok {
-		lt.t.Error("unexpected form")
+		mock.t.Error("unexpected form")
 		return
 	}
-	if m.System != testLogSys || m.Body != testLogMsg {
-		lt.t.Errorf("unexpected message: %v", m)
+	if message.System != testLogSys || message.Body != testLogMsg {
+		mock.t.Errorf("unexpected message: %v", message)
 	}
 
-	if lt.errResponse != nil {
-		return nil, lt.errResponse
+	if mock.errResponse != nil {
+		return nil, mock.errResponse
 	}
 	rec := httptest.NewRecorder()
 	rec.WriteHeader(http.StatusOK)
@@ -292,30 +292,30 @@ const testLogMsg = "test msg"
 // NOTE: this test also covers sendLogMessage function
 
 func TestLog(t *testing.T) {
-	lt := newLogTransportMock(t)
-	lt.setError(fmt.Errorf("mock err"))
-	s := components.NewSystem(testLogSys, context.Background())
+	mock := newLogTransportMock(t)
+	mock.setError(fmt.Errorf("mock err"))
+	sys := components.NewSystem(testLogSys, context.Background())
 
 	// Case: increase error count by one
-	s.Messengers[testLogHost] = 0
-	Log(&s, forms.LevelDebug, testLogMsg)
-	if got, want := s.Messengers[testLogHost], 1; got != want {
+	sys.Messengers[testLogHost] = 0
+	Log(&sys, forms.LevelDebug, testLogMsg)
+	if got, want := sys.Messengers[testLogHost], 1; got != want {
 		t.Errorf("expected error count %d, got %d", want, got)
 	}
 
 	// Case: removes messenger after too many errors
-	s.Messengers[testLogHost] = messengerMaxErrors
-	Log(&s, forms.LevelDebug, testLogMsg)
-	_, found := s.Messengers[testLogHost]
+	sys.Messengers[testLogHost] = messengerMaxErrors
+	Log(&sys, forms.LevelDebug, testLogMsg)
+	_, found := sys.Messengers[testLogHost]
 	if found {
 		t.Errorf("expected messenger being removed")
 	}
 
 	// Case: transfer ok
-	lt.setError(nil)
-	s.Messengers[testLogHost] = 0
-	Log(&s, forms.LevelDebug, testLogMsg)
-	if got, want := s.Messengers[testLogHost], 0; got != want {
+	mock.setError(nil)
+	sys.Messengers[testLogHost] = 0
+	Log(&sys, forms.LevelDebug, testLogMsg)
+	if got, want := sys.Messengers[testLogHost], 0; got != want {
 		t.Errorf("expected error count %d, got %d", want, got)
 	}
 }

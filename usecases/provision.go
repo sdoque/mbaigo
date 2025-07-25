@@ -123,42 +123,42 @@ func getBestContentType(acceptHeader string) string {
 	return bestType
 }
 
-func RegisterMessenger(w http.ResponseWriter, r *http.Request, s *components.System) {
-	if r.Method != "POST" {
-		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+func RegisterMessenger(resp http.ResponseWriter, req *http.Request, sys *components.System) {
+	if req.Method != "POST" {
+		http.Error(resp, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
 
-	b, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(req.Body)
 	if err != nil {
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		http.Error(resp, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-	defer r.Body.Close()
+	defer req.Body.Close()
 
 	// Won't bother logging the following errors as they are caused by bad/poor
 	// client requests, which we don't really care about on the server side.
-	f, err := Unpack(b, r.Header.Get("Content-Type"))
+	form, err := Unpack(body, req.Header.Get("Content-Type"))
 	if err != nil {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		http.Error(resp, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	reg, ok := f.(*forms.MessengerRegistration_v1)
+	registration, ok := form.(*forms.MessengerRegistration_v1)
 	if !ok {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		http.Error(resp, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	if len(reg.Host) < 1 {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+	if len(registration.Host) < 1 {
+		http.Error(resp, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
-	s.Mutex.Lock()
-	defer s.Mutex.Unlock()
-	if _, found := s.Messengers[reg.Host]; found {
+	sys.Mutex.Lock()
+	defer sys.Mutex.Unlock()
+	if _, found := sys.Messengers[registration.Host]; found {
 		// The system already knows the messenger, avoid re-storing it so that
 		// the error count don't get reset
 		return
 	}
-	s.Messengers[reg.Host] = 0 // Registers the new messenger with zero errors
+	sys.Messengers[registration.Host] = 0 // Registers the new messenger with zero errors
 }

@@ -137,13 +137,13 @@ func Log(sys *components.System, lvl forms.MessageLevel, msg string, args ...any
 // Hard-coding the path is ugly but it skips an extra service discovery cycle for now
 const logMessagePath string = "/log/message"
 
-func sendLogMessage(h string, b []byte) error {
-	u, err := url.Parse(h)
+func sendLogMessage(host string, body []byte) error {
+	u, err := url.Parse(host)
 	if err != nil {
 		return err
 	}
 	u = u.JoinPath(logMessagePath)
-	resp, err := sendHTTPReq(http.MethodPost, u.String(), b)
+	resp, err := sendHTTPReq(http.MethodPost, u.String(), body)
 	if err != nil {
 		return err
 	}

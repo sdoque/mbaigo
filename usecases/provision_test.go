@@ -211,14 +211,14 @@ func TestRegisterMessenger(t *testing.T) {
 		},
 	}
 
-	s := components.NewSystem("testsys", context.Background())
+	sys := components.NewSystem("testsys", context.Background())
 	testFunc := func(method, content string, body io.ReadCloser) *http.Response {
-		w := httptest.NewRecorder()
-		r := httptest.NewRequest(method, "/msg", body)
-		r.Header.Set("Content-Type", content)
-		RegisterMessenger(w, r, &s)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(method, "/msg", body)
+		req.Header.Set("Content-Type", content)
+		RegisterMessenger(rec, req, &sys)
 
-		return w.Result()
+		return rec.Result()
 	}
 	for _, test := range table {
 		res := testFunc(test.method, test.contentType, test.body)
@@ -228,21 +228,21 @@ func TestRegisterMessenger(t *testing.T) {
 	}
 
 	// Verify the messenger was registered from the last test case
-	errors, found := s.Messengers[testMessenger]
+	errors, found := sys.Messengers[testMessenger]
 	if errors != 0 || found == false {
 		t.Errorf("expected registered messenger, found none")
 	}
 
 	// Verify duplicate registration doesn't lose error count
 	errCount := -1
-	s.Messengers[testMessenger] = errCount
+	sys.Messengers[testMessenger] = errCount
 	res := testFunc(http.MethodPost, "application/json",
 		io.NopCloser(strings.NewReader(testRegMesForm)),
 	)
 	if got, want := res.StatusCode, http.StatusOK; got != want {
 		t.Errorf("expected status %d, got %d", want, got)
 	}
-	if got, want := s.Messengers[testMessenger], errCount; got != want {
+	if got, want := sys.Messengers[testMessenger], errCount; got != want {
 		t.Errorf("expected error count %d, got %d", want, got)
 	}
 }
