@@ -64,10 +64,13 @@ func LevelToString(lvl MessageLevel) string {
 
 // A SystemMessage is a log message sent from a system to one or many messengers.
 // The receiving messengers will note the message's time of arrival.
+// The timestamp is noted on the messenger side, so as to maintain a uniform
+// chronological order of the messages (if, for example, there exists systems
+// on other hosts with misconfigured time or timezone).
 type SystemMessage_v1 struct {
-	Level   MessageLevel `json:"level"`
-	Body    string       `json:"body"`
-	System  string       `json:"system"`
+	Level   MessageLevel `json:"level"`  // Severity level
+	Body    string       `json:"body"`   // Plaintext string of the actual message to be logged.
+	System  string       `json:"system"` // The system sending the log
 	Version string       `json:"version"`
 }
 
