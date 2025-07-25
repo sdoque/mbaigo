@@ -487,3 +487,161 @@ func TestExtractDiscoveryForm(t *testing.T) {
 		}
 	}
 }
+
+func createServiceRecordListTestForm() forms.ServiceRecordList_v1 {
+	var f forms.ServiceRecordList_v1
+	f.NewForm()
+	f.List = make([]forms.ServiceRecord_v1, 1)
+	f.List[0].IPAddresses = []string{"123.456.789"}
+	f.List[0].ProtoPort = map[string]int{"http": 123}
+	return f
+}
+
+func createMultiHttpRespWithServRecList(statusCode int, broken bool, allowedReads int) func() *http.Response {
+	f := createServiceRecordListTestForm()
+	// Create mock response from orchestrator
+	fakeBody, err := json.Marshal(f)
+	if err != nil {
+		log.Println("Fail Marshal at start of test")
+	}
+	count := allowedReads
+	return func() *http.Response {
+		count--
+		if broken == true && count == 0 {
+			return &http.Response{
+				StatusCode: 200,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       errReader(0),
+			}
+		}
+		return &http.Response{
+			StatusCode: statusCode,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string(fakeBody))),
+		}
+	}
+}
+
+type search4MultipleServicesParams struct {
+	expectError bool
+	setup       func() (*components.Cervice, components.System)
+	response    func() *http.Response
+	transport   func(func() *http.Response) *mockTransport
+	testCase    string
+}
+
+func TestSearch4MultipleServices(t *testing.T) {
+	params := []search4MultipleServicesParams{
+		{
+			false,
+			func() (cer *components.Cervice, sys components.System) {
+				sys = createTestSystem(false)
+				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+				return
+			},
+			createMultiHttpRespWithServRecList(200, false, 0),
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
+			"Best case, no errors",
+		},
+		{
+			true,
+			func() (cer *components.Cervice, sys components.System) {
+				sys = createTestSystem(false)
+				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+				return
+			},
+			createMultiHttpRespWithServRecList(200, false, 0),
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 1, errHTTP) },
+			"Bad case, GetRunningCoreSystemURL() returns error",
+		},
+		{
+			true,
+			func() (cer *components.Cervice, sys components.System) {
+				sys = createTestSystem(false)
+				for i, cs := range sys.CoreS {
+					if cs.Name == "orchestrator" {
+						(*sys.CoreS[i]).Url = ""
+					}
+				}
+				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+				return
+			},
+			createMultiHttpRespWithServRecList(200, false, 0),
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
+			"Bad case, Orchestrator url is empty",
+		},
+		{
+			true,
+			func() (cer *components.Cervice, sys components.System) {
+				sys = createTestSystem(false)
+				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+				return
+			},
+			createMultiHttpRespWithServRecList(200, false, 0),
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 1, errHTTP) },
+			"Bad case, sendHttpReq() returns an error",
+		},
+		{
+			true,
+			func() (cer *components.Cervice, sys components.System) {
+				sys = createTestSystem(false)
+				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+				return
+			},
+			createMultiHttpRespWithServRecList(200, true, 1),
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
+			"Bad case, error while reading body",
+		},
+		{
+			true,
+			func() (cer *components.Cervice, sys components.System) {
+				sys = createTestSystem(false)
+				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+				return
+			},
+			func() *http.Response {
+				return &http.Response{
+					Status:     "200 OK",
+					StatusCode: 200,
+					Header:     http.Header{"Content-Type": []string{"Error"}},
+					Body:       io.NopCloser(strings.NewReader(string(""))),
+				}
+			},
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
+			"Bad case, error during Unpack",
+		},
+		{
+			true,
+			func() (cer *components.Cervice, sys components.System) {
+				sys = createTestSystem(false)
+				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+				return
+			},
+			func() *http.Response {
+				return &http.Response{
+					Status:     "200 OK",
+					StatusCode: 200,
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(strings.NewReader(string(`{"version":"SignalA_v1.0"}`))),
+				}
+			},
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
+			"Bad case, error during type conversion",
+		},
+	}
+
+	for _, c := range params {
+		// Setup
+		c.transport(c.response)
+		cer, sys := c.setup()
+
+		// Test
+		err := Search4MultipleServices(cer, &sys)
+		if (c.expectError == false) && (err != nil) {
+			t.Errorf("Expected no errors in '%s', got: %v", c.testCase, err)
+		}
+		if (c.expectError == true) && (err == nil) {
+			t.Errorf("Expected errors in '%s'", c.testCase)
+		}
+	}
+}

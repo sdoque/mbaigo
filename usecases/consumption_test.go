@@ -236,3 +236,92 @@ func TestSetState(t *testing.T) {
 		}
 	}
 }
+
+func createDoubleHttpRespWithServRecList() func() *http.Response {
+	f := createServiceRecordListTestForm()
+	// Create mock response from orchestrator
+	fakeBody, err := json.Marshal(f)
+	if err != nil {
+		log.Println("Fail Marshal at start of test")
+	}
+	count := 0
+	return func() *http.Response {
+		count++
+		if count == 1 || count == 3 {
+			return &http.Response{
+				Status:     "200 OK",
+				StatusCode: 200,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(string(fakeBody))),
+			}
+		}
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n " +
+				" \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"))),
+		}
+	}
+}
+
+type getStatesTestStruct struct {
+	testCer          *components.Cervice
+	bodyBytes        []byte
+	body             func() *http.Response
+	mockTransportErr int
+	errHTTP          error
+	expectedForm     forms.Form
+	expectedErr      error
+	testName         string
+}
+
+var getStatesTestParams = []getStatesTestStruct{
+	{newTestCerviceWithNodes(), createTestBytes(), createWorkingHttpResp(), 0, nil, form.NewForm(),
+		nil, "No errors with nodes"},
+	{newTestCerviceWithoutNodes(), createTestBytes(), createDoubleHttpRespWithServRecList(), 0, nil, form.NewForm(),
+		nil, "No errors without nodes"},
+	{newTestCerviceWithNodes(), nil, createEmptyHttpResp(), 0, nil, nil,
+		errEmptyRespBody, "Empty response body error"},
+	{newTestCerviceWithoutNodes(), createTestBytes(), createWorkingHttpResp(), 1, errHTTP, nil,
+		errHTTP, "Search4Services error"},
+	{newTestCerviceWithBrokenUrl(), createTestBytes(), createWorkingHttpResp(), 2, errHTTP, nil,
+		errHTTP, "NewRequest() error"},
+	{newTestCerviceWithNodes(), createTestBytes(), createStatusErrorHttpResp(), 2, errHTTP, nil,
+		errHTTP, "Status code error"},
+	{newTestCerviceWithNodes(), createTestBytes(), createErrorReaderHttpResp(), 0, nil, nil,
+		errBodyRead, "io.ReadAll() error"},
+	{newTestCerviceWithNodes(), createTestBytes(), createUnpackErrorHttpResp(), 0, nil, nil,
+		errUnpack, "Unpack() error"},
+	{newTestCerviceWithNodes(), createTestBytes(), createWorkingHttpResp(), 1, errHTTP, nil,
+		errHTTP, "DefaultClient.Do() error"},
+}
+
+func TestGetStates(t *testing.T) {
+	for _, testCase := range getStatesTestParams {
+		testSys := createTestSystem(false)
+		newMockTransport(testCase.body, testCase.mockTransportErr, testCase.errHTTP)
+
+		res, err := GetStates(testCase.testCer, &testSys)
+
+		if testCase.expectedForm != nil {
+			expected := testCase.expectedForm.(*forms.SignalA_v1a)
+			for _, form := range res {
+				actual, ok := form.(*forms.SignalA_v1a)
+				if !ok {
+					t.Fatalf("Test case: %s, got %v, expected a forms.Form",
+						testCase.testName, form,
+					)
+				}
+				if expected.Value != actual.Value || expected.Unit != actual.Unit ||
+					expected.Timestamp != actual.Timestamp || expected.Version != actual.Version ||
+					err != testCase.expectedErr {
+					t.Errorf("Test case: %s got error: %v. \nExpected form: \n%+v\n, got: \n%+v",
+						testCase.testName, err, expected, actual)
+				}
+			}
+		} else if err == nil {
+			t.Errorf("Test case: %s got error: %v:", testCase.testName, err)
+		}
+	}
+}
