@@ -171,7 +171,7 @@ func sendHTTPReq(method string, url string, data []byte) (resp *http.Response, e
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	http.DefaultClient.Timeout = 30 * time.Second
+	http.DefaultClient.Timeout = 30 * time.Second // Arbitrarily set timeout
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
