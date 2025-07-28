@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/sdoque/mbaigo/forms"
@@ -170,6 +171,7 @@ func sendHTTPReq(method string, url string, data []byte) (resp *http.Response, e
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	http.DefaultClient.Timeout = 30 * time.Second
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
