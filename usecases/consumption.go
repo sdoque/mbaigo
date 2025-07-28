@@ -35,7 +35,7 @@ func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, er
 }
 
 // GetStates requests the current state of certain services of a unit asset depending on requested definition and/or details
-func GetStates(cer *components.Cervice, sys *components.System) (f []forms.Form, err error) {
+func GetStates(cer *components.Cervice, sys *components.System) (f []forms.Form, err []error) {
 	return stateHandlers(http.MethodGet, cer, sys, nil)
 }
 
@@ -82,57 +82,62 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 	return Unpack(bodyBytes, headerContentType)
 }
 
-func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.System, bodyBytes []byte) (f []forms.Form, err error) {
+func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.System, bodyBytes []byte) (f []forms.Form, err []error) {
 	if len(cer.Nodes) == 0 {
-		err := Search4MultipleServices(cer, sys)
-		if err != nil {
+		lastErr := Search4MultipleServices(cer, sys)
+		if lastErr != nil {
+			f = append(f, nil)
+			err = append(err, lastErr)
 			return f, err
 		}
 	}
 
-	// Preallocate serviceUrl with the number of nodes
-	serviceUrls := make([]string, len(cer.Nodes))
-	index := 0
+	var serviceUrls []string
 	for _, values := range cer.Nodes {
 		if len(values) > 0 {
-			serviceUrls[index] = values[0]
+			serviceUrls = append(serviceUrls, values...)
 		}
-		index++
 	}
-
-	var lastErr error
 
 	for _, serviceUrl := range serviceUrls {
 		if len(serviceUrl) == 0 {
 			continue
 		}
-		resp, err := sendHttpReq(httpMethod, serviceUrl, bodyBytes)
-		if err != nil {
+		resp, lastErr := sendHttpReq(httpMethod, serviceUrl, bodyBytes)
+		if lastErr != nil {
 			cer.Nodes = make(map[string][]string)
-			lastErr = err
+			f = append(f, nil)
+			err = append(err, lastErr)
 			continue
 		}
 		defer resp.Body.Close()
 
 		// If the response includes a payload, unpack it into a forms.Form
-		bodyBytes, err = io.ReadAll(resp.Body)
-		if err != nil {
-			lastErr = fmt.Errorf("reading state response body: %w", err)
+		bodyBytes, lastErr = io.ReadAll(resp.Body)
+		if lastErr != nil {
+			lastErr = fmt.Errorf("reading state response body: %w", lastErr)
+			f = append(f, nil)
+			err = append(err, lastErr)
 			continue
 		}
 
 		if len(bodyBytes) < 1 {
 			lastErr = fmt.Errorf("got empty response body")
+			f = append(f, nil)
+			err = append(err, lastErr)
 			continue
 		}
 
 		headerContentType := resp.Header.Get("Content-Type")
-		formValue, err := Unpack(bodyBytes, headerContentType)
-		if err != nil {
-			lastErr = fmt.Errorf("unpacking response body: %w", err)
+		formValue, lastErr := Unpack(bodyBytes, headerContentType)
+		if lastErr != nil {
+			lastErr = fmt.Errorf("unpacking response body: %w", lastErr)
+			f = append(f, nil)
+			err = append(err, lastErr)
 			continue
 		}
 		f = append(f, formValue)
+		err = append(err, nil)
 	}
-	return f, lastErr
+	return f, err
 }
