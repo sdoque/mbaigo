@@ -84,10 +84,10 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 
 func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.System, bodyBytes []byte) (f []forms.Form, err []error) {
 	if len(cer.Nodes) == 0 {
-		lastErr := Search4MultipleServices(cer, sys)
-		if lastErr != nil {
+		currentErr := Search4MultipleServices(cer, sys)
+		if currentErr != nil {
 			f = append(f, nil)
-			err = append(err, lastErr)
+			err = append(err, currentErr)
 			return f, err
 		}
 	}
@@ -103,37 +103,37 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 		if len(serviceUrl) == 0 {
 			continue
 		}
-		resp, lastErr := sendHttpReq(httpMethod, serviceUrl, bodyBytes)
-		if lastErr != nil {
+		resp, currentErr := sendHttpReq(httpMethod, serviceUrl, bodyBytes)
+		if currentErr != nil {
 			cer.Nodes = make(map[string][]string)
 			f = append(f, nil)
-			err = append(err, lastErr)
+			err = append(err, currentErr)
 			continue
 		}
 		defer resp.Body.Close()
 
 		// If the response includes a payload, unpack it into a forms.Form
-		bodyBytes, lastErr = io.ReadAll(resp.Body)
-		if lastErr != nil {
-			lastErr = fmt.Errorf("reading state response body: %w", lastErr)
+		bodyBytes, currentErr = io.ReadAll(resp.Body)
+		if currentErr != nil {
+			currentErr = fmt.Errorf("reading state response body: %w", currentErr)
 			f = append(f, nil)
-			err = append(err, lastErr)
+			err = append(err, currentErr)
 			continue
 		}
 
 		if len(bodyBytes) < 1 {
-			lastErr = fmt.Errorf("got empty response body")
+			currentErr = fmt.Errorf("got empty response body")
 			f = append(f, nil)
-			err = append(err, lastErr)
+			err = append(err, currentErr)
 			continue
 		}
 
 		headerContentType := resp.Header.Get("Content-Type")
-		formValue, lastErr := Unpack(bodyBytes, headerContentType)
-		if lastErr != nil {
-			lastErr = fmt.Errorf("unpacking response body: %w", lastErr)
+		formValue, currentErr := Unpack(bodyBytes, headerContentType)
+		if currentErr != nil {
+			currentErr = fmt.Errorf("unpacking response body: %w", currentErr)
 			f = append(f, nil)
-			err = append(err, lastErr)
+			err = append(err, currentErr)
 			continue
 		}
 		f = append(f, formValue)
