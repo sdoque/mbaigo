@@ -24,8 +24,10 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/sdoque/mbaigo/forms"
@@ -161,4 +163,21 @@ func IsPascalCase(s string) bool {
 // IsCamelCase returns true if the string starts with a lowercase letter.
 func IsCamelCase(s string) bool {
 	return IsFirstLetterLower(s)
+}
+
+func sendHTTPReq(method string, url string, data []byte) (resp *http.Response, err error) {
+	req, err := http.NewRequest(method, url, bytes.NewBuffer(data))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	http.DefaultClient.Timeout = 30 * time.Second // Arbitrarily set timeout
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("bad response: %d %s", resp.StatusCode, resp.Status)
+	}
+	return
 }

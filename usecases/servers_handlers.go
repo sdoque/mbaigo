@@ -206,6 +206,8 @@ func handleThreeParts(w http.ResponseWriter, r *http.Request, part string, sys *
 		KGraphing(w, r, sys)
 	case "cert":
 		forms.Certificate(w, r, *sys)
+	case "msg":
+		RegisterMessenger(w, r, sys)
 	default:
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 	}
