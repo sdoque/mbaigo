@@ -522,126 +522,85 @@ func createMultiHttpRespWithServRecList(statusCode int, broken bool, allowedRead
 	}
 }
 
-type search4MultipleServicesParams struct {
-	expectError bool
-	setup       func() (*components.Cervice, components.System)
-	response    func() *http.Response
-	transport   func(func() *http.Response) *mockTransport
-	testCase    string
+func createUnpackErrorBody() func() *http.Response {
+	return func() *http.Response {
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"Error"}},
+			Body:       io.NopCloser(strings.NewReader(string(""))),
+		}
+	}
+}
+
+func createTypeConversionErrorBody() func() *http.Response {
+	return func() *http.Response {
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string(`{"version":"SignalA_v1.0"}`))),
+		}
+	}
+}
+
+type search4MultipleServicesStruct struct {
+	expectError      bool
+	emptyUrl         bool
+	response         func() *http.Response
+	mockTransportErr int
+	errHTTP          error
+	testName         string
+}
+
+var search4MultipleServicesParams = []search4MultipleServicesStruct{
+	{false, false, createMultiHttpRespWithServRecList(200, false, 0), 0, nil,
+		"Best case, no errors",
+	},
+	{true, false, createMultiHttpRespWithServRecList(200, false, 0), 1, errHTTP,
+		"Bad case, GetRunningCoreSystemURL() returns error",
+	},
+	{true, true, createMultiHttpRespWithServRecList(200, false, 0), 0, nil,
+		"Bad case, Orchestrator url is empty",
+	},
+	{true, false, createMultiHttpRespWithServRecList(200, false, 0), 1, errHTTP,
+		"Bad case, sendHttpReq() returns an error",
+	},
+	{true, false, createMultiHttpRespWithServRecList(200, true, 1), 0, nil,
+		"Bad case, error while reading body",
+	},
+	{true, false, createUnpackErrorBody(), 0, nil,
+		"Bad case, error during Unpack",
+	},
+	{true, false, createTypeConversionErrorBody(), 0, nil,
+		"Bad case, error during type conversion",
+	},
 }
 
 func TestSearch4MultipleServices(t *testing.T) {
-	params := []search4MultipleServicesParams{
-		{
-			false,
-			func() (cer *components.Cervice, sys components.System) {
-				sys = createTestSystem(false)
-				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
-				return
-			},
-			createMultiHttpRespWithServRecList(200, false, 0),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
-			"Best case, no errors",
-		},
-		{
-			true,
-			func() (cer *components.Cervice, sys components.System) {
-				sys = createTestSystem(false)
-				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
-				return
-			},
-			createMultiHttpRespWithServRecList(200, false, 0),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 1, errHTTP) },
-			"Bad case, GetRunningCoreSystemURL() returns error",
-		},
-		{
-			true,
-			func() (cer *components.Cervice, sys components.System) {
-				sys = createTestSystem(false)
-				for i, cs := range sys.CoreS {
-					if cs.Name == "orchestrator" {
-						(*sys.CoreS[i]).Url = ""
-					}
-				}
-				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
-				return
-			},
-			createMultiHttpRespWithServRecList(200, false, 0),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
-			"Bad case, Orchestrator url is empty",
-		},
-		{
-			true,
-			func() (cer *components.Cervice, sys components.System) {
-				sys = createTestSystem(false)
-				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
-				return
-			},
-			createMultiHttpRespWithServRecList(200, false, 0),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 1, errHTTP) },
-			"Bad case, sendHttpReq() returns an error",
-		},
-		{
-			true,
-			func() (cer *components.Cervice, sys components.System) {
-				sys = createTestSystem(false)
-				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
-				return
-			},
-			createMultiHttpRespWithServRecList(200, true, 1),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
-			"Bad case, error while reading body",
-		},
-		{
-			true,
-			func() (cer *components.Cervice, sys components.System) {
-				sys = createTestSystem(false)
-				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
-				return
-			},
-			func() *http.Response {
-				return &http.Response{
-					Status:     "200 OK",
-					StatusCode: 200,
-					Header:     http.Header{"Content-Type": []string{"Error"}},
-					Body:       io.NopCloser(strings.NewReader(string(""))),
-				}
-			},
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
-			"Bad case, error during Unpack",
-		},
-		{
-			true,
-			func() (cer *components.Cervice, sys components.System) {
-				sys = createTestSystem(false)
-				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
-				return
-			},
-			func() *http.Response {
-				return &http.Response{
-					Status:     "200 OK",
-					StatusCode: 200,
-					Header:     http.Header{"Content-Type": []string{"application/json"}},
-					Body:       io.NopCloser(strings.NewReader(string(`{"version":"SignalA_v1.0"}`))),
-				}
-			},
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
-			"Bad case, error during type conversion",
-		},
-	}
 
-	for _, c := range params {
+	for _, testCase := range search4MultipleServicesParams {
 		// Setup
-		c.transport(c.response)
-		cer, sys := c.setup()
+		testSys := createTestSystem(false)
+		testCer := (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+
+		if testCase.emptyUrl == true {
+			for i, cs := range testSys.CoreS {
+				if cs.Name == "orchestrator" {
+					(*testSys.CoreS[i]).Url = ""
+				}
+			}
+		}
+
+		newMockTransport(testCase.response, testCase.mockTransportErr, testCase.errHTTP)
 
 		// Test
-		err := Search4MultipleServices(cer, &sys)
-		if (c.expectError == false) && (err != nil) {
-			t.Errorf("Expected no errors in '%s', got: %v", c.testCase, err)
+		err := Search4MultipleServices(testCer, &testSys)
+		if (testCase.expectError == false) && (err != nil) {
+			t.Errorf("Expected no errors in '%s', got: %v", testCase.testName, err)
 		}
-		if (c.expectError == true) && (err == nil) {
-			t.Errorf("Expected errors in '%s'", c.testCase)
+		if (testCase.expectError == true) && (err == nil) {
+			t.Errorf("Expected errors in '%s'", testCase.testName)
 		}
 	}
 }
