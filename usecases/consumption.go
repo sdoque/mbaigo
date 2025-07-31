@@ -37,6 +37,11 @@ func GetState(cer *components.Cervice, sys *components.System) (f forms.Form, er
 	return stateHandler(http.MethodGet, cer, sys, nil)
 }
 
+// GetStates requests the current state of certain services of a unit asset depending on requested definition and/or details
+func GetStates(cer *components.Cervice, sys *components.System) (f []forms.Form, err []error) {
+	return stateHandlers(http.MethodGet, cer, sys, nil)
+}
+
 // SetState puts a request to change the state of a unit asset (via the asset's service)
 func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte) (f forms.Form, err error) {
 	return stateHandler(http.MethodPut, cer, sys, bodyBytes)
@@ -149,4 +154,64 @@ func sendLogMessage(host string, body []byte) error {
 	}
 	_ = resp.Body.Close() // Don't care about the response body or any errors it might cause
 	return nil
+}
+
+func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.System, bodyBytes []byte) (f []forms.Form, err []error) {
+	if len(cer.Nodes) == 0 {
+		currentErr := Search4MultipleServices(cer, sys)
+		if currentErr != nil {
+			f = append(f, nil)
+			err = append(err, currentErr)
+			return f, err
+		}
+	}
+
+	var serviceUrls []string
+	for _, values := range cer.Nodes {
+		if len(values) > 0 {
+			serviceUrls = append(serviceUrls, values...)
+		}
+	}
+
+	for _, serviceUrl := range serviceUrls {
+		if len(serviceUrl) == 0 {
+			continue
+		}
+		resp, currentErr := sendHTTPReq(httpMethod, serviceUrl, bodyBytes)
+		if currentErr != nil {
+			cer.Nodes = make(map[string][]string)
+			f = append(f, nil)
+			err = append(err, currentErr)
+			continue
+		}
+		defer resp.Body.Close()
+
+		// If the response includes a payload, unpack it into a forms.Form
+		bodyBytes, currentErr = io.ReadAll(resp.Body)
+		if currentErr != nil {
+			currentErr = fmt.Errorf("reading state response body: %w", currentErr)
+			f = append(f, nil)
+			err = append(err, currentErr)
+			continue
+		}
+
+		if len(bodyBytes) < 1 {
+			currentErr = fmt.Errorf("got empty response body")
+			f = append(f, nil)
+			err = append(err, currentErr)
+			continue
+		}
+
+		headerContentType := resp.Header.Get("Content-Type")
+		formValue, currentErr := Unpack(bodyBytes, headerContentType)
+		if currentErr != nil {
+			currentErr = fmt.Errorf("unpacking response body: %w", currentErr)
+			f = append(f, nil)
+			err = append(err, currentErr)
+			continue
+		}
+		f = append(f, formValue)
+		err = append(err, nil)
+	}
+	return f, err
 }

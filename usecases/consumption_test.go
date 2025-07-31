@@ -240,6 +240,188 @@ func TestSetState(t *testing.T) {
 	}
 }
 
+func createServRecListTestForm(amount int) (servRecList forms.ServiceRecordList_v1) {
+	servRecList.NewForm()
+	servRecList.List = make([]forms.ServiceRecord_v1, amount)
+	for i := range amount {
+		servRecList.List[i].IPAddresses = []string{"123.456.789"}
+		servRecList.List[i].ProtoPort = map[string]int{"http": 123}
+	}
+	return servRecList
+}
+
+// Use this one if a mock response from an orchestrator is needed
+func createDoubleHttpRespWithServRecList(amount int, empty bool, statusErr bool,
+	readErr bool, unpackErr bool) func() *http.Response {
+	f := createServRecListTestForm(amount)
+	// Create mock response from orchestrator
+	fakeBody, err := json.Marshal(f)
+	if err != nil {
+		log.Println("Fail Marshal at start of test")
+	}
+	count := 0
+	return func() *http.Response {
+		resp := &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(string("{\n  \"value\": 0,\n  \"unit\": \"\",\n " +
+				" \"timestamp\": \"0001-01-01T00:00:00Z\",\n  \"version\": \"SignalA_v1.0\"\n}"))),
+		}
+		count++
+		if count == 1 {
+			resp.Body = io.NopCloser(strings.NewReader(string(fakeBody)))
+			return resp
+		}
+		if empty == true {
+			resp.Body = io.NopCloser(strings.NewReader(string("")))
+			return resp
+		}
+		if statusErr == true {
+			resp.Status = "300 NAK"
+			resp.StatusCode = 300
+			return resp
+		}
+		if readErr == true {
+			resp.Body = io.NopCloser(errorReader{})
+			return resp
+		}
+		if unpackErr == true {
+			resp.Header = http.Header{"Content-Type": []string{"Wrong content type"}}
+			return resp
+		}
+		return resp
+	}
+}
+
+func formsEqual(a, b []forms.Form) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] == nil && b[i] == nil {
+			continue
+		}
+		aForm, ok := a[i].(*forms.SignalA_v1a)
+		if !ok {
+			return false
+		}
+		bForm, ok := b[i].(*forms.SignalA_v1a)
+		if !ok {
+			return false
+		}
+		if aForm.Value != bForm.Value || aForm.Unit != bForm.Unit ||
+			aForm.Timestamp != bForm.Timestamp || aForm.Version != bForm.Version {
+			return false
+		}
+	}
+	return true
+}
+
+func errEqual(a, b []error) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if (a[i] != nil && b[i] == nil) || (a[i] == nil && b[i] != nil) {
+			return false
+		}
+	}
+	return true
+}
+
+type getStatesTestStruct struct {
+	body             func() *http.Response
+	mockTransportErr int
+	errHTTP          error
+	expectedForm     []forms.Form
+	expectedErr      []error
+	testName         string
+}
+
+var (
+	threeForms    = []forms.Form{form.NewForm(), form.NewForm(), form.NewForm()}
+	oneNilForm    = []forms.Form{form.NewForm(), form.NewForm(), nil}
+	nilForms      = []forms.Form{nil, nil, nil}
+	singleNilForm = []forms.Form{nil}
+	threeErr      = []error{fmt.Errorf("Error"), fmt.Errorf("Error"), fmt.Errorf("Error")}
+	oneErr        = []error{nil, nil, fmt.Errorf("Error")}
+	nilErr        = []error{nil, nil, nil}
+	singleErr     = []error{fmt.Errorf("Error")}
+)
+
+var getStatesTestParams = []getStatesTestStruct{
+	{createDoubleHttpRespWithServRecList(3, false, false, false, false), 0, nil, threeForms,
+		nilErr, "No errors without nodes"},
+	{createDoubleHttpRespWithServRecList(3, false, false, false, false), 4, errHTTP, oneNilForm,
+		oneErr, "Error in one of the services"},
+	{createDoubleHttpRespWithServRecList(3, true, false, false, false), 0, nil, nilForms,
+		threeErr, "Empty response body error"},
+	{createWorkingHttpResp(), 1, errHTTP, singleNilForm,
+		singleErr, "Search4Services error"},
+	{createDoubleHttpRespWithServRecList(3, false, true, false, false), 0, nil, nilForms,
+		threeErr, "Status code error"},
+	{createDoubleHttpRespWithServRecList(3, false, false, true, false), 0, nil, nilForms,
+		threeErr, "io.ReadAll() error"},
+	{createDoubleHttpRespWithServRecList(3, false, false, false, true), 0, nil, nilForms,
+		threeErr, "Unpack() error"},
+}
+
+func TestGetStates(t *testing.T) {
+	for _, testCase := range getStatesTestParams {
+		testCer := newTestCerviceWithoutNodes()
+		testSys := createTestSystem(false)
+		newMockTransport(testCase.body, testCase.mockTransportErr, testCase.errHTTP)
+
+		res, err := GetStates(testCer, &testSys)
+
+		if !formsEqual(res, testCase.expectedForm) || !errEqual(err, testCase.expectedErr) {
+			t.Errorf("Test case: %s\nExpected forms: %+v\nGot: %+v\nExpected error: %v, Got error: %v",
+				testCase.testName, testCase.expectedForm, res, testCase.expectedErr, err)
+		}
+	}
+
+	// Special case: No errors with existing nodes
+	cerWithNodes := components.Cervice{
+		IReferentce: "test",
+		Definition:  "A test Cervice with nodes",
+		Details:     map[string][]string{"Forms": {"SignalA_v1a"}},
+		Nodes:       map[string][]string{"test": {"test1", "test2", "test3"}},
+		Protos:      []string{"http"},
+	}
+	testSys := createTestSystem(false)
+	newMockTransport(createWorkingHttpResp(), 0, nil)
+
+	res, err := GetStates(&cerWithNodes, &testSys)
+	expectedForm := []forms.Form{form.NewForm(), form.NewForm(), form.NewForm()}
+	expectedErr := []error{nil, nil, nil}
+
+	if !formsEqual(res, expectedForm) || !errEqual(err, expectedErr) {
+		t.Errorf("Test case: No errors with nodes \nExpected forms: %v\nGot: %v\nExpected error: %v, Got error: %v",
+			expectedForm, res, expectedErr, err)
+	}
+
+	// Special case: Error with a broken url in nodes
+	cerWithBrokenUrlNode := components.Cervice{
+		IReferentce: "test",
+		Definition:  "A test Cervice with nodes",
+		Details:     map[string][]string{"Forms": {"SignalA_v1a"}},
+		Nodes:       map[string][]string{"test": {"test1", brokenUrl, "test3"}},
+		Protos:      []string{"http"},
+	}
+	testSys = createTestSystem(false)
+	newMockTransport(createWorkingHttpResp(), 0, nil)
+
+	res, err = GetStates(&cerWithBrokenUrlNode, &testSys)
+	expectedForm = []forms.Form{form.NewForm(), nil, form.NewForm()}
+	expectedErr = []error{nil, fmt.Errorf("Error"), nil}
+
+	if !formsEqual(res, expectedForm) || !errEqual(err, expectedErr) {
+		t.Errorf("Test case: Error with broken url \nExpected forms: %v\nGot: %v\nExpected error: %v, Got error: %v",
+			expectedForm, res, expectedErr, err)
+	}
+}
+
 type logTransportMock struct {
 	t           *testing.T
 	errResponse error

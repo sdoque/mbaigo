@@ -487,3 +487,120 @@ func TestExtractDiscoveryForm(t *testing.T) {
 		}
 	}
 }
+
+func createServiceRecordListTestForm() forms.ServiceRecordList_v1 {
+	var f forms.ServiceRecordList_v1
+	f.NewForm()
+	f.List = make([]forms.ServiceRecord_v1, 1)
+	f.List[0].IPAddresses = []string{"123.456.789"}
+	f.List[0].ProtoPort = map[string]int{"http": 123}
+	return f
+}
+
+func createMultiHttpRespWithServRecList(statusCode int, broken bool, allowedReads int) func() *http.Response {
+	f := createServiceRecordListTestForm()
+	// Create mock response from orchestrator
+	fakeBody, err := json.Marshal(f)
+	if err != nil {
+		log.Println("Fail Marshal at start of test")
+	}
+	count := allowedReads
+	return func() *http.Response {
+		count--
+		if broken == true && count == 0 {
+			return &http.Response{
+				StatusCode: 200,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       errReader(0),
+			}
+		}
+		return &http.Response{
+			StatusCode: statusCode,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string(fakeBody))),
+		}
+	}
+}
+
+func createUnpackErrorBody() func() *http.Response {
+	return func() *http.Response {
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"Error"}},
+			Body:       io.NopCloser(strings.NewReader(string(""))),
+		}
+	}
+}
+
+func createTypeConversionErrorBody() func() *http.Response {
+	return func() *http.Response {
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string(`{"version":"SignalA_v1.0"}`))),
+		}
+	}
+}
+
+type search4MultipleServicesStruct struct {
+	expectError      bool
+	emptyUrl         bool
+	response         func() *http.Response
+	mockTransportErr int
+	errHTTP          error
+	testName         string
+}
+
+var search4MultipleServicesParams = []search4MultipleServicesStruct{
+	{false, false, createMultiHttpRespWithServRecList(200, false, 0), 0, nil,
+		"Best case, no errors",
+	},
+	{true, false, createMultiHttpRespWithServRecList(200, false, 0), 1, errHTTP,
+		"Bad case, GetRunningCoreSystemURL() returns error",
+	},
+	{true, true, createMultiHttpRespWithServRecList(200, false, 0), 0, nil,
+		"Bad case, Orchestrator url is empty",
+	},
+	{true, false, createMultiHttpRespWithServRecList(200, false, 0), 1, errHTTP,
+		"Bad case, sendHttpReq() returns an error",
+	},
+	{true, false, createMultiHttpRespWithServRecList(200, true, 1), 0, nil,
+		"Bad case, error while reading body",
+	},
+	{true, false, createUnpackErrorBody(), 0, nil,
+		"Bad case, error during Unpack",
+	},
+	{true, false, createTypeConversionErrorBody(), 0, nil,
+		"Bad case, error during type conversion",
+	},
+}
+
+func TestSearch4MultipleServices(t *testing.T) {
+
+	for _, testCase := range search4MultipleServicesParams {
+		// Setup
+		testSys := createTestSystem(false)
+		testCer := (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
+
+		if testCase.emptyUrl == true {
+			for i, cs := range testSys.CoreS {
+				if cs.Name == "orchestrator" {
+					(*testSys.CoreS[i]).Url = ""
+				}
+			}
+		}
+
+		newMockTransport(testCase.response, testCase.mockTransportErr, testCase.errHTTP)
+
+		// Test
+		err := Search4MultipleServices(testCer, &testSys)
+		if (testCase.expectError == false) && (err != nil) {
+			t.Errorf("Expected no errors in '%s', got: %v", testCase.testName, err)
+		}
+		if (testCase.expectError == true) && (err == nil) {
+			t.Errorf("Expected errors in '%s'", testCase.testName)
+		}
+	}
+}
