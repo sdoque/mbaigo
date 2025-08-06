@@ -64,7 +64,7 @@ func init() {
 ///////////////////////////////////////////////////////////////////////////////
 
 type ServiceRecordList_v1 struct {
-	List    []ServiceRecord_v1 `list:"version"`
+	List    []ServiceRecord_v1 `json:"list"`
 	Version string             `json:"version"`
 }
 
