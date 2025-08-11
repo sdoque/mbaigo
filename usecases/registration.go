@@ -49,6 +49,7 @@ func RegisterServices(sys *components.System) {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
+			// Check if the leading registrar is already known
 			if leadingRegistrar != nil {
 				resp, err := http.Get(leadingRegistrar.Url + "/status")
 				if err != nil {
@@ -71,6 +72,7 @@ func RegisterServices(sys *components.System) {
 					log.Println("lost previous leading registrar")
 				}
 			} else {
+				// If the leading registrar is not known, check all core systems
 				for _, cSys := range sys.CoreS {
 					core := cSys
 					if core.Name == "serviceregistrar" {
