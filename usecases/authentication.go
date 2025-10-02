@@ -104,6 +104,7 @@ func RequestCertificate(sys *components.System) {
 		Certificates:       []tls.Certificate{clientCert},
 		RootCAs:            caCertPool,
 		InsecureSkipVerify: false,
+		MinVersion:         tls.VersionTLS12,
 	}
 	sys.Husk.TlsConfig = tlsConfig
 
@@ -125,20 +126,19 @@ func RequestCertificate(sys *components.System) {
 }
 
 func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
-	var err error
-	url := ""
-	for _, cSys := range sys.CoreS {
-		core := cSys
-		if core.Name == "ca" {
-			url = core.Url
-		}
-	}
-	if url == "" {
-		return "", fmt.Errorf("failed to locate certificate authority: %w", err)
+	url, err := components.GetRunningCoreSystemURL(sys, "ca") // Assuming the first core system is the CA
+	if err != nil {
+		return "", fmt.Errorf("failed to get CA URL: %w", err)
 	}
 	url += "/certify"
 
-	resp, err := http.Post(url, "application/x-pem-file", bytes.NewReader(csrPEM))
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(csrPEM))
+	if err != nil {
+		log.Printf("Error creating request: %v", err)
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-pem-file")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send CSR: %w", err)
 	}
@@ -151,26 +151,17 @@ func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
 
 	// Read the response body
 	buf := new(bytes.Buffer)
-	buf.ReadFrom(resp.Body)
+	_, err = buf.ReadFrom(resp.Body)
+	if err != nil {
+		log.Printf("Error while reading body: %v", err)
+		return "", err
+	}
 
 	return buf.String(), nil
 }
 
 // getCACertificate gets the CA's certificate necessary for the dual server-client authentication in the TLS setup
 func getCACertificate(sys *components.System) (string, error) {
-	// var err error
-	// coreUAurl := ""
-	// for _, cSys := range sys.CoreS {
-	// 	core := cSys
-	// 	if core.Name == "ca" {
-	// 		coreUAurl = core.Url
-	// 	}
-	// }
-	// if coreUAurl == "" {
-	// 	return "", fmt.Errorf("failed to locate certificate authority: %w", err)
-	// }
-
-	// Get the URL of the CA's configuration
 	coreUAurl, err := components.GetRunningCoreSystemURL(sys, "ca") // Assuming the first core system is the CA
 	if err != nil {
 		return "", fmt.Errorf("failed to get CA URL: %w", err)
@@ -179,7 +170,12 @@ func getCACertificate(sys *components.System) (string, error) {
 	url := strings.TrimSuffix(coreUAurl, "ification")
 
 	// Make a GET request to the CA's endpoint
-	resp, err := http.Get(url)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		log.Printf("Error creating request: %v", err)
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request to CA: %w", err)
 	}
@@ -192,7 +188,11 @@ func getCACertificate(sys *components.System) (string, error) {
 
 	// Read the response body
 	buf := new(bytes.Buffer)
-	buf.ReadFrom(resp.Body)
+	_, err = buf.ReadFrom(resp.Body)
+	if err != nil {
+		log.Printf("Error while reading body: %v", err)
+		return "", err
+	}
 
 	return buf.String(), nil
 }

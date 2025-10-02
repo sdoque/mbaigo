@@ -51,5 +51,8 @@ func Certificate(w http.ResponseWriter, req *http.Request, sys components.System
 
 	// Set the content type to text/plain
 	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte(cert))
+	_, err := w.Write([]byte(cert))
+	if err != nil {
+		log.Println("Error writing the certificate: ", err)
+	}
 }

@@ -23,6 +23,7 @@ package usecases
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
@@ -38,7 +39,7 @@ type ConfigurableAsset struct {
 	Traits   []json.RawMessage    `json:"traits"`
 }
 
-// templateOut is the stuct used to prepare the systemconfig.json file
+// templateOut is the struct used to prepare the systemconfig.json file
 type templateOut struct {
 	CName     string                  `json:"systemname"`
 	Assets    []ConfigurableAsset     `json:"unit_assets"`
@@ -46,29 +47,29 @@ type templateOut struct {
 	CCoreS    []components.CoreSystem `json:"coreSystems"`
 }
 
-// configFileIn is used to extact out the information of the systemconfig.json file
+// configFileIn is used to extract out the information of the systemconfig.json file
 // Since it does not know about the details of the Thing, it does not unmarsahll this
 // information
 type configFileIn struct {
-	CName        string                  `json:"systemname"`
-	rawResources []json.RawMessage       `json:"-"`
-	Protocols    map[string]int          `json:"protocolsNports"`
-	CCoreS       []components.CoreSystem `json:"coreSystems"`
+	CName     string                  `json:"systemname"`
+	Protocols map[string]int          `json:"protocolsNports"`
+	CCoreS    []components.CoreSystem `json:"coreSystems"`
+	Resources []json.RawMessage       `json:"unit_assets"`
 }
 
-// Configure reads the system configuration JSON file to get the deployment details.
-// If the file is missing, it generates a default systemconfig.json file and shuts down the system
-func Configure(sys *components.System) ([]json.RawMessage, error) {
-	// prepare content of configuration file
-	var defaultConfig templateOut
+var ErrNewConfig = errors.New("new config file was created")
 
-	// var servicesList []components.Service // this is the list of services for each unit asset
-
+func setupDefaultConfig(sys *components.System) (defaultConfig templateOut, err error) {
 	var assetTemplate components.UnitAsset
+	if sys.UAssets == nil {
+		return templateOut{}, fmt.Errorf("unitAssets missing")
+	}
+
 	for _, ua := range sys.UAssets {
 		assetTemplate = *ua // this creates a copy (value, not reference)
-		break               // stop after the first entry
+		break
 	}
+
 	servicesTemplate := getServicesList(assetTemplate)
 
 	confAsset := ConfigurableAsset{
@@ -81,19 +82,19 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 	if assetWithTraits, ok := assetTemplate.(components.HasTraits); ok {
 		if traits := assetWithTraits.GetTraits(); traits != nil {
 			traitJSON, err := json.Marshal(traits)
-			if err == nil {
-				confAsset.Traits = []json.RawMessage{traitJSON}
-			} else {
-				fmt.Println("Warning: could not marshal traits:", err)
+			if err != nil {
+				return templateOut{}, fmt.Errorf("couldn't marshal traits: %v", err)
 			}
+			confAsset.Traits = []json.RawMessage{traitJSON}
 		}
 	}
 
+	// prepare content of configuration file
 	defaultConfig.CName = sys.Name
 	defaultConfig.Protocols = sys.Husk.ProtoPort
 	defaultConfig.Assets = []ConfigurableAsset{confAsset} // this is a list of unit assets
 
-	serReg := components.CoreSystem{
+	servReg := components.CoreSystem{
 		Name: "serviceregistrar",
 		Url:  "http://localhost:20102/serviceregistrar/registry",
 	}
@@ -109,66 +110,60 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 		Name: "maitreD",
 		Url:  "http://localhost:20101/maitreD/maitreD",
 	}
+
 	// add the core systems to the configuration file
 	// the system is part of a local cloud with mandatory core systems
-	coreSystems := []components.CoreSystem{serReg, orches, ca, maitreD}
+	coreSystems := []components.CoreSystem{servReg, orches, ca, maitreD}
 	defaultConfig.CCoreS = coreSystems
+	return defaultConfig, nil
+}
 
-	var rawBytes []json.RawMessage // the mbaigo library does not know about the unit asset's structure (defined in the file thing.go and not part of the library)
-
-	// open the configuration file or create one with the default content prepared above
-	systemConfigFile, err := os.Open("systemconfig.json")
-
-	if err != nil { // could not find the systemconfig.json so a default one is being created
-		defaultConfigFile, err := os.Create("systemconfig.json")
-		if err != nil {
-			return rawBytes, err
-		}
-		defer defaultConfigFile.Close()
-		systemconfigjson, err := json.MarshalIndent(defaultConfig, "", "     ")
-		if err != nil {
-			return rawBytes, err
-		}
-		nBytes, err := defaultConfigFile.Write(systemconfigjson)
-		if err != nil {
-			return rawBytes, err
-		}
-		return rawBytes, fmt.Errorf("a new configuration file has been written with %d bytes. Please update it and restart the system", nBytes)
-	}
-
-	// the system configuration file could be open, read the configurations and pass them on to the system
-	defer systemConfigFile.Close()
-	configBytes, err := os.ReadFile("systemconfig.json")
+// Configure reads the system configuration JSON file to get the deployment details.
+// If the file is missing, it generates a default systemconfig.json file and shuts down the system
+func Configure(sys *components.System) ([]json.RawMessage, error) {
+	defaultConfig, err := setupDefaultConfig(sys)
 	if err != nil {
-		return rawBytes, err
+		return nil, fmt.Errorf("couldn't create default config: %v", err)
 	}
 
-	// the challenge is that the definition of the unit asset is unknown to the mbaigo library and only known to the system that invokes the library
+	// 0600 allows user Read/Write permission (secure config file), but no R/W for groups and others, 0644 to allow R/W on sudo and only R on groups/others, 0666 for R/W permissions for everyone
+	systemConfigFile, err := os.OpenFile("systemconfig.json", os.O_RDWR|os.O_CREATE, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("error while opening/creating systemconfig file: %v", err)
+	}
+	defer systemConfigFile.Close()
+
+	fileInfo, err := systemConfigFile.Stat() // *.Stat() returns fileInfo/stats
+	if err != nil {
+		return nil, fmt.Errorf("error occurred while getting config file stats: %s", err)
+	}
+	if fileInfo.Size() == 0 { // *.Size() returns the filesize (number bytes) as an int, 0 is an empty file
+		enc := json.NewEncoder(systemConfigFile)
+		enc.SetIndent("", "    ")
+		err = enc.Encode(defaultConfig) // Write default values into systemconfig since file was empty
+		if err != nil {
+			return nil, fmt.Errorf("error writing default values to system config: %v", err)
+		}
+		return nil, ErrNewConfig
+	}
+
 	var configurationIn configFileIn
-	// extract the information related to the system separately from the unit_assets (i.e., the resources)
-	type Alias configFileIn
-	aux := &struct {
-		Resources []json.RawMessage `json:"unit_assets"`
-		*Alias
-	}{
-		Alias: (*Alias)(&configurationIn),
+	err = json.NewDecoder(systemConfigFile).Decode(&configurationIn) // Read the contents of systemconfig into configurationIn
+	if err != nil {
+		return nil, fmt.Errorf("error reading systemconfig: %v", err)
 	}
-	if err := json.Unmarshal(configBytes, aux); err != nil {
-		return rawBytes, err
-	}
-	if len(aux.Resources) > 0 {
-		configurationIn.rawResources = aux.Resources
+
+	var rawResources []json.RawMessage
+	if len(configurationIn.Resources) > 0 { // If unit assets was present in systemconfig file, send those
+		rawResources = configurationIn.Resources
 	} else {
-		var rawMessages []json.RawMessage
-		for _, s := range defaultConfig.Assets {
-			// convert the struct to JSON-encoded byte array
+		for _, s := range defaultConfig.Assets { // Otherwise send the system default
 			jsonBytes, err := json.Marshal(s)
 			if err != nil {
-				fmt.Println("Failed to marshal struct:", err)
+				return nil, fmt.Errorf("failed to marshal struct: %v", err)
 			}
-			rawMessages = append(rawMessages, json.RawMessage(jsonBytes)) // append the json.RawMessage to the slice
+			rawResources = append(rawResources, json.RawMessage(jsonBytes))
 		}
-		configurationIn.rawResources = rawMessages
 	}
 
 	sys.Name = configurationIn.CName
@@ -178,7 +173,7 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 		sys.CoreS = append(sys.CoreS, &newCore)
 	}
 
-	return configurationIn.rawResources, nil
+	return rawResources, nil
 }
 
 // getServicesList() returns the original list of services

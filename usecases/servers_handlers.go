@@ -22,6 +22,7 @@
 package usecases
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -38,14 +39,13 @@ import (
 )
 
 // SetoutServers setups the http and https servers and starts them
-func SetoutServers(sys *components.System) (err error) {
+func SetoutServers(sys *components.System) error {
 	// get the servers port number (from configuration file)
 	httpPort := sys.Husk.ProtoPort["http"]
 	httpsPort := sys.Husk.ProtoPort["https"]
 
 	if httpPort == 0 && httpsPort == 0 {
-		fmt.Printf("The system %s has no web server configured\n", sys.Name)
-		return
+		return fmt.Errorf("missing http(s) port in configuration")
 	}
 
 	// how to handle requests to the servers
@@ -56,13 +56,13 @@ func SetoutServers(sys *components.System) (err error) {
 		// Encode the ECDSA private key to PEM format
 		privateKeyPEM, err := encodeECDSAPrivateKeyToPEM(sys.Husk.Pkey)
 		if err != nil {
-			log.Fatalf("Failed to encode private key: %v", err)
+			return fmt.Errorf("encoding private key: %w", err)
 		}
 
 		// Load the certificate and key
 		cert, err := tls.X509KeyPair([]byte(sys.Husk.Certificate), privateKeyPEM)
 		if err != nil {
-			log.Fatalf("Failed to parse certificate or private key: %v", err)
+			return fmt.Errorf("parsing certificate/private key: %w", err)
 		}
 
 		caCertPool := x509.NewCertPool()
@@ -73,32 +73,35 @@ func SetoutServers(sys *components.System) (err error) {
 			Certificates: []tls.Certificate{cert},
 			ClientAuth:   tls.RequireAndVerifyClientCert,
 			ClientCAs:    caCertPool,
+			MinVersion:   tls.VersionTLS12,
 		}
 
 		// Create a HTTPS server with the TLS config
 		httpsServer := &http.Server{
-			Addr:      ":" + strconv.Itoa(httpsPort),
-			TLSConfig: tlsConfig,
-			Handler:   nil,
+			Addr:         ":" + strconv.Itoa(httpsPort),
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 60 * time.Second,
+			TLSConfig:    tlsConfig,
+			Handler:      nil,
 		}
 
 		// Initiate graceful shutdown on signal reception
 		go func() {
 			<-sys.Ctx.Done()
-			time.Sleep(1 * time.Second) // this line is for the leading service registrar to deregister its own services
-			fmt.Printf("Initiating graceful shutdown of the HTTPS server.\n")
-			httpsServer.Shutdown(sys.Ctx)
+			if err := httpsServer.Shutdown(context.Background()); err != nil {
+				log.Printf("Error during shutdown: %v", err)
+			}
 		}()
 
 		// Inform the user how to access the system's web server (black box documentation)
 		httpsURL := "https://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(httpsPort) + "/" + sys.Name
-		fmt.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpsURL)
+		log.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpsURL)
 
 		// Start and monitor the server
 		go func() {
-			err = httpsServer.ListenAndServeTLS("", "")
+			err := httpsServer.ListenAndServeTLS("", "")
 			if err != nil && err != http.ErrServerClosed {
-				log.Fatalf("Listen: %s\n", err)
+				log.Fatalf("Error from web server: %v\n", err)
 			}
 		}()
 	}
@@ -107,27 +110,31 @@ func SetoutServers(sys *components.System) (err error) {
 	if httpPort != 0 {
 		// Create a HTTP server
 		httpServer := &http.Server{
-			Addr:    ":" + strconv.Itoa(httpPort),
-			Handler: nil,
+			Addr:         ":" + strconv.Itoa(httpPort),
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 60 * time.Second,
+			Handler:      nil,
 		}
 
 		// Initiate graceful shutdown on signal reception
 		go func() {
 			<-sys.Ctx.Done()
-			time.Sleep(1 * time.Second) // this line is for the leading service registrar to deregister its own services
-			fmt.Printf("Initiating graceful shutdown of the HTTP server.\n")
-			httpServer.Shutdown(sys.Ctx)
+			if err := httpServer.Shutdown(context.Background()); err != nil {
+				log.Printf("Error during shutdown: %v", err)
+			}
 		}()
 
 		// Inform the user how to access the system's web server (black box documentation)
 		httpURL := "http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(httpPort) + "/" + sys.Name
-		fmt.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpURL)
+		log.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpURL)
 
 		// Start and monitor the server
-		err = httpServer.ListenAndServe()
-		if err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Listen: %s\n", err)
-		}
+		go func() {
+			err := httpServer.ListenAndServe()
+			if err != nil && err != http.ErrServerClosed {
+				log.Fatalf("Error from web server: %v\n", err)
+			}
+		}()
 	}
 
 	return nil
@@ -199,6 +206,8 @@ func handleThreeParts(w http.ResponseWriter, r *http.Request, part string, sys *
 		KGraphing(w, r, sys)
 	case "cert":
 		forms.Certificate(w, r, *sys)
+	case "msg":
+		RegisterMessenger(w, r, sys)
 	default:
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 	}

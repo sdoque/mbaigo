@@ -21,9 +21,8 @@ package usecases
 
 import (
 	"encoding/json"
-	"errors"
+	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
@@ -44,68 +43,49 @@ func GetActivitiesCost(serv *components.Service) (payload []byte, err error) {
 
 // SetActivitiesCost updates the service cost
 func SetActivitiesCost(serv *components.Service, bodyBytes []byte) (err error) {
-	var jsonData map[string]interface{}
-	err = json.Unmarshal(bodyBytes, &jsonData)
+	f, err := Unpack(bodyBytes, "application/json")
 	if err != nil {
-		log.Printf("Error unmarshaling JSON data: %v", err)
-		return
+		return fmt.Errorf("unmarshalling cost form: %w", err)
 	}
-	formVersion, ok := jsonData["version"].(string)
+	acForm, ok := f.(*forms.ActivityCostForm_v1)
 	if !ok {
-		log.Printf("Error: 'version' key not found in JSON data")
-		return
+		return fmt.Errorf("couldn't convert to correct form")
 	}
-	var acForm forms.ActivityCostForm_v1
-	switch formVersion {
-	case "ActivityCostForm_v1":
-		var f forms.ActivityCostForm_v1
-		err = json.Unmarshal(bodyBytes, &f)
-		if err != nil {
-			log.Println("Unable to extract new activity costs request ")
-			return
-		}
-		acForm = f
-	default:
-		err = errors.New("unsupported version of activity costs form")
-		return
+	if serv.Definition != acForm.Activity {
+		return fmt.Errorf("service definition and activity cost forms activity field doesn't match")
 	}
-
-	if serv.Definition == acForm.Activity {
-		serv.ACost = acForm.Cost // update the service's cost
-		log.Printf("The new service cost is %f => the service is %+v\n", acForm.Cost, serv)
-	} else {
-		err = errors.New("mismatch between service list order") // corrected typo
-		return
-	}
+	serv.ACost = acForm.Cost // update the service's cost
 	return
 }
 
 // ACServices handles the http request for the cost of a service
 func ACServices(w http.ResponseWriter, r *http.Request, ua *components.UnitAsset, serviceP string) {
+	// Has to use (*ua) in order to reach the methods for the interface UnitAsset, since ua is a pointer to an interface
 	servicesList := (*ua).GetServices()
 	serv := servicesList[serviceP]
 	switch r.Method {
 	case "GET":
 		payload, err := GetActivitiesCost(serv)
 		if err != nil {
-			log.Printf("Error in getting the activity costs\n")
 			http.Error(w, "Error marshaling data.", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(payload)
-		return
+		_, err = w.Write(payload)
+		if err != nil {
+			http.Error(w, "Error while writing to response body", http.StatusInternalServerError)
+		}
 	case "PUT":
 		defer r.Body.Close()
 		bodyBytes, err := io.ReadAll(r.Body) // Use io.ReadAll instead of ioutil.ReadAll
 		if err != nil {
-			log.Printf("Error reading registration response body: %v", err)
+			http.Error(w, "Error reading registration response body", http.StatusBadRequest)
 			return
 		}
 		err = SetActivitiesCost(serv, bodyBytes)
 		if err != nil {
-			log.Printf("there was an error updating the activittiy costs, %s\n", err)
+			http.Error(w, "Error occurred while updating activity costs", http.StatusInternalServerError)
 		}
 	default:
 		http.Error(w, "Method is not supported.", http.StatusNotFound)

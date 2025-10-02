@@ -22,13 +22,15 @@
 package components
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
-	"strings"
+	"sync"
 	"syscall"
 )
 
@@ -42,6 +44,9 @@ type System struct {
 	Ctx           context.Context       // create a context that can be cancelled
 	Sigs          chan os.Signal        // channel to initiate a graceful shutdown when Ctrl+C is pressed
 	RegistrarChan chan *CoreSystem      // channel for the lead service registrar
+	// Tracks which hosts to send log msgs to (and how many errors were encountered, before being removed)
+	Messengers map[string]int			// list of messenger systems
+	Mutex      *sync.Mutex
 }
 
 // CoreSystem struct holds details about the core system included in the configuration file
@@ -60,50 +65,82 @@ func NewSystem(name string, ctx context.Context) System {
 	newSystem.RegistrarChan = make(chan *CoreSystem, 1)
 	newSystem.Host = NewDevice()
 	newSystem.UAssets = make(map[string]*UnitAsset) // initialize UAsset as an empty map
+	// Since the return System isn't a pointer (incorrectly), this map needs to
+	// be a pointer instead (usually not normal) and initialised (usually not needed)
+	// in order to avoid linter errors.
+	// The errors is due to this func returning a copy of newSystem and attempts
+	// to copy the mutex too, but it's not allowed for sync objects.
+	// Reference: https://stackoverflow.com/questions/37242009/function-returns-lock-by-value
+	newSystem.Messengers = make(map[string]int)
+	newSystem.Mutex = &sync.Mutex{}
 	return newSystem
 }
+
+func verifyStatus(u *url.URL) ([]byte, error) {
+	resp, err := http.Get(u.String())
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	// Body must be fully drained AND closed upon returning, otherwise it might leak memory
+	body, err := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("bad response: %d %s", resp.StatusCode, resp.Status)
+	}
+	return body, err
+}
+
+const ServiceRegistrarName string = "serviceregistrar"
+const ServiceRegistrarLeader string = "lead Service Registrar since"
 
 // GetRunningCoreSystemURL returns the URL of a running core system based on the provided type.
 // When systemType is "serviceregistrar", it verifies the service is the lead registrar by checking
 // its /status endpoint response. For other core system types, it simply tests that the URL is accessible.
 func GetRunningCoreSystemURL(sys *System, systemType string) (string, error) {
+	// Store the latest error encountered when iterating thru the system list
+	// and then return this error if no matching system was found.
+	var lastErr error
+
 	for _, core := range sys.CoreS {
-		if core.Name == systemType {
-			// Special logic for the service registrar: check the status endpoint
-			if systemType == "serviceregistrar" {
-				statusURL := core.Url + "/status"
-				resp, err := http.Get(statusURL)
-				if err != nil {
-					fmt.Printf("error checking service registrar status at %s: %v\n", statusURL, err)
-					continue // Try the next core system instance, if any.
-				}
-				bodyBytes, err := io.ReadAll(resp.Body)
-				resp.Body.Close() // Always close the response body when done.
-				if err != nil {
-					fmt.Printf("error reading response from %s: %v\n", statusURL, err)
-					continue
-				}
-				// Verify status response
-				if strings.HasPrefix(string(bodyBytes), "lead Service Registrar since") {
-					fmt.Printf("Lead service registrar found at: %s\n", core.Url)
-					return core.Url, nil
-				}
-			} else {
-				// For other core systems, verify that the service is accessible.
-				resp, err := http.Get(core.Url)
-				if err != nil {
-					fmt.Printf("error checking %s at %s: %v\n", systemType, core.Url, err)
-					continue
-				}
-				resp.Body.Close()
-				return core.Url, nil
-			}
+		// Ignore unrelated systems
+		if core.Name != systemType {
+			continue
 		}
+
+		coreURL, err := url.Parse(core.Url)
+		if err != nil {
+			lastErr = fmt.Errorf("parsing core URL: %w", err)
+			continue
+		}
+
+		coreSystemURL := coreURL.String() // Preserves the original URL
+		if core.Name != ServiceRegistrarName {
+			return coreSystemURL, nil
+		}
+
+		// Perform extra checks on the response from a service registrar
+		coreURL = coreURL.JoinPath("status")
+		body, err := verifyStatus(coreURL)
+		if err != nil {
+			lastErr = fmt.Errorf("verifying registrar: %w", err)
+			continue
+		}
+
+		// Skips non-leading registrars
+		if !bytes.HasPrefix(body, []byte(ServiceRegistrarLeader)) {
+			continue
+		}
+		return coreSystemURL, nil
 	}
-	return "", fmt.Errorf("failed to locate running core system of type %s", systemType)
+
+	err := fmt.Errorf("core system '%s' not found", systemType)
+	if lastErr != nil {
+		err = fmt.Errorf("core system '%s' not found: %w", systemType, lastErr)
+	}
+	return "", err
 }
 
-// The following code is used only for issues support on GitHub @sdoque --------------------------
+// The following code is used only for issues support on GitHub @sdoque
 var (
 	AppName   string
 	Version   string
@@ -112,6 +149,8 @@ var (
 )
 
 func getBuildInfo() {
+	// TODO: This info should be updated when setting up version release tools
+	// Leaving the fmt.Prints as is for now.
 	if AppName != "" {
 		fmt.Printf("System: %s - %s\n", AppName, Version)
 		fmt.Printf("Build date: %s\n", BuildDate)

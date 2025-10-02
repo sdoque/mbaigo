@@ -27,52 +27,57 @@ package forms
 
 import "reflect"
 
-type ServiceQuest_v1 struct {
-	SysId             int                 `json:"systemId"`
-	RequesterName     string              `json:"requesterName"`
-	ServiceDefinition string              `json:"serrviceDefinition"`
-	Protocol          string              `json:"protocol"`
+type ServiceRecord_v1 struct {
+	Id                int                 `json:"registryID"`
+	ServiceDefinition string              `json:"definition"`
+	SystemName        string              `json:"systemName"`
+	ServiceNode       string              `json:"serviceNode"`
+	IPAddresses       []string            `json:"ipAddresses"`
+	ProtoPort         map[string]int      `json:"protoPort"`
 	Details           map[string][]string `json:"details"`
+	Certificate       string              `json:"certificate"`
+	SubPath           string              `json:"subpath"`
+	RegLife           int                 `json:"registrationLife"`
 	Version           string              `json:"version"`
+	Created           string              `json:"created"`
+	Updated           string              `json:"updated"`
+	EndOfValidity     string              `json:"endOfValidity"`
+	SubscribeAble     bool                `json:"subscribeAble"`
+	ACost             float64             `json:"activityCost"`
+	CUnit             string              `json:"costUnit"`
 }
 
-func (f *ServiceQuest_v1) NewForm() Form {
-	f.Version = "ServiceQuest_v1"
+func (f *ServiceRecord_v1) NewForm() Form {
+	f.Version = "ServiceRecord_v1"
 	return f
 }
 
-func (f *ServiceQuest_v1) FormVersion() string {
+func (f *ServiceRecord_v1) FormVersion() string {
 	return f.Version
 }
 
-// Register ServiceQuest_v1 in the formTypeMap
+// Register ServiceRecord_v1 in the formTypeMap
 func init() {
-	FormTypeMap["ServiceQuest_v1"] = reflect.TypeOf(ServiceQuest_v1{})
+	FormTypeMap["ServiceRecord_v1"] = reflect.TypeOf(ServiceRecord_v1{})
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-type ServicePoint_v1 struct {
-	ServiceID         int                 `json:"serviceId"`
-	ProviderName      string              `json:"providerName"`
-	ServiceDefinition string              `json:"definition"`
-	Details           map[string][]string `json:"details"`
-	ServLocation      string              `json:"serviceURL"`
-	ServNode          string              `json:"serviceNode"`
-	Token             string              `json:"token"`
-	Version           string              `json:"version"`
+type ServiceRecordList_v1 struct {
+	List    []ServiceRecord_v1 `json:"list"`
+	Version string             `json:"version"`
 }
 
-func (f *ServicePoint_v1) NewForm() Form {
-	f.Version = "ServicePoint_v1"
+func (f *ServiceRecordList_v1) NewForm() Form {
+	f.Version = "ServiceRecordList_v1"
 	return f
 }
 
-func (f *ServicePoint_v1) FormVersion() string {
+func (f *ServiceRecordList_v1) FormVersion() string {
 	return f.Version
 }
 
-// Register ServicePoint_v1 in the formTypeMap
+// Register ActivityCostForm_v1 in the formTypeMap
 func init() {
-	FormTypeMap["ServicePoint_v1"] = reflect.TypeOf(ServicePoint_v1{})
+	FormTypeMap["ServiceRecordList_v1"] = reflect.TypeOf(ServiceRecordList_v1{})
 }

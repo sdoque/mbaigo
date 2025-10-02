@@ -37,7 +37,7 @@ type Service struct {
 	CUnit         string              `json:"costUnit"`           // cost unit
 }
 
-// type Services is a collection of service stucts
+// type Services is a collection of service structs
 type Services map[string]*Service
 
 // Merge method is used in the configuration use case to prevent the subpath or description to be changed or "configured"

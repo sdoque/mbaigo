@@ -23,11 +23,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
-	"errors"
 	"fmt"
-	"log"
+	"net/http"
 	"reflect"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/sdoque/mbaigo/forms"
@@ -62,16 +62,14 @@ func Unpack(data []byte, contentType string) (forms.Form, error) {
 		if len(trimmed) > 0 {
 			switch trimmed[0] {
 			case '{', '[':
-				log.Println("Detected JSON in text/plain payload.")
 				contentType = "application/json"
 			case '<':
-				log.Println("Detected XML in text/plain payload.")
 				contentType = "application/xml"
 			default:
-				return nil, errors.New("plain text content is neither valid JSON nor XML")
+				return nil, fmt.Errorf("plain text content is neither valid JSON nor XML")
 			}
 		} else {
-			return nil, errors.New("empty payload with content type text/plain")
+			return nil, fmt.Errorf("empty payload with content type text/plain")
 		}
 	}
 
@@ -79,28 +77,26 @@ func Unpack(data []byte, contentType string) (forms.Form, error) {
 	switch {
 	case strings.Contains(contentType, "application/json"):
 		if err := json.Unmarshal(data, &rawData); err != nil {
-			log.Printf("Error unmarshaling JSON: %v", err)
-			return nil, err
+			return nil, fmt.Errorf("error unmarshalling JSON: %w", err)
 		}
 	case strings.Contains(contentType, "application/xml"):
 		if err := xml.Unmarshal(data, &rawData); err != nil {
-			log.Printf("Error unmarshaling XML: %v", err)
-			return nil, err
+			return nil, fmt.Errorf("error unmarshalling XML: %w", err)
 		}
 	default:
-		return nil, errors.New("unsupported content type")
+		return nil, fmt.Errorf("unsupported content type")
 	}
 
 	// Retrieve form version
 	formVersion, ok := rawData["version"].(string)
 	if !ok {
-		return nil, errors.New("'version' key not found in data")
+		return nil, fmt.Errorf("'version' key not found in data")
 	}
 
 	// Look up the form type in the map
 	formType, exists := forms.FormTypeMap[formVersion]
 	if !exists {
-		return nil, errors.New("unsupported form version: " + formVersion)
+		return nil, fmt.Errorf("unsupported form version: %s", formVersion)
 	}
 
 	// Create a new instance of the form
@@ -110,13 +106,11 @@ func Unpack(data []byte, contentType string) (forms.Form, error) {
 	switch {
 	case strings.Contains(contentType, "application/json"):
 		if err := json.Unmarshal(data, formInstance); err != nil {
-			log.Printf("Error unmarshaling JSON into form: %v", err)
-			return nil, err
+			return nil, fmt.Errorf("error unmarshalling JSON into form: %w", err)
 		}
 	case strings.Contains(contentType, "application/xml"):
 		if err := xml.Unmarshal(data, formInstance); err != nil {
-			log.Printf("Error unmarshaling XML into form: %v", err)
-			return nil, err
+			return nil, fmt.Errorf("error unmarshalling XML into form: %w", err)
 		}
 	}
 
@@ -169,4 +163,32 @@ func IsPascalCase(s string) bool {
 // IsCamelCase returns true if the string starts with a lowercase letter.
 func IsCamelCase(s string) bool {
 	return IsFirstLetterLower(s)
+}
+
+func init() {
+	// Sets up a new global client with better defaults
+	// (the tests depends on this client too, and sometimes
+	// replaces it with a mock).
+	http.DefaultClient = &http.Client{
+		Timeout: time.Second * 30,
+	}
+}
+
+const userAgent string = "mbaigo"
+
+func sendHTTPReq(method string, url string, data []byte) (*http.Response, error) {
+	req, err := http.NewRequest(method, url, bytes.NewBuffer(data))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", userAgent)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("bad response: %d %s", resp.StatusCode, resp.Status)
+	}
+	return resp, nil
 }
