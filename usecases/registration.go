@@ -65,7 +65,7 @@ func RegisterServices(sys *components.System) {
 			newURL, err := components.GetRunningCoreSystemURL(sys, components.ServiceRegistrarName)
 			registrar.set(newURL) // should be empty on error anyway
 			if err != nil {
-				log.Println("find lead registrar:", err)
+				log.Println("failed to find lead registrar:", err)
 			}
 
 			select {
@@ -108,6 +108,9 @@ func RegisterServices(sys *components.System) {
 func registerService(sys *components.System, registrar string, ua *components.UnitAsset, serv *components.Service) (delay time.Duration, err error) {
 	delay = 15 * time.Second
 	if registrar == "" {
+		if serv.ID != 0 {
+			serv.ID = 0 // reset the service ID, so that a new registration (POST) will be made when the registrar is back
+		}
 		return
 	}
 

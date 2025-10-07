@@ -33,7 +33,7 @@ import (
 	"github.com/sdoque/mbaigo/forms"
 )
 
-// Pack serializes a form to a byte array for payolad shipment with serializaton format (sf) request
+// Pack serializes a form to a byte array for payload shipment with serialization format (sf) request
 func Pack(f forms.Form, contentType string) (data []byte, err error) {
 	switch contentType {
 	case "application/xml":
@@ -164,6 +164,8 @@ func IsPascalCase(s string) bool {
 func IsCamelCase(s string) bool {
 	return IsFirstLetterLower(s)
 }
+
+// ------- HTTP Client Tools -------
 
 func init() {
 	// Sets up a new global client with better defaults

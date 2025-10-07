@@ -41,20 +41,22 @@ type ConfigurableAsset struct {
 
 // templateOut is the struct used to prepare the systemconfig.json file
 type templateOut struct {
-	CName     string                  `json:"systemname"`
-	Assets    []ConfigurableAsset     `json:"unit_assets"`
-	Protocols map[string]int          `json:"protocolsNports"`
-	CCoreS    []components.CoreSystem `json:"coreSystems"`
+	CName      string                  `json:"systemname"`
+	LocalCloud string                  `json:"localcloud,omitempty"`
+	Assets     []ConfigurableAsset     `json:"unit_assets"`
+	Protocols  map[string]int          `json:"protocolsNports"`
+	CCoreS     []components.CoreSystem `json:"coreSystems"`
 }
 
 // configFileIn is used to extract out the information of the systemconfig.json file
 // Since it does not know about the details of the Thing, it does not unmarsahll this
 // information
 type configFileIn struct {
-	CName     string                  `json:"systemname"`
-	Protocols map[string]int          `json:"protocolsNports"`
-	CCoreS    []components.CoreSystem `json:"coreSystems"`
-	Resources []json.RawMessage       `json:"unit_assets"`
+	CName      string                  `json:"systemname"`
+	LocalCloud string                  `json:"localcloud,omitempty"`
+	Protocols  map[string]int          `json:"protocolsNports"`
+	CCoreS     []components.CoreSystem `json:"coreSystems"`
+	Resources  []json.RawMessage       `json:"unit_assets"`
 }
 
 var ErrNewConfig = errors.New("new config file was created")
@@ -91,6 +93,12 @@ func setupDefaultConfig(sys *components.System) (defaultConfig templateOut, err 
 
 	// prepare content of configuration file
 	defaultConfig.CName = sys.Name
+	for key, values := range sys.Husk.Details { // if the system has a LocalCloud detail, add it to the config file
+		if key == "LocalCloud" && len(values) > 0 {
+			defaultConfig.LocalCloud = values[0]
+			break
+		}
+	}
 	defaultConfig.Protocols = sys.Husk.ProtoPort
 	defaultConfig.Assets = []ConfigurableAsset{confAsset} // this is a list of unit assets
 
@@ -167,6 +175,13 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 	}
 
 	sys.Name = configurationIn.CName
+	// If the systemconfig file has a LocalCloud defined, add it to the system details
+	if configurationIn.LocalCloud != "" {
+		if sys.Husk.Details == nil {
+			sys.Husk.Details = make(map[string][]string)
+		}
+		sys.Husk.Details["LocalCloud"] = []string{configurationIn.LocalCloud}
+	}
 	sys.Husk.ProtoPort = configurationIn.Protocols
 	for _, ccore := range configurationIn.CCoreS {
 		newCore := ccore

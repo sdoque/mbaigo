@@ -73,6 +73,16 @@ func modelSystem(sys *components.System) (systemModel string) {
 	}
 	details := sys.Husk.Details
 	for key, values := range details {
+		if key == "LocalCloud" { // it is expected that only the System Registrars have those keys and all have the same name (if not the KGrapher will use the first one it finds)
+			if len(values) > 0 {
+				v := values[0]
+				if !(strings.HasPrefix(v, "<") && strings.HasSuffix(v, ">")) && !strings.HasPrefix(v, "alc:") {
+					v = "alc:" + v
+				}
+				systemModel += fmt.Sprintf("    afo:isContainedIn %s ;\n", v)
+			}
+			continue
+		}
 		for _, value := range values {
 			if !(strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")) {
 				value = "alc:" + value
