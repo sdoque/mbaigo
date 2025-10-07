@@ -20,18 +20,19 @@
 package usecases
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
 
+	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
 )
 
 // HTTPProcessSetRequest processes a Get request
+// TODO: this function should really return an error too and behave like everyone
+// else. And causing http.Errors is an ugly side effect.
 func HTTPProcessGetRequest(w http.ResponseWriter, r *http.Request, f forms.Form) {
 	if f == nil {
 		http.Error(w, "No payload found.", http.StatusNotFound)
@@ -47,46 +48,39 @@ func HTTPProcessGetRequest(w http.ResponseWriter, r *http.Request, f forms.Form)
 
 	responseData, err := Pack(f, bestContentType)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error packing response: %v", err), http.StatusInternalServerError)
+		log.Printf("Error packing response: %v", err)
+		http.Error(w, "Error packing response.", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", bestContentType)
 	w.WriteHeader(http.StatusOK)
-	w.Write(responseData)
+	_, err = w.Write(responseData)
+	if err != nil {
+		log.Printf("Error while writing response: %v", err)
+		http.Error(w, "Error writing response.", http.StatusInternalServerError)
+	}
 }
 
 // HTTPProcessSetRequest processes a SET request
-func HTTPProcessSetRequest(w http.ResponseWriter, req *http.Request) (f forms.SignalA_v1a, err error) {
-	defer req.Body.Close()
+func HTTPProcessSetRequest(w http.ResponseWriter, req *http.Request) (sig forms.SignalA_v1a, err error) {
 	bodyBytes, err := io.ReadAll(req.Body) // Use io.ReadAll instead of ioutil.ReadAll
 	if err != nil {
-		log.Printf("Error reading request body: %v", err)
+		err = fmt.Errorf("reading request body: %w", err)
 		return
 	}
-	var jsonData map[string]interface{}
-	err = json.Unmarshal(bodyBytes, &jsonData)
+	defer req.Body.Close()
+	headerContentType := req.Header.Get("Content-Type")
+	f, err := Unpack(bodyBytes, headerContentType)
 	if err != nil {
-		log.Printf("Error unmarshaling JSON data: %v", err)
 		return
 	}
-	formVersion, ok := jsonData["version"].(string)
+	temp, ok := f.(*forms.SignalA_v1a)
 	if !ok {
-		log.Printf("Error: 'version' key not found in JSON data")
+		err = fmt.Errorf("form is not of type SignalA_v1a")
 		return
 	}
-	switch formVersion {
-	case "SignalA_v1.0":
-		var sig forms.SignalA_v1a
-		err = json.Unmarshal(bodyBytes, &sig)
-		if err != nil {
-			log.Println("Unable to extract signal set request ")
-			return
-		}
-		f = sig
-	default:
-		err = errors.New("unsupported service set request form version")
-	}
+	sig = *temp // Stupid type conversion because return type was picked incorrectly
 	return
 }
 
@@ -108,7 +102,10 @@ func getBestContentType(acceptHeader string) string {
 
 		// Check for q-value in the MIME type
 		if len(parts) > 1 && strings.HasPrefix(parts[1], "q=") {
-			fmt.Sscanf(parts[1], "q=%f", &qValue)
+			_, err := fmt.Sscanf(parts[1], "q=%f", &qValue)
+			if err != nil {
+				continue
+			}
 		}
 
 		// Update the best content type if this one has a higher q-value
@@ -124,4 +121,44 @@ func getBestContentType(acceptHeader string) string {
 	}
 
 	return bestType
+}
+
+func RegisterMessenger(resp http.ResponseWriter, req *http.Request, sys *components.System) {
+	if req.Method != "POST" {
+		http.Error(resp, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		http.Error(resp, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	defer req.Body.Close()
+
+	// Won't bother logging the following errors as they are caused by bad/poor
+	// client requests, which we don't really care about on the server side.
+	form, err := Unpack(body, req.Header.Get("Content-Type"))
+	if err != nil {
+		http.Error(resp, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	registration, ok := form.(*forms.MessengerRegistration_v1)
+	if !ok {
+		http.Error(resp, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	if len(registration.Host) < 1 {
+		http.Error(resp, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+
+	sys.Mutex.Lock()
+	defer sys.Mutex.Unlock()
+	if _, found := sys.Messengers[registration.Host]; found {
+		// The system already knows the messenger, avoid re-storing it so that
+		// the error count don't get reset
+		return
+	}
+	sys.Messengers[registration.Host] = 0 // Registers the new messenger with zero errors
 }
