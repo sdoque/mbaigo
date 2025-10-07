@@ -57,6 +57,8 @@ func init() {
 	FormTypeMap["FileForm_v1"] = reflect.TypeOf(FileForm_v1{})
 }
 
+const fileDir string = "files"
+
 // TransferFile enables the transfer of different types files when the filename is given in the URL
 func TransferFile(w http.ResponseWriter, r *http.Request) {
 	// Parse the URL to ensure it's valid and to easily extract parts of it
@@ -81,6 +83,10 @@ func TransferFile(w http.ResponseWriter, r *http.Request) {
 		contentType = "application/zip"
 	case ".txt":
 		contentType = "text/plain"
+	case ".owl":
+		contentType = "application/rdf+xml"
+	case ".ttl":
+		contentType = "text/turtle"
 	case ".html", ".htm":
 		contentType = "text/html"
 	case ".csv":
@@ -90,7 +96,7 @@ func TransferFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Open the requested file from the ./files directory
-	dir := http.Dir("./files")
+	dir := http.Dir(fileDir)
 	reqFile, err := dir.Open(filename)
 	if err != nil {
 		log.Println("Requested file not found:", err)

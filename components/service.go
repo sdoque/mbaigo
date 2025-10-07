@@ -26,7 +26,7 @@ package components
 type Service struct {
 	ID            int                 `json:"-"`                  // Id assigned by the Service Registrar
 	Definition    string              `json:"definition"`         // Service definition or purpose
-	SubPath       string              `json:"-"`                  // The URL subpath after the resource's
+	SubPath       string              `json:"subpath"`            // The URL subpath after the resource's
 	Details       map[string][]string `json:"details"`            // Metadata or details about the service
 	RegPeriod     int                 `json:"registrationPeriod"` // The period until the registrar is expecting a sign of life
 	RegTimestamp  string              `json:"-"`                  // the creation date in the Service Registry to ensure that reRegistration is with the same record
@@ -37,7 +37,7 @@ type Service struct {
 	CUnit         string              `json:"costUnit"`           // cost unit
 }
 
-// type Services is a collection of service stucts
+// type Services is a collection of service structs
 type Services map[string]*Service
 
 // Merge method is used in the configuration use case to prevent the subpath or description to be changed or "configured"
@@ -113,10 +113,11 @@ func MergeDetails(map1, map2 map[string][]string) map[string][]string {
 
 // A Cervice is a consumed service
 type Cervice struct {
-	Definition string
-	Details    map[string][]string
-	Nodes      map[string][]string
-	Protos     []string
+	IReferentce string // Internal reference when consuming more than one service of the same type
+	Definition  string // Service definition or purpose
+	Details     map[string][]string
+	Nodes       map[string][]string
+	Protos      []string
 }
 
 // Cervises is a collection of "Cervice" structs

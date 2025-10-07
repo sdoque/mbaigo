@@ -20,15 +20,11 @@
 package usecases
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
-	"time"
+	"strconv"
 
 	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
@@ -45,8 +41,6 @@ func FillQuestForm(sys *components.System, res components.UnitAsset, sDef, proto
 	f.NewForm()
 	f.RequesterName = sys.Name
 	f.ServiceDefinition = sDef
-	// TODO: known bug on commit
-	// f.Protocol = append()
 	f.Protocol = protocol
 	f.Details = res.GetDetails()
 	return f
@@ -57,12 +51,12 @@ func ExtractQuestForm(bodyBytes []byte) (rec forms.ServiceQuest_v1, err error) {
 	var jsonData map[string]interface{}
 	err = json.Unmarshal(bodyBytes, &jsonData)
 	if err != nil {
-		log.Printf("Error unmarshaling JSON data: %v", err)
+		err = fmt.Errorf("unmarshalling JSON data: %v", err)
 		return
 	}
 	formVersion, ok := jsonData["version"].(string)
 	if !ok {
-		log.Printf("Error: 'version' key not found in JSON data")
+		err = fmt.Errorf("'version' key not found in JSON data")
 		return
 	}
 
@@ -71,62 +65,40 @@ func ExtractQuestForm(bodyBytes []byte) (rec forms.ServiceQuest_v1, err error) {
 		var f forms.ServiceQuest_v1
 		err = json.Unmarshal(bodyBytes, &f)
 		if err != nil {
-			log.Println("Unable to extract the discovery form request ")
+			err = fmt.Errorf("unable to extract the discovery form request ")
 			return
 		}
 		rec = f
 	default:
-		err = errors.New("unsupported service registration form version")
+		err = fmt.Errorf("unsupported service registration form version")
 	}
 	return
 }
 
 // Search4Service requests from the core systems the address of resources's services that meet the need
 func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocation forms.ServicePoint_v1, err error) {
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Create a new context, with a 2-second timeout
-	defer cancel()
 	// Create a new HTTP request to the Orchestrator system (for now the Service Registrar)
-	var orchestratorPointer *components.CoreSystem
-	for _, cSys := range sys.CoreS {
-		if cSys.Name == "orchestrator" {
-			orchestratorPointer = cSys
-		}
+	orURL, err := components.GetRunningCoreSystemURL(sys, "orchestrator")
+	if err != nil {
+		return
 	}
-
 	// prepare the payload to perform a service quest
-	oURL := orchestratorPointer.Url + "/squest"
+	orURL = orURL + "/squest"
 	jsonQF, err := json.MarshalIndent(qf, "", "  ")
 	if err != nil {
-		log.Printf("problem encountered when marshalling the service quest to the Orchestrator at %s\n", oURL)
-		return servLocation, err
+		return
 	}
-	// prepare the request
-	req, err := http.NewRequest(http.MethodPost, oURL, bytes.NewBuffer(jsonQF))
+	resp, err := sendHTTPReq(http.MethodPost, orURL, jsonQF)
 	if err != nil {
-		return servLocation, err
+		return
 	}
-	req.Header.Set("Content-Type", "application/json") // set the Content-Type header
-	req = req.WithContext(ctx)                         // associate the cancellable context with the request
-
-	// Send the request /////////////////////////////////
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return servLocation, err
-	}
-
 	defer resp.Body.Close()
 	// Read the response /////////////////////////////////
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return servLocation, err
+		return
 	}
-	servLocation, err = ExtractDiscoveryForm(body)
-	if err != nil {
-		return servLocation, err
-	}
-	return servLocation, err
+	return ExtractDiscoveryForm(body)
 }
 
 // Search4Services requests from the core systems the address of resources' services that meet the need
@@ -140,71 +112,104 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 		Details:           cer.Details,
 		Version:           "ServiceQuest_v1",
 	}
-
 	//pack the service quest form
 	qf, err := Pack(&questForm, "application/json")
 	if err != nil {
 		return err
 	}
-
 	// Search for an Orchestrator system within the local cloud
-	var orchestratorPointer *components.CoreSystem
-	for _, cSys := range sys.CoreS {
-		if cSys.Name == "orchestrator" {
-			orchestratorPointer = cSys
-		}
-	}
-	if orchestratorPointer == nil {
-		err = errors.New("failed to locate an Orchestrator")
-		return err
-	}
-	oURL := orchestratorPointer.Url + "/squest"
-
-	// Prepare the request to the Orchestrator
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Create a new context, with a 2-second timeout
-	defer cancel()
-	req, err := http.NewRequest(http.MethodPost, oURL, bytes.NewBuffer(qf))
+	orURL, err := components.GetRunningCoreSystemURL(sys, "orchestrator")
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json") // set the Content-Type header
-	req = req.WithContext(ctx)                         // associate the cancellable context with the request
-
-	// Send the request to the Orchestrator /////////////////////////////////
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	if orURL == "" {
+		return fmt.Errorf("failed to locate an orchestrator")
+	}
+	orURL = orURL + "/squest"
+	// Prepare the request to the orchestrator
+	resp, err := sendHTTPReq(http.MethodPost, orURL, qf)
 	if err != nil {
 		return err
 	}
-
 	defer resp.Body.Close()
-
-	// Check if the status code indicates an error (anything outside the 200–299 range)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("received non-2xx status code: %d, response: %s from the Orchestrator", resp.StatusCode, http.StatusText(resp.StatusCode))
-	}
-
 	// Read the response /////////////////////////////////
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
-
-	headerContentTtype := resp.Header.Get("Content-Type")
-	discoveryForm, err := Unpack(bodyBytes, headerContentTtype)
+	headerContentType := resp.Header.Get("Content-Type")
+	discoveryForm, err := Unpack(bodyBytes, headerContentType)
 	if err != nil {
-		log.Printf("error extracting the discovery request %v\n", err)
+		return err
 	}
-
 	// Perform a type assertion to convert the returned Form to ServicePoint_v1
 	df, ok := discoveryForm.(*forms.ServicePoint_v1)
 	if !ok {
-		fmt.Println("Problem unpacking the service discovery request form")
-		return
+		return fmt.Errorf("unable to unpack discovery request form")
 	}
-
 	cer.Nodes[df.ServNode] = append(cer.Nodes[df.ServNode], df.ServLocation)
-	return err
+	return nil
+}
+
+func Search4MultipleServices(cer *components.Cervice, sys *components.System) (err error) {
+	questForm := forms.ServiceQuest_v1{
+		SysId:             0,
+		RequesterName:     sys.Name,
+		ServiceDefinition: cer.Definition,
+		Protocol:          "http",
+		Details:           cer.Details,
+		Version:           "ServiceQuest_v1",
+	}
+	// Pack the service quest form
+	qf, err := Pack(&questForm, "application/json")
+	if err != nil {
+		return err
+	}
+	// Search for an Orchestrator system within the local cloud
+	orURL, err := components.GetRunningCoreSystemURL(sys, "orchestrator")
+	if err != nil {
+		return err
+	}
+	if orURL == "" {
+		return fmt.Errorf("failed to locate an orchestrator")
+	}
+	orURL = orURL + "/squests"
+	// Prepare the request to the orchestrator
+	resp, err := sendHTTPReq(http.MethodPost, orURL, qf)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	// Read the response /////////////////////////////////
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	headerContentType := resp.Header.Get("Content-Type")
+	discoveryForm, err := Unpack(bodyBytes, headerContentType)
+	if err != nil {
+		return err
+	}
+	srList, ok := discoveryForm.(*forms.ServiceRecordList_v1)
+	if !ok {
+		return fmt.Errorf("unable to unpack discovery request form")
+	}
+	for _, values := range srList.List {
+		sp := convertToServicePoint(values)
+		cer.Nodes[sp.ServNode] = append(cer.Nodes[sp.ServNode], sp.ServLocation)
+	}
+	return nil
+}
+
+func convertToServicePoint(sr forms.ServiceRecord_v1) (sp forms.ServicePoint_v1) {
+	rec := sr
+	sp.NewForm()
+	sp.ProviderName = rec.SystemName
+	sp.ServiceDefinition = rec.ServiceDefinition
+	sp.Details = rec.Details
+	sp.ServLocation = "http://" + rec.IPAddresses[0] + ":" + strconv.Itoa(rec.ProtoPort["http"]) + "/" + rec.SystemName + "/" + rec.SubPath
+	sp.ServNode = rec.ServiceNode
+	return
 }
 
 // FillDiscoveredServices returns a json data byte array with a slice of matching services (e.g., Service Registrar)
@@ -218,7 +223,7 @@ func FillDiscoveredServices(dsList []forms.ServiceRecord_v1, version string) (f 
 			dslForm.List = append(dslForm.List, *sf)
 		}
 	default:
-		err = errors.New("unsupported service registration form version")
+		err = fmt.Errorf("unsupported service registration form version")
 		return
 	}
 	return
@@ -229,12 +234,12 @@ func ExtractDiscoveryForm(bodyBytes []byte) (sLoc forms.ServicePoint_v1, err err
 	var jsonData map[string]interface{}
 	err = json.Unmarshal(bodyBytes, &jsonData)
 	if err != nil {
-		log.Printf("Error unmarshaling JSON data: %v", err)
+		err = fmt.Errorf("unmarshalling JSON data: %v", err)
 		return
 	}
 	formVersion, ok := jsonData["version"].(string)
 	if !ok {
-		log.Printf("Error: 'version' key not found in JSON data")
+		err = fmt.Errorf("'version' key not found in JSON data")
 		return
 	}
 	switch formVersion {
@@ -243,12 +248,12 @@ func ExtractDiscoveryForm(bodyBytes []byte) (sLoc forms.ServicePoint_v1, err err
 		f.NewForm()
 		err = json.Unmarshal(bodyBytes, &f)
 		if err != nil {
-			log.Println("Unable to extract registration request ")
+			err = fmt.Errorf("unmarshalling JSON data: %v", err)
 			return
 		}
 		sLoc = f
 	default:
-		err = errors.New("unsupported service discovery form version")
+		err = fmt.Errorf("unsupported service discovery form version")
 	}
 	return
 }

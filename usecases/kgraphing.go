@@ -29,6 +29,7 @@ package usecases
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -45,7 +46,10 @@ func KGraphing(w http.ResponseWriter, req *http.Request, sys *components.System)
 	rdf += modelUAsset(sys)
 
 	w.Header().Set("Content-Type", "text/turtle")
-	w.Write([]byte(rdf))
+	_, err := w.Write([]byte(rdf))
+	if err != nil {
+		log.Println("Failed to write KGraphing information: ", err)
+	}
 }
 
 func prefixes() (description string) {
@@ -69,6 +73,16 @@ func modelSystem(sys *components.System) (systemModel string) {
 	}
 	details := sys.Husk.Details
 	for key, values := range details {
+		if key == "LocalCloud" { // it is expected that only the System Registrars have those keys and all have the same name (if not the KGrapher will use the first one it finds)
+			if len(values) > 0 {
+				v := values[0]
+				if !(strings.HasPrefix(v, "<") && strings.HasSuffix(v, ">")) && !strings.HasPrefix(v, "alc:") {
+					v = "alc:" + v
+				}
+				systemModel += fmt.Sprintf("    afo:isContainedIn %s ;\n", v)
+			}
+			continue
+		}
 		for _, value := range values {
 			if !(strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")) {
 				value = "alc:" + value
@@ -123,6 +137,23 @@ func modelUAsset(sys *components.System) string {
 
 		details := (*asset).GetDetails()
 		for key, values := range details {
+			fmt.Printf("key: %s, values: %v\n", key, values)
+			if strings.HasSuffix(key, ":") {
+				for _, value := range values {
+					if value == "" {
+						log.Printf("Warning: empty value for key '%s' in asset '%s'. Skipping.", key, assetName)
+						continue
+					}
+					relationship := value[0] // byte
+					reference := value[1:]   // string (from second character onward)
+
+					switch relationship {
+					case '=': // single quotes for byte comparison
+						assetModels += fmt.Sprintf("    owl:sameAs %s ;\n", reference)
+					}
+				}
+				continue
+			}
 			for _, value := range values {
 				if !(strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")) {
 					value = "alc:" + value
@@ -145,7 +176,7 @@ func modelUAsset(sys *components.System) string {
 		servicesLen := len(services)
 		serviceCount := 0
 		for _, service := range services {
-			assetModels += fmt.Sprintf("    afo:providesService alc:%s_%s_%s", sName, assetName, service.Definition)
+			assetModels += fmt.Sprintf("    afo:providesService alc:%s_%s_%s", sName, assetName, service.SubPath)
 			serviceCount++
 			if serviceCount < servicesLen {
 				assetModels += " ;\n"
@@ -230,7 +261,7 @@ func modelServices(sName string, ua *components.UnitAsset, sys *components.Syste
 		servicesModel += fmt.Sprintf("    afo:hasServiceDefinition \"%s\" ;\n", service.Definition)
 		for protocol, port := range sys.Husk.ProtoPort {
 			if port != 0 {
-				addr := protocol + "://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(port) + "/" + sys.Name + "/" + assetName + "/" + service.Definition
+				addr := protocol + "://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(port) + "/" + sys.Name + "/" + assetName + "/" + service.SubPath
 				servicesModel += fmt.Sprintf("    afo:hasUrl <%s> ;\n", addr)
 			}
 		}
