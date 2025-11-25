@@ -45,7 +45,7 @@ type System struct {
 	Sigs          chan os.Signal        // channel to initiate a graceful shutdown when Ctrl+C is pressed
 	RegistrarChan chan *CoreSystem      // channel for the lead service registrar
 	// Tracks which hosts to send log msgs to (and how many errors were encountered, before being removed)
-	Messengers map[string]int			// list of messenger systems
+	Messengers map[string]int // list of messenger systems
 	Mutex      *sync.Mutex
 }
 
@@ -66,7 +66,7 @@ func NewSystem(name string, ctx context.Context) System {
 	newSystem.Host = NewDevice()
 	newSystem.UAssets = make(map[string]*UnitAsset) // initialize UAsset as an empty map
 	// Since the return System isn't a pointer (incorrectly), this map needs to
-	// be a pointer instead (usually not normal) and initialised (usually not needed)
+	// be a pointer instead (usually not normal) and initialized (usually not needed)
 	// in order to avoid linter errors.
 	// The errors is due to this func returning a copy of newSystem and attempts
 	// to copy the mutex too, but it's not allowed for sync objects.
