@@ -31,6 +31,7 @@ import (
 // An Arrowhead husk enwraps the "thing" and has specific properties
 type Husk struct {
 	Description string              `json:"-"`
+	Host        *HostingDevice      // the system runs on a device
 	Pkey        *ecdsa.PrivateKey   `json:"-"`
 	Certificate string              `json:"-"`
 	CA_cert     string              `json:"-"`

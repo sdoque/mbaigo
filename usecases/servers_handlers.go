@@ -94,7 +94,7 @@ func SetoutServers(sys *components.System) error {
 		}()
 
 		// Inform the user how to access the system's web server (black box documentation)
-		httpsURL := "https://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(httpsPort) + "/" + sys.Name
+		httpsURL := "https://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(httpsPort) + "/" + sys.Name
 		log.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpsURL)
 
 		// Start and monitor the server
@@ -125,7 +125,7 @@ func SetoutServers(sys *components.System) error {
 		}()
 
 		// Inform the user how to access the system's web server (black box documentation)
-		httpURL := "http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(httpPort) + "/" + sys.Name
+		httpURL := "http://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(httpPort) + "/" + sys.Name
 		log.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpURL)
 
 		// Start and monitor the server

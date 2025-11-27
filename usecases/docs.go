@@ -52,7 +52,7 @@ func SysHateoas(w http.ResponseWriter, req *http.Request, sys components.System)
 		for key, values := range (*unitasset).GetDetails() {
 			metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
 		}
-		text += "<li><b><a href=\"http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + (*unitasset).GetName() + "/doc" + "\">" + (*unitasset).GetName() + "</a></b> with details " + metaservice + "</li>\n"
+		text += "<li><b><a href=\"http://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + (*unitasset).GetName() + "/doc" + "\">" + (*unitasset).GetName() + "</a></b> with details " + metaservice + "</li>\n"
 	}
 
 	// This part of the code is commented out because it is not used in the current implementation because the assets on a PLC might have different services
@@ -75,7 +75,7 @@ func SysHateoas(w http.ResponseWriter, req *http.Request, sys components.System)
 	}
 
 	text += "</ul> <p> of the device whose IP addresses are (upon startup):</p><ul>\n"
-	for _, IPAddre := range sys.Host.IPAddresses {
+	for _, IPAddre := range sys.Husk.Host.IPAddresses {
 		text += "<li> " + IPAddre + "</em></li>\n"
 	}
 
@@ -104,7 +104,7 @@ func ResHateoas(w http.ResponseWriter, req *http.Request, ua components.UnitAsse
 		for key, values := range service.Details {
 			metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
 		}
-		text += "<li><a href=\"http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + uaName + "/" + service.SubPath + "/doc\">" + service.Definition + "</a> with details: " + metaservice + "</li>\n"
+		text += "<li><a href=\"http://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + uaName + "/" + service.SubPath + "/doc\">" + service.Definition + "</a> with details: " + metaservice + "</li>\n"
 	}
 
 	text += "</ul></body></html>"
@@ -125,7 +125,7 @@ func ServiceHateoas(w http.ResponseWriter, req *http.Request, serv components.Se
 	for key, values := range serv.Details {
 		metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
 	}
-	text += "The service <b><a href=\"http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + uaName + "/" + serv.SubPath + "\">" + serv.Definition + "</a> </b> " + serv.Description + " and has the details " + metaservice
+	text += "The service <b><a href=\"http://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + uaName + "/" + serv.SubPath + "\">" + serv.Definition + "</a> </b> " + serv.Description + " and has the details " + metaservice
 	_, err := w.Write([]byte(text))
 	if err != nil {
 		log.Printf("Error while writing response body for ServiceHateoas: %v", err)

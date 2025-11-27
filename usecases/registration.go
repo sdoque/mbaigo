@@ -224,8 +224,8 @@ func serviceRegistrationForm(sys *components.System, ua *components.UnitAsset, s
 		sr.Id = serv.ID
 		sr.ServiceDefinition = serv.Definition
 		sr.SystemName = sys.Name
-		sr.ServiceNode = sys.Host.Name + "_" + sys.Name + "_" + resName + "_" + serv.Definition
-		sr.IPAddresses = sys.Host.IPAddresses
+		sr.ServiceNode = sys.Husk.Host.Name + "_" + sys.Name + "_" + resName + "_" + serv.Definition
+		sr.IPAddresses = sys.Husk.Host.IPAddresses
 		sr.ProtoPort = make(map[string]int) // initialize the map
 		for key, port := range sys.Husk.ProtoPort {
 			if port != 0 { // exclude entries where the port is 0

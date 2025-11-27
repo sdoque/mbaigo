@@ -37,7 +37,6 @@ import (
 // System struct aggregates an Arrowhead compliant system
 type System struct {
 	Name          string                `json:"systemName"`
-	Host          *HostingDevice        // the system runs on a device
 	Husk          *Husk                 // the system aggregates a "husk" (a wrapper or a shell)
 	UAssets       map[string]*UnitAsset // the system aggregates "asset", which is made up of one or more unit-asset
 	CoreS         []*CoreSystem         // the system is part of a local cloud with mandatory core systems
@@ -63,7 +62,6 @@ func NewSystem(name string, ctx context.Context) System {
 	newSystem.Sigs = make(chan os.Signal, 1)
 	signal.Notify(newSystem.Sigs, syscall.SIGINT)
 	newSystem.RegistrarChan = make(chan *CoreSystem, 1)
-	newSystem.Host = NewDevice()
 	newSystem.UAssets = make(map[string]*UnitAsset) // initialize UAsset as an empty map
 	// Since the return System isn't a pointer (incorrectly), this map needs to
 	// be a pointer instead (usually not normal) and initialized (usually not needed)
