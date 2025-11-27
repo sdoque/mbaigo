@@ -246,49 +246,27 @@ func modelCervices(sName string, ua *components.UnitAsset) string {
 		cerviceModel += fmt.Sprintf("    afo:consumes \"%s\" ;\n", cervice.Definition)
 
 		details := cervice.Details
-		keyCounter := 0
-		keysLen := len(details)
+		// keyCounter := 0
+		// keysLen := len(details)
 		for key, values := range details {
-			valuesCounter := 0
-			valuesLen := len(values)
 			for _, value := range values {
 				if !(strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")) {
 					value = "alc:" + value
 				}
-				cerviceModel += fmt.Sprintf("    alc:has%s %s", key, value)
-				valuesCounter++
-				if valuesCounter < valuesLen {
-					cerviceModel += " ;\n"
-				}
-			}
-			keyCounter++
-			if keyCounter < keysLen {
-				cerviceModel += " ;\n"
+				cerviceModel += fmt.Sprintf("    alc:has%s %s ;\n", key, value)
 			}
 		}
 
 		// list of providers
-		providersCount := len(cervice.Nodes)
-		pCounter := 0
+		// and for providers:
 		for pName, provider := range cervice.Nodes {
 			cerviceModel += fmt.Sprintf("    afo:consumes alc:%s ;\n", pName)
-			uCounter := 0
-			urlCount := len(provider)
 			for _, url := range provider {
-				cerviceModel += fmt.Sprintf("    afo:fromUrl <%s>", url)
-				uCounter++
-				if uCounter < urlCount {
-					cerviceModel += " ;\n"
-				}
-			}
-			pCounter++
-			if pCounter < providersCount {
-				cerviceModel += " ;\n"
+				cerviceModel += fmt.Sprintf("    afo:fromUrl <%s> ;\n", url)
 			}
 		}
 
 		cerviceModel = finalizeBlock(cerviceModel)
-		cervicesModel += cerviceModel
 	}
 
 	return cervicesModel
