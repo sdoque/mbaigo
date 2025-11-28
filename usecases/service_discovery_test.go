@@ -291,9 +291,9 @@ func TestSearch4Services(t *testing.T) {
 			true,
 			func() (cer *components.Cervice, sys components.System) {
 				sys = createTestSystem(false)
-				for i, cs := range sys.CoreS {
+				for i, cs := range sys.Husk.CoreS {
 					if cs.Name == "orchestrator" {
-						(*sys.CoreS[i]).Url = ""
+						(*sys.Husk.CoreS[i]).Url = ""
 					}
 				}
 				cer = (*sys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
@@ -585,9 +585,9 @@ func TestSearch4MultipleServices(t *testing.T) {
 		testCer := (*testSys.UAssets["testUnitAsset"]).GetCervices()["testCerv"]
 
 		if testCase.emptyUrl == true {
-			for i, cs := range testSys.CoreS {
+			for i, cs := range testSys.Husk.CoreS {
 				if cs.Name == "orchestrator" {
-					(*testSys.CoreS[i]).Url = ""
+					(*testSys.Husk.CoreS[i]).Url = ""
 				}
 			}
 		}

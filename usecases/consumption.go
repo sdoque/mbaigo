@@ -114,7 +114,7 @@ func Log(sys *components.System, lvl forms.MessageLevel, msg string, args ...any
 	defer sys.Mutex.Unlock()
 
 	// Iterate over all messengers and try sending a copy of the log msg
-	for host, errors := range sys.Messengers {
+	for host, errors := range sys.Husk.Messengers {
 		// Lazy-load the packed body, only at the first iteration
 		if body == nil {
 			var err error
@@ -132,10 +132,10 @@ func Log(sys *components.System, lvl forms.MessageLevel, msg string, args ...any
 		}
 		if errCount >= messengerMaxErrors {
 			// Too many errors indicates a problematic messenger
-			delete(sys.Messengers, host)
+			delete(sys.Husk.Messengers, host)
 			continue
 		}
-		sys.Messengers[host] = errCount
+		sys.Husk.Messengers[host] = errCount
 	}
 }
 

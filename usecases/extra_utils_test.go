@@ -175,7 +175,7 @@ func createTestSystem(broken bool) (sys components.System) {
 			Name: "orchestrator",
 			Url:  "https://orchestator",
 		}
-		sys.CoreS = []*components.CoreSystem{
+		sys.Husk.CoreS = []*components.CoreSystem{
 			leadingRegistrar,
 			orchestrator,
 			test,
@@ -185,7 +185,7 @@ func createTestSystem(broken bool) (sys components.System) {
 			Name: "orchestrator",
 			Url:  brokenUrl,
 		}
-		sys.CoreS = []*components.CoreSystem{
+		sys.Husk.CoreS = []*components.CoreSystem{
 			leadingRegistrar,
 			orchestrator,
 			test,

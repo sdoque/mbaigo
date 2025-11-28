@@ -479,25 +479,25 @@ func TestLog(t *testing.T) {
 	sys := components.NewSystem(testLogSys, context.Background())
 
 	// Case: increase error count by one
-	sys.Messengers[testLogHost] = 0
+	sys.Husk.Messengers[testLogHost] = 0
 	Log(&sys, forms.LevelDebug, testLogMsg)
-	if got, want := sys.Messengers[testLogHost], 1; got != want {
+	if got, want := sys.Husk.Messengers[testLogHost], 1; got != want {
 		t.Errorf("expected error count %d, got %d", want, got)
 	}
 
 	// Case: removes messenger after too many errors
-	sys.Messengers[testLogHost] = messengerMaxErrors
+	sys.Husk.Messengers[testLogHost] = messengerMaxErrors
 	Log(&sys, forms.LevelDebug, testLogMsg)
-	_, found := sys.Messengers[testLogHost]
+	_, found := sys.Husk.Messengers[testLogHost]
 	if found {
 		t.Errorf("expected messenger being removed")
 	}
 
 	// Case: transfer ok
 	mock.setError(nil)
-	sys.Messengers[testLogHost] = 0
+	sys.Husk.Messengers[testLogHost] = 0
 	Log(&sys, forms.LevelDebug, testLogMsg)
-	if got, want := sys.Messengers[testLogHost], 0; got != want {
+	if got, want := sys.Husk.Messengers[testLogHost], 0; got != want {
 		t.Errorf("expected error count %d, got %d", want, got)
 	}
 }

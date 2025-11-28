@@ -161,14 +161,14 @@ func TestGetRunningCoreSystem(t *testing.T) {
 	sys := NewSystem(name, context.Background())
 
 	// Case: return error for empty core system list (and should not match itself)
-	if len(sys.CoreS) != 0 {
-		t.Fatalf("expected no core systems, had %d in list", len(sys.CoreS))
+	if len(sys.Husk.CoreS) != 0 {
+		t.Fatalf("expected no core systems, had %d in list", len(sys.Husk.CoreS))
 	}
 	_, err := GetRunningCoreSystemURL(&sys, name)
 	if err == nil {
 		t.Error("expected error, got nil")
 	}
-	sys.CoreS = []*CoreSystem{coreReg, coreFake}
+	sys.Husk.CoreS = []*CoreSystem{coreReg, coreFake}
 
 	for _, test := range tableGetRunningCoreSystem {
 		coreReg.Url = coreRegURL // reset URLs after testing url.Parse() errors

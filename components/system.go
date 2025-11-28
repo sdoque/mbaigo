@@ -36,16 +36,12 @@ import (
 
 // System struct aggregates an Arrowhead compliant system
 type System struct {
-	Name          string                `json:"systemName"`
-	Husk          *Husk                 // the system aggregates a "husk" (a wrapper or a shell)
-	UAssets       map[string]*UnitAsset // the system aggregates "asset", which is made up of one or more unit-asset
-	CoreS         []*CoreSystem         // the system is part of a local cloud with mandatory core systems
-	Ctx           context.Context       // create a context that can be cancelled
-	Sigs          chan os.Signal        // channel to initiate a graceful shutdown when Ctrl+C is pressed
-	RegistrarChan chan *CoreSystem      // channel for the lead service registrar
-	// Tracks which hosts to send log msgs to (and how many errors were encountered, before being removed)
-	Messengers map[string]int // list of messenger systems
-	Mutex      *sync.Mutex
+	Name    string                `json:"systemName"`
+	Husk    *Husk                 // the system aggregates a "husk" (a wrapper or a shell)
+	UAssets map[string]*UnitAsset // the system aggregates "asset", which is made up of one or more unit-asset
+	Ctx     context.Context       // create a context that can be cancelled
+	Sigs    chan os.Signal        // channel to initiate a graceful shutdown when Ctrl+C is pressed
+	Mutex   *sync.Mutex
 }
 
 // CoreSystem struct holds details about the core system included in the configuration file
@@ -61,7 +57,6 @@ func NewSystem(name string, ctx context.Context) System {
 	newSystem.Ctx = ctx
 	newSystem.Sigs = make(chan os.Signal, 1)
 	signal.Notify(newSystem.Sigs, syscall.SIGINT)
-	newSystem.RegistrarChan = make(chan *CoreSystem, 1)
 	newSystem.UAssets = make(map[string]*UnitAsset) // initialize UAsset as an empty map
 	// Since the return System isn't a pointer (incorrectly), this map needs to
 	// be a pointer instead (usually not normal) and initialized (usually not needed)
@@ -69,7 +64,6 @@ func NewSystem(name string, ctx context.Context) System {
 	// The errors is due to this func returning a copy of newSystem and attempts
 	// to copy the mutex too, but it's not allowed for sync objects.
 	// Reference: https://stackoverflow.com/questions/37242009/function-returns-lock-by-value
-	newSystem.Messengers = make(map[string]int)
 	newSystem.Mutex = &sync.Mutex{}
 	return newSystem
 }
@@ -99,7 +93,7 @@ func GetRunningCoreSystemURL(sys *System, systemType string) (string, error) {
 	// and then return this error if no matching system was found.
 	var lastErr error
 
-	for _, core := range sys.CoreS {
+	for _, core := range sys.Husk.CoreS {
 		// Ignore unrelated systems
 		if core.Name != systemType {
 			continue

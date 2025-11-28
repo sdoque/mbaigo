@@ -155,10 +155,10 @@ func RegisterMessenger(resp http.ResponseWriter, req *http.Request, sys *compone
 
 	sys.Mutex.Lock()
 	defer sys.Mutex.Unlock()
-	if _, found := sys.Messengers[registration.Host]; found {
+	if _, found := sys.Husk.Messengers[registration.Host]; found {
 		// The system already knows the messenger, avoid re-storing it so that
 		// the error count don't get reset
 		return
 	}
-	sys.Messengers[registration.Host] = 0 // Registers the new messenger with zero errors
+	sys.Husk.Messengers[registration.Host] = 0 // Registers the new messenger with zero errors
 }

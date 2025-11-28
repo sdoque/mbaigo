@@ -228,21 +228,21 @@ func TestRegisterMessenger(t *testing.T) {
 	}
 
 	// Verify the messenger was registered from the last test case
-	errors, found := sys.Messengers[testMessenger]
+	errors, found := sys.Husk.Messengers[testMessenger]
 	if errors != 0 || found == false {
 		t.Errorf("expected registered messenger, found none")
 	}
 
 	// Verify duplicate registration doesn't lose error count
 	errCount := -1
-	sys.Messengers[testMessenger] = errCount
+	sys.Husk.Messengers[testMessenger] = errCount
 	res := testFunc(http.MethodPost, "application/json",
 		io.NopCloser(strings.NewReader(testRegMesForm)),
 	)
 	if got, want := res.StatusCode, http.StatusOK; got != want {
 		t.Errorf("expected status %d, got %d", want, got)
 	}
-	if got, want := sys.Messengers[testMessenger], errCount; got != want {
+	if got, want := sys.Husk.Messengers[testMessenger], errCount; got != want {
 		t.Errorf("expected error count %d, got %d", want, got)
 	}
 }
