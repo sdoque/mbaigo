@@ -21,7 +21,8 @@
 // the data exchanged maintains a consistent structure, facilitating seamless
 // integration and processing across system boundaries.
 
-// Cost forms are cost related schemas for a specific service.
+// Cost forms are the cost related schemas for a specific service.
+// Carbon footprint forms are the carbon footprint related schemas for a specific service.
 
 package forms
 
@@ -30,6 +31,7 @@ import (
 	"time"
 )
 
+// ActivityCostForm_v1 struct defines the schema for activity cost data
 type ActivityCostForm_v1 struct {
 	Activity  string    `json:"activity"`
 	Cost      float64   `json:"cost"`
@@ -51,3 +53,30 @@ func (f *ActivityCostForm_v1) FormVersion() string {
 func init() {
 	FormTypeMap["ActivityCostForm_v1"] = reflect.TypeOf(ActivityCostForm_v1{})
 }
+
+///////////////////////////////////////////////////////////////////////////////
+
+// CarbonFootprintForm_v1 struct defines the schema for carbon footprint data
+type CarbonFootprintForm_v1 struct {
+	Activity  string    `json:"activity"`
+	Footprint float64   `json:"footprint"` // in metric tonnes
+	Unit      string    `json:"unit"`
+	Timestamp time.Time `json:"timestamp"`
+	Version   string    `json:"version"`
+}
+
+func (f *CarbonFootprintForm_v1) NewForm() Form {
+	f.Version = "CarbonFootprintForm_v1"
+	return f
+}
+
+func (f *CarbonFootprintForm_v1) FormVersion() string {
+	return f.Version
+}
+
+// Register CarbonFootprintForm_v1 in the formTypeMap
+func init() {
+	FormTypeMap["CarbonFootprintForm_v1"] = reflect.TypeOf(CarbonFootprintForm_v1{})
+}
+
+///////////////////////////////////////////////////////////////////////////////

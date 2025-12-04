@@ -263,6 +263,13 @@ func handleFiveParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 		} else {
 			http.Error(w, "Service not found", http.StatusNotFound)
 		}
+	case "cfootprint":
+		service := findServiceByDefinition(uAsset.GetServices(), servicePath)
+		if service != nil {
+			FCServices(w, r, &uAsset, servicePath)
+		} else {
+			http.Error(w, "Service not found", http.StatusNotFound)
+		}
 	default:
 		uAsset.Serving(w, r, servicePath)
 	}
