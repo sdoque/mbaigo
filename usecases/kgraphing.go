@@ -43,6 +43,7 @@ func KGraphing(w http.ResponseWriter, req *http.Request, sys *components.System)
 	rdf := prefixes()
 	rdf += modelSystem(sys)
 	rdf += modelHusk(sys)
+	rdf += modelEndpoints(sys)
 	rdf += modelHost(sys)
 	rdf += modelUAsset(sys)
 
@@ -76,6 +77,18 @@ func finalizeBlock(block string) string {
 	}
 
 	return block + " .\n\n"
+}
+
+// endpointLocalName builds a local name for an Endpoint instance based on
+// host, system, protocol, and port, so we can refer to the same endpoint
+// from Husk and Service descriptions.
+func endpointLocalName(sys *components.System, protocol string, port int) string {
+	return fmt.Sprintf("%s_%s_%s_%d_Endpoint",
+		sys.Husk.Host.Name,
+		sys.Name,
+		protocol,
+		port,
+	)
 }
 
 // modelSystem creates a knowledge graph of the system that aggregates the husk and unit assets
@@ -116,20 +129,13 @@ func modelHusk(sys *components.System) string {
 	// Host IRI is just alc:<HostName>, not alc:<HostName>_Host
 	huskModel += fmt.Sprintf("    afo:runsOnHost alc:%s ;\n", sys.Husk.Host.Name)
 
-	protoCount := 0
-	ppStart := false
+	// For each protocol/port pair, link the Husk to an Endpoint instance
 	for protocol, port := range sys.Husk.ProtoPort {
-		if port != 0 {
-			if protoCount > 0 && ppStart {
-				huskModel += " ;\n"
-			}
-			ppStart = true
-			huskModel += "    afo:communicatesOver [\n"
-			huskModel += fmt.Sprintf("        afo:usesProtocol \"%s\" ;\n", protocol)
-			huskModel += fmt.Sprintf("        afo:usesPort %d \n", port)
-			huskModel += "    ] ;\n"
+		if port == 0 {
+			continue
 		}
-		protoCount++
+		eName := endpointLocalName(sys, protocol, port)
+		huskModel += fmt.Sprintf("    afo:communicatesOver alc:%s ;\n", eName)
 	}
 
 	details := sys.Husk.Details
@@ -167,6 +173,33 @@ func modelHost(sys *components.System) string {
 
 	hostModel = finalizeBlock(hostModel)
 	return hostModel
+}
+
+// modelEndpoints creates a knowledge graph of the (host, protocol, port)
+// combinations as first-class afo:Endpoint instances.
+func modelEndpoints(sys *components.System) string {
+	var endpointModels string
+
+	for protocol, port := range sys.Husk.ProtoPort {
+		if port == 0 {
+			continue
+		}
+
+		eName := endpointLocalName(sys, protocol, port)
+		var endpointModel string
+
+		endpointModel += fmt.Sprintf("alc:%s a afo:Endpoint ;\n", eName)
+		endpointModel += fmt.Sprintf("    afo:usesProtocol \"%s\" ;\n", protocol)
+		endpointModel += fmt.Sprintf("    afo:usesPort %d ;\n", port)
+		endpointModel += fmt.Sprintf("    afo:onHost alc:%s ;\n", sys.Husk.Host.Name)
+		// Optional: base path if you want it (/%system name%)
+		// endpointModel += fmt.Sprintf("    afo:hasBasePath \"/%s\" ;\n", sys.Name)
+
+		endpointModel = finalizeBlock(endpointModel)
+		endpointModels += endpointModel
+	}
+
+	return endpointModels
 }
 
 // modelUAsset creates a knowledge graph of each unit assets and its consumed and provided services
@@ -281,37 +314,51 @@ func modelServices(sName string, ua *components.UnitAsset, sys *components.Syste
 	services := asset.GetServices()
 
 	for _, service := range services {
-		// IRI is based on service.Definition, matching UnitAsset's providesService
-		servicesModel += fmt.Sprintf("alc:%s_%s_%s a afo:Service ;\n", sName, assetName, service.Definition)
-		servicesModel += fmt.Sprintf("    afo:hasName \"%s/%s\" ;\n", assetName, service.Definition)
-		servicesModel += fmt.Sprintf("    afo:hasServiceDefinition \"%s\" ;\n", service.Definition)
+		var serviceModel string
 
+		// IRI is based on service.Definition, matching UnitAsset's providesService
+		serviceModel += fmt.Sprintf("alc:%s_%s_%s a afo:Service ;\n", sName, assetName, service.Definition)
+		serviceModel += fmt.Sprintf("    afo:hasName \"%s/%s\" ;\n", assetName, service.Definition)
+		serviceModel += fmt.Sprintf("    afo:hasServiceDefinition \"%s\" ;\n", service.Definition)
+
+		// For each protocol/port, link to the Endpoint and give a URL
 		for protocol, port := range sys.Husk.ProtoPort {
-			if port != 0 {
-				addr := protocol + "://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(port) + "/" + sys.Name + "/" + assetName + "/" + service.SubPath
-				servicesModel += fmt.Sprintf("    afo:hasUrl <%s> ;\n", addr)
+			if port == 0 {
+				continue
 			}
+
+			eName := endpointLocalName(sys, protocol, port)
+			serviceModel += fmt.Sprintf("    afo:hostedOnEndpoint alc:%s ;\n", eName)
+
+			addr := protocol + "://" + sys.Husk.Host.IPAddresses[0] + ":" +
+				strconv.Itoa(port) + "/" + sys.Name + "/" + assetName + "/" + service.SubPath
+			serviceModel += fmt.Sprintf("    afo:hasUrl <%s> ;\n", addr)
 		}
 
+		// Additional details
 		details := service.Details
 		for key, values := range details {
 			for _, value := range values {
 				if !(strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")) {
 					value = "alc:" + value
 				}
-				servicesModel += fmt.Sprintf("    alc:has%s  %s ;\n", key, value)
+				serviceModel += fmt.Sprintf("    alc:has%s  %s ;\n", key, value)
 			}
 		}
 
-		servicesModel += fmt.Sprintf("    afo:isSubscribAble \"%t\"^^xsd:boolean ;\n", service.SubscribeAble)
+		serviceModel += fmt.Sprintf("    afo:isSubscribAble \"%t\"^^xsd:boolean ;\n", service.SubscribeAble)
 		if service.CFootprint != 0 {
-			servicesModel += fmt.Sprintf("    afo:hasCarbonFootprint \"%.6f\"^^xsd:decimal ;\n", service.CFootprint)
+			serviceModel += fmt.Sprintf("    afo:hasCarbonFootprint \"%.6f\"^^xsd:decimal ;\n", service.CFootprint)
 		}
 		if service.CUnit != "" {
-			servicesModel += fmt.Sprintf("    afo:hasCost \"%.2f\"^^xsd:decimal ;\n", service.ACost)
-			servicesModel += fmt.Sprintf("    afo:hasCostUnit \"%s\"^^xsd:string ;\n", service.CUnit)
+			serviceModel += fmt.Sprintf("    afo:hasCost \"%.2f\"^^xsd:decimal ;\n", service.ACost)
+			serviceModel += fmt.Sprintf("    afo:hasCostUnit \"%s\"^^xsd:string ;\n", service.CUnit)
 		}
-		servicesModel += fmt.Sprintf("    afo:hasRegistrationPeriod %d .\n\n", service.RegPeriod)
+		serviceModel += fmt.Sprintf("    afo:hasRegistrationPeriod %d ;\n", service.RegPeriod)
+
+		// Let finalizeBlock remove the trailing ';' and close the block with " ."
+		serviceModel = finalizeBlock(serviceModel)
+		servicesModel += serviceModel
 	}
 
 	return servicesModel
