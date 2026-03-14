@@ -30,16 +30,20 @@ import (
 
 // An Arrowhead husk enwraps the "thing" and has specific properties
 type Husk struct {
-	Description string              `json:"-"`
-	Pkey        *ecdsa.PrivateKey   `json:"-"`
-	Certificate string              `json:"-"`
-	CA_cert     string              `json:"-"`
-	TlsConfig   *tls.Config         `json:"-"` // client side mutual TLS configuration
-	DName       pkix.Name           `json:"-"`
-	Details     map[string][]string `json:"details"`
-	ProtoPort   map[string]int      `json:"protoPort"`
-	InfoLink    string              `json:"onlineDocumentation"`
-	Messenger   string              `json:"-"`
+	Description   string              `json:"-"`
+	Host          *HostingDevice      // the system runs on a device
+	CoreS         []*CoreSystem       // the system is part of a local cloud with mandatory core systems
+	RegistrarChan chan *CoreSystem    // channel for the lead service registrar
+	Pkey          *ecdsa.PrivateKey   `json:"-"`
+	Certificate   string              `json:"-"`
+	CA_cert       string              `json:"-"`
+	TlsConfig     *tls.Config         `json:"-"` // client side mutual TLS configuration
+	DName         pkix.Name           `json:"-"`
+	Details       map[string][]string `json:"details"`
+	ProtoPort     map[string]int      `json:"protoPort"`
+	InfoLink      string              `json:"onlineDocumentation"`
+	Messengers    map[string]int      `json:"-"` // list of messenger systems
+
 }
 
 // SProtocols returns a slice of supported protocols (i.e., those not configured with 0)

@@ -35,6 +35,7 @@ type Service struct {
 	SubscribeAble bool                `json:"-"`                  // If true, one can subscribe to this service
 	ACost         float64             `json:"-"`                  // activity cost to execute the service
 	CUnit         string              `json:"costUnit"`           // cost unit
+	CFootprint    float64             `json:"-"`                  // carbon footprint in metric tonnes when executing the service
 }
 
 // type Services is a collection of service structs

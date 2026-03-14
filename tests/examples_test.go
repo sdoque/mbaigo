@@ -121,6 +121,7 @@ func newSystem() (*components.System, func(), error) {
 		Description: " is the most simplest system possible",
 		Details:     map[string][]string{"key3": {"value3"}},
 		ProtoPort:   map[string]int{"http": systemPort},
+		Host:        components.NewDevice(),
 	}
 
 	// Setup default config with default unit asset and values

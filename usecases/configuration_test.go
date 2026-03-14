@@ -375,7 +375,7 @@ func TestGetServiceList(t *testing.T) {
 		ServicesMap: *ServicesMap,
 	}
 	servList := getServicesList(mua)
-	if len(servList) != 1 && servList[0].Definition != "test" {
+	if len(servList) != 1 || servList[0].Definition != "test" {
 		t.Errorf("Expected length: 1, got %d\tExpected 'Definition': test, got %s",
 			len(servList), servList[0].Definition)
 	}

@@ -29,6 +29,7 @@ package usecases
 
 import (
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"strconv"
@@ -42,17 +43,17 @@ import (
 func SysHateoas(w http.ResponseWriter, req *http.Request, sys components.System) {
 	text := "<!DOCTYPE html><html><body>\n"
 	text += "<h1>System Description</h1>\n"
-	text += "<p>The system <b>" + sys.Name + "</b> " + sys.Husk.Description + "</p><br>\n"
-	text += "<a href=\"" + sys.Husk.InfoLink + "\">Online Documentation</a></p>\n"
+	text += "<p>The system <b>" + html.EscapeString(sys.Name) + "</b> " + html.EscapeString(sys.Husk.Description) + "</p><br>\n"
+	text += "<a href=\"" + html.EscapeString(sys.Husk.InfoLink) + "\">Online Documentation</a></p>\n"
 	text += "<p> The resource list is </p><ul>\n"
 
 	assetList := &sys.UAssets
 	for _, unitasset := range *assetList {
 		metaservice := ""
 		for key, values := range (*unitasset).GetDetails() {
-			metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
+			metaservice += html.EscapeString(key) + ": " + html.EscapeString(fmt.Sprintf("%v", values)) + " "
 		}
-		text += "<li><b><a href=\"http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + (*unitasset).GetName() + "/doc" + "\">" + (*unitasset).GetName() + "</a></b> with details " + metaservice + "</li>\n"
+		text += "<li><b><a href=\"http://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + html.EscapeString(sys.Name) + "/" + html.EscapeString((*unitasset).GetName()) + "/doc" + "\">" + html.EscapeString((*unitasset).GetName()) + "</a></b> with details " + metaservice + "</li>\n"
 	}
 
 	// This part of the code is commented out because it is not used in the current implementation because the assets on a PLC might have different services
@@ -71,12 +72,12 @@ func SysHateoas(w http.ResponseWriter, req *http.Request, sys components.System)
 
 	text += "</ul> <p> The services can be accessed using the following protocols with their respective bound ports:</p><ul>\n"
 	for protocol, port := range sys.Husk.ProtoPort {
-		text += "<li> Protocol <b>" + protocol + "</b> using port <em>" + strconv.Itoa(port) + "</em></li>\n"
+		text += "<li> Protocol <b>" + html.EscapeString(protocol) + "</b> using port <em>" + strconv.Itoa(port) + "</em></li>\n"
 	}
 
 	text += "</ul> <p> of the device whose IP addresses are (upon startup):</p><ul>\n"
-	for _, IPAddre := range sys.Host.IPAddresses {
-		text += "<li> " + IPAddre + "</em></li>\n"
+	for _, IPAddre := range sys.Husk.Host.IPAddresses {
+		text += "<li> " + html.EscapeString(IPAddre) + "</em></li>\n"
 	}
 
 	text += "</ul></body></html>"
@@ -94,17 +95,17 @@ func ResHateoas(w http.ResponseWriter, req *http.Request, ua components.UnitAsse
 	uaName := ua.GetName()
 	metaservice := ""
 	for key, values := range ua.GetDetails() {
-		metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
+		metaservice += html.EscapeString(key) + ": " + html.EscapeString(fmt.Sprintf("%v", values)) + " "
 	}
-	text += "The resource <b>" + uaName + "</b> belongs to system <b>" + sys.Name + "</b> and has the details " + metaservice + " with the following services:" + "<ul>\n"
+	text += "The resource <b>" + html.EscapeString(uaName) + "</b> belongs to system <b>" + html.EscapeString(sys.Name) + "</b> and has the details " + metaservice + " with the following services:" + "<ul>\n"
 
 	services := ua.GetServices()
 	for _, service := range services {
 		metaservice := ""
 		for key, values := range service.Details {
-			metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
+			metaservice += html.EscapeString(key) + ": " + html.EscapeString(fmt.Sprintf("%v", values)) + " "
 		}
-		text += "<li><a href=\"http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + uaName + "/" + service.SubPath + "/doc\">" + service.Definition + "</a> with details: " + metaservice + "</li>\n"
+		text += "<li><a href=\"http://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + html.EscapeString(sys.Name) + "/" + html.EscapeString(uaName) + "/" + html.EscapeString(service.SubPath) + "/doc\">" + html.EscapeString(service.Definition) + "</a> with details: " + metaservice + "</li>\n"
 	}
 
 	text += "</ul></body></html>"
@@ -123,9 +124,9 @@ func ServiceHateoas(w http.ResponseWriter, req *http.Request, serv components.Se
 
 	metaservice := ""
 	for key, values := range serv.Details {
-		metaservice += key + ": " + fmt.Sprintf("%v", values) + " "
+		metaservice += html.EscapeString(key) + ": " + html.EscapeString(fmt.Sprintf("%v", values)) + " "
 	}
-	text += "The service <b><a href=\"http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + sys.Name + "/" + uaName + "/" + serv.SubPath + "\">" + serv.Definition + "</a> </b> " + serv.Description + " and has the details " + metaservice
+	text += "The service <b><a href=\"http://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(sys.Husk.ProtoPort["http"]) + "/" + html.EscapeString(sys.Name) + "/" + html.EscapeString(uaName) + "/" + html.EscapeString(serv.SubPath) + "\">" + html.EscapeString(serv.Definition) + "</a> </b> " + html.EscapeString(serv.Description) + " and has the details " + metaservice
 	_, err := w.Write([]byte(text))
 	if err != nil {
 		log.Printf("Error while writing response body for ServiceHateoas: %v", err)

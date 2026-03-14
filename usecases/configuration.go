@@ -185,7 +185,7 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 	sys.Husk.ProtoPort = configurationIn.Protocols
 	for _, ccore := range configurationIn.CCoreS {
 		newCore := ccore
-		sys.CoreS = append(sys.CoreS, &newCore)
+		sys.Husk.CoreS = append(sys.Husk.CoreS, &newCore)
 	}
 
 	return rawResources, nil

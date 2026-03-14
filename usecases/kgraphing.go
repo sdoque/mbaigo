@@ -42,6 +42,8 @@ func KGraphing(w http.ResponseWriter, req *http.Request, sys *components.System)
 
 	rdf := prefixes()
 	rdf += modelSystem(sys)
+	rdf += modelHusk(sys)
+	rdf += modelEndpoints(sys)
 	rdf += modelHost(sys)
 	rdf += modelUAsset(sys)
 
@@ -62,78 +64,154 @@ func prefixes() (description string) {
 	return
 }
 
+// finalizeBlock removes any trailing semicolon from a block of predicate/object
+// lines and appends the final " .\n\n" so the Turtle is syntactically correct.
+func finalizeBlock(block string) string {
+	// Remove trailing whitespace first
+	block = strings.TrimRight(block, " \t\r\n")
+
+	// If it ends with ';', remove it and any trailing spaces before it
+	if strings.HasSuffix(block, ";") {
+		block = strings.TrimSuffix(block, ";")
+		block = strings.TrimRight(block, " \t")
+	}
+
+	return block + " .\n\n"
+}
+
+// endpointLocalName builds a local name for an Endpoint instance based on
+// host, system, protocol, and port, so we can refer to the same endpoint
+// from Husk and Service descriptions.
+func endpointLocalName(sys *components.System, protocol string, port int) string {
+	return fmt.Sprintf("%s_%s_%s_%d_Endpoint",
+		sys.Husk.Host.Name,
+		sys.Name,
+		protocol,
+		port,
+	)
+}
+
+// modelSystem creates a knowledge graph of the system that aggregates the husk and unit assets
 func modelSystem(sys *components.System) (systemModel string) {
-	sName := sys.Host.Name + "_" + sys.Name
+	sName := sys.Husk.Host.Name + "_" + sys.Name
 	systemModel = fmt.Sprintf("alc:%s a afo:System ;\n", sName)
 	systemModel += fmt.Sprintf("    afo:hasName \"%s\" ;\n", sys.Name)
-	systemModel += fmt.Sprintf("    afo:runsOnHost alc:%s ;\n", sys.Host.Name)
+	systemModel += fmt.Sprintf("    afo:hasMission \"%s\" ;\n", sys.Mission)
+
+	// The Husk instance is in the alc: namespace, not afo:
+	systemModel += fmt.Sprintf("    afo:hasHusk alc:%s_Husk ;\n", sName)
+
+	// --- NEW: LocalCloud is stored in the Husk details for ServiceRegistrar systems ---
+	// It is expected that only the ServiceRegistrar systems have this key and all
+	// have the same name (if not, the KGrapher will use the first one it finds).
+	if values, ok := sys.Husk.Details["LocalCloud"]; ok && len(values) > 0 {
+		v := values[0]
+		if !(strings.HasPrefix(v, "<") && strings.HasSuffix(v, ">")) && !strings.HasPrefix(v, "alc:") {
+			v = "alc:" + v
+		}
+		systemModel += fmt.Sprintf("    afo:isContainedIn %s ;\n", v)
+	}
+	// --- END NEW ---
 
 	for assetName := range sys.UAssets {
 		systemModel += fmt.Sprintf("    afo:hasUnitAsset alc:%s_%s ;\n", sName, assetName)
 	}
+
+	systemModel = finalizeBlock(systemModel)
+	return
+}
+
+// modelHusk creates a knowledge graph of the husk that wraps the unit assets
+func modelHusk(sys *components.System) string {
+	sName := sys.Husk.Host.Name + "_" + sys.Name
+	huskModel := fmt.Sprintf("alc:%s_Husk a afo:Husk ;\n", sName)
+
+	// Host IRI is just alc:<HostName>, not alc:<HostName>_Host
+	huskModel += fmt.Sprintf("    afo:runsOnHost alc:%s ;\n", sys.Husk.Host.Name)
+
+	// For each protocol/port pair, link the Husk to an Endpoint instance
+	for protocol, port := range sys.Husk.ProtoPort {
+		if port == 0 {
+			continue
+		}
+		eName := endpointLocalName(sys, protocol, port)
+		huskModel += fmt.Sprintf("    afo:communicatesOver alc:%s ;\n", eName)
+	}
+
 	details := sys.Husk.Details
 	for key, values := range details {
-		if key == "LocalCloud" { // it is expected that only the System Registrars have those keys and all have the same name (if not the KGrapher will use the first one it finds)
-			if len(values) > 0 {
-				v := values[0]
-				if !(strings.HasPrefix(v, "<") && strings.HasSuffix(v, ">")) && !strings.HasPrefix(v, "alc:") {
-					v = "alc:" + v
-				}
-				systemModel += fmt.Sprintf("    afo:isContainedIn %s ;\n", v)
-			}
+		// LocalCloud is now handled on the System level
+		if key == "LocalCloud" {
 			continue
 		}
 		for _, value := range values {
 			if !(strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")) {
 				value = "alc:" + value
 			}
-			systemModel += fmt.Sprintf("    afo:has%s %s ;\n", key, value)
+			huskModel += fmt.Sprintf("    afo:has%s %s ;\n", key, value)
 		}
 	}
 
-	protoCount := 0
-	ppStart := false
-	for protocol := range sys.Husk.ProtoPort {
-		if sys.Husk.ProtoPort[protocol] != 0 {
-			if protoCount > 0 && ppStart {
-				systemModel += " ;\n"
-			}
-			ppStart = true
-			systemModel += "    afo:communicatesOver [\n"
-			systemModel += fmt.Sprintf("        afo:usesProtocol \"%s\" ;\n", protocol)
-			systemModel += fmt.Sprintf("        afo:usesPort %d \n", sys.Husk.ProtoPort[protocol])
-			systemModel += "    ]"
-		}
-		protoCount++
-	}
-	systemModel += ".\n\n"
-	return
+	huskModel = finalizeBlock(huskModel)
+	return huskModel
 }
 
 // modelHost creates a knowledge graph of the hosting computer
 func modelHost(sys *components.System) string {
-	hostModel := fmt.Sprintf("alc:%s a afo:Host ;\n", sys.Host.Name)
-	hostModel += fmt.Sprintf("    afo:hasName \"%s\" ;\n", sys.Host.Name)
-	ipaLen := len(sys.Host.IPAddresses)
+	hostModel := fmt.Sprintf("alc:%s a afo:Host ;\n", sys.Husk.Host.Name)
+	hostModel += fmt.Sprintf("    afo:hasName \"%s\" ;\n", sys.Husk.Host.Name)
+
+	ipaLen := len(sys.Husk.Host.IPAddresses)
 	ipaCount := 0
-	for _, ipa := range sys.Host.IPAddresses {
+	for _, ipa := range sys.Husk.Host.IPAddresses {
 		hostModel += fmt.Sprintf("    afo:hasIPaddress \"%s\"", ipa)
 		ipaCount++
 		if ipaCount < ipaLen {
 			hostModel += " ;\n"
 		}
 	}
-	hostModel += " .\n\n"
+
+	hostModel = finalizeBlock(hostModel)
 	return hostModel
+}
+
+// modelEndpoints creates a knowledge graph of the (host, protocol, port)
+// combinations as first-class afo:Endpoint instances.
+func modelEndpoints(sys *components.System) string {
+	var endpointModels string
+
+	for protocol, port := range sys.Husk.ProtoPort {
+		if port == 0 {
+			continue
+		}
+
+		eName := endpointLocalName(sys, protocol, port)
+		var endpointModel string
+
+		endpointModel += fmt.Sprintf("alc:%s a afo:Endpoint ;\n", eName)
+		endpointModel += fmt.Sprintf("    afo:usesProtocol \"%s\" ;\n", protocol)
+		endpointModel += fmt.Sprintf("    afo:usesPort %d ;\n", port)
+		endpointModel += fmt.Sprintf("    afo:onHost alc:%s ;\n", sys.Husk.Host.Name)
+		// Optional: base path if you want it (/%system name%)
+		// endpointModel += fmt.Sprintf("    afo:hasBasePath \"/%s\" ;\n", sys.Name)
+
+		endpointModel = finalizeBlock(endpointModel)
+		endpointModels += endpointModel
+	}
+
+	return endpointModels
 }
 
 // modelUAsset creates a knowledge graph of each unit assets and its consumed and provided services
 func modelUAsset(sys *components.System) string {
-	sName := sys.Host.Name + "_" + sys.Name
+	sName := sys.Husk.Host.Name + "_" + sys.Name
 	var assetModels string
+
 	for assetName, asset := range sys.UAssets {
-		assetModels += fmt.Sprintf("alc:%s_%s a afo:UnitAsset ;\n", sName, assetName)
-		assetModels += fmt.Sprintf("    afo:hasName \"%s\" ;\n", assetName)
+		var assetModel string
+
+		assetModel += fmt.Sprintf("alc:%s_%s a afo:UnitAsset ;\n", sName, assetName)
+		assetModel += fmt.Sprintf("    afo:hasName \"%s\" ;\n", assetName)
 
 		details := (*asset).GetDetails()
 		for key, values := range details {
@@ -149,7 +227,7 @@ func modelUAsset(sys *components.System) string {
 
 					switch relationship {
 					case '=': // single quotes for byte comparison
-						assetModels += fmt.Sprintf("    owl:sameAs %s ;\n", reference)
+						assetModel += fmt.Sprintf("    owl:sameAs %s ;\n", reference)
 					}
 				}
 				continue
@@ -158,35 +236,34 @@ func modelUAsset(sys *components.System) string {
 				if !(strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")) {
 					value = "alc:" + value
 				}
-				assetModels += fmt.Sprintf("    alc:has%s %s ;\n", key, value)
+				assetModel += fmt.Sprintf("    alc:has%s %s ;\n", key, value)
 			}
 		}
 
 		cervices := (*asset).GetCervices()
-		cerviceCount := 0
 		for _, cervice := range cervices {
-			assetModels += fmt.Sprintf("    afo:consumesService alc:%s_%s_%s", sName, assetName, cervice.Definition)
-			cerviceCount++
-			// if cerviceCount < cervicesLen {
-			assetModels += " ;\n"
-			// }
+			assetModel += fmt.Sprintf("    afo:consumesService alc:%s_%s_%s ;\n", sName, assetName, cervice.Definition)
 		}
 
 		services := (*asset).GetServices()
 		servicesLen := len(services)
 		serviceCount := 0
 		for _, service := range services {
-			assetModels += fmt.Sprintf("    afo:providesService alc:%s_%s_%s", sName, assetName, service.SubPath)
+			// Use service.Definition for the IRI, so it matches the Service block
+			assetModel += fmt.Sprintf("    afo:providesService alc:%s_%s_%s", sName, assetName, service.Definition)
 			serviceCount++
 			if serviceCount < servicesLen {
-				assetModels += " ;\n"
+				assetModel += " ;\n"
 			}
 		}
-		assetModels += " .\n\n"
+
+		assetModel = finalizeBlock(assetModel)
+		assetModels += assetModel
 
 		assetModels += modelCervices(sName, asset)
 		assetModels += modelServices(sName, asset, sys)
 	}
+
 	return assetModels
 }
 
@@ -195,57 +272,37 @@ func modelCervices(sName string, ua *components.UnitAsset) string {
 	var cervicesModel string
 	asset := *ua
 	cervices := asset.GetCervices()
-	for _, cervice := range cervices {
 
-		cervicesModel += fmt.Sprintf("alc:%s_%s_%s a afo:ConsumedService ;\n", sName, asset.GetName(), cervice.Definition)
-		cervicesModel += fmt.Sprintf("    afo:consumes \"%s\" ;\n", cervice.Definition)
+	for _, cervice := range cervices {
+		var cerviceModel string
+
+		cerviceModel += fmt.Sprintf("alc:%s_%s_%s a afo:ConsumedService ;\n",
+			sName, asset.GetName(), cervice.Definition)
+		cerviceModel += fmt.Sprintf("    afo:consumes \"%s\" ;\n", cervice.Definition)
 
 		details := cervice.Details
-		keyCounter := 0
-		keysLen := len(details)
 		for key, values := range details {
-			valuesCounter := 0
-			valuesLen := len(values)
 			for _, value := range values {
 				if !(strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")) {
 					value = "alc:" + value
 				}
-				cervicesModel += fmt.Sprintf("    alc:has%s %s", key, value)
-				valuesCounter++
-				if valuesCounter < valuesLen {
-					cervicesModel += " ;\n"
-				}
-			}
-			keyCounter++
-			if keyCounter < keysLen {
-				cervicesModel += " ;\n"
+				cerviceModel += fmt.Sprintf("    alc:has%s %s ;\n", key, value)
 			}
 		}
 
-		// list of providers
-		pCounter := 0
-		providersCount := len(cervice.Nodes)
-		if providersCount > 0 {
-			cervicesModel += " ;\n"
-		}
 		for pName, provider := range cervice.Nodes {
-			cervicesModel += fmt.Sprintf("    afo:consumes alc:%s ;\n", pName)
-			uCounter := 0
-			urlCount := len(provider)
+			cerviceModel += fmt.Sprintf("    afo:consumes alc:%s ;\n", pName)
 			for _, url := range provider {
-				cervicesModel += fmt.Sprintf("    afo:fromUrl <%s>", url)
-				uCounter++
-				if uCounter < urlCount {
-					cervicesModel += " ;\n"
-				}
-			}
-			pCounter++
-			if pCounter < providersCount {
-				cervicesModel += " ;\n"
+				cerviceModel += fmt.Sprintf("    afo:fromUrl <%s> ;\n", url)
 			}
 		}
-		cervicesModel += " .\n\n"
+
+		cerviceModel = finalizeBlock(cerviceModel)
+
+		// FIX: accumulate this block
+		cervicesModel += cerviceModel
 	}
+
 	return cervicesModel
 }
 
@@ -255,33 +312,53 @@ func modelServices(sName string, ua *components.UnitAsset, sys *components.Syste
 	asset := *ua
 	assetName := asset.GetName()
 	services := asset.GetServices()
+
 	for _, service := range services {
-		servicesModel += fmt.Sprintf("alc:%s_%s_%s a afo:Service ;\n", sName, assetName, service.Definition)
-		servicesModel += fmt.Sprintf("    afo:hasName \"%s/%s\" ;\n", assetName, service.Definition)
-		servicesModel += fmt.Sprintf("    afo:hasServiceDefinition \"%s\" ;\n", service.Definition)
+		var serviceModel string
+
+		// IRI is based on service.Definition, matching UnitAsset's providesService
+		serviceModel += fmt.Sprintf("alc:%s_%s_%s a afo:Service ;\n", sName, assetName, service.Definition)
+		serviceModel += fmt.Sprintf("    afo:hasName \"%s/%s\" ;\n", assetName, service.Definition)
+		serviceModel += fmt.Sprintf("    afo:hasServiceDefinition \"%s\" ;\n", service.Definition)
+
+		// For each protocol/port, link to the Endpoint and give a URL
 		for protocol, port := range sys.Husk.ProtoPort {
-			if port != 0 {
-				addr := protocol + "://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(port) + "/" + sys.Name + "/" + assetName + "/" + service.SubPath
-				servicesModel += fmt.Sprintf("    afo:hasUrl <%s> ;\n", addr)
+			if port == 0 {
+				continue
 			}
+
+			eName := endpointLocalName(sys, protocol, port)
+			serviceModel += fmt.Sprintf("    afo:hostedOnEndpoint alc:%s ;\n", eName)
+
+			addr := protocol + "://" + sys.Husk.Host.IPAddresses[0] + ":" +
+				strconv.Itoa(port) + "/" + sys.Name + "/" + assetName + "/" + service.SubPath
+			serviceModel += fmt.Sprintf("    afo:hasUrl <%s> ;\n", addr)
 		}
 
+		// Additional details
 		details := service.Details
 		for key, values := range details {
 			for _, value := range values {
 				if !(strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")) {
 					value = "alc:" + value
 				}
-				servicesModel += fmt.Sprintf("    alc:has%s  %s ;\n", key, value)
+				serviceModel += fmt.Sprintf("    alc:has%s  %s ;\n", key, value)
 			}
 		}
 
-		servicesModel += fmt.Sprintf("    afo:isSubscribAble \"%t\"^^xsd:boolean ;\n", service.SubscribeAble)
-		if service.CUnit != "" {
-			servicesModel += fmt.Sprintf("    afo:hasCost \"%.2f\"^^xsd:decimal ;\n", service.ACost)
-			servicesModel += fmt.Sprintf("    afo:hasCostUnit \"%s\"^^xsd:string ;\n", service.CUnit)
+		serviceModel += fmt.Sprintf("    afo:isSubscribAble \"%t\"^^xsd:boolean ;\n", service.SubscribeAble)
+		if service.CFootprint != 0 {
+			serviceModel += fmt.Sprintf("    afo:hasCarbonFootprint \"%.6f\"^^xsd:decimal ;\n", service.CFootprint)
 		}
-		servicesModel += fmt.Sprintf("    afo:hasRegistrationPeriod %d .\n\n", service.RegPeriod)
+		if service.CUnit != "" {
+			serviceModel += fmt.Sprintf("    afo:hasCost \"%.2f\"^^xsd:decimal ;\n", service.ACost)
+			serviceModel += fmt.Sprintf("    afo:hasCostUnit \"%s\"^^xsd:string ;\n", service.CUnit)
+		}
+		serviceModel += fmt.Sprintf("    afo:hasRegistrationPeriod %d ;\n", service.RegPeriod)
+
+		// Let finalizeBlock remove the trailing ';' and close the block with " ."
+		serviceModel = finalizeBlock(serviceModel)
+		servicesModel += serviceModel
 	}
 
 	return servicesModel

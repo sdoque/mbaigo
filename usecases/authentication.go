@@ -47,7 +47,7 @@ func RequestCertificate(sys *components.System) {
 
 	dnsNames := []string{"localhost"}
 	var ipAddrs []net.IP
-	for _, ipStr := range sys.Host.IPAddresses {
+	for _, ipStr := range sys.Husk.Host.IPAddresses {
 		ip := net.ParseIP(ipStr)
 		if ip != nil {
 			ipAddrs = append(ipAddrs, ip)

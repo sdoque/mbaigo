@@ -110,7 +110,7 @@ func TestServiceRegistrationForm(t *testing.T) {
 			}
 
 			// Check that the ServiceNode is created correctly
-			expectedNode := testSys.Host.Name + "_" + testSys.Name + "_" +
+			expectedNode := testSys.Husk.Host.Name + "_" + testSys.Name + "_" +
 				(*testSys.UAssets["testUnitAsset"]).GetName() + "_" +
 				(*testSys.UAssets["testUnitAsset"]).GetServices()["test"].Definition
 			if sr.ServiceNode != expectedNode {

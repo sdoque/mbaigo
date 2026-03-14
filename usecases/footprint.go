@@ -24,48 +24,67 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
 )
 
-func GetActivitiesCost(serv *components.Service) (payload []byte, err error) {
-	var f forms.ActivityCostForm_v1
+// GetActivitiesCarbon retrieves the service carbon footprint
+func GetActivitiesCarbon(serv *components.Service) (payload []byte, err error) {
+	var f forms.CarbonFootprintForm_v1
 	f.NewForm()
 	f.Activity = serv.Definition
-	f.Cost = serv.ACost
-	f.Unit = serv.CUnit
+	f.Footprint = serv.CFootprint
+	if suf, ok := rateSuffix(serv.CUnit); ok {
+		f.Unit = "t" + suf
+	} else {
+		f.Unit = "t"
+	}
 	f.Timestamp = time.Now()
 	payload, err = json.MarshalIndent(f, "", "  ")
 	return
 }
 
-// SetActivitiesCost updates the service cost
-func SetActivitiesCost(serv *components.Service, bodyBytes []byte) (err error) {
+// rateSuffix checks if the unit string contains a rate (e.g., "/hr") and returns the suffix if found
+func rateSuffix(unit string) (string, bool) {
+	unit = strings.TrimSpace(unit)
+
+	i := strings.Index(unit, "/")
+	if i == -1 {
+		// No slash → not a rate
+		return "", false
+	}
+
+	return unit[i:], true // e.g. "Eur/hr" → "/hr"
+}
+
+// SetActivitiesCarbon sets the service carbon footprint from the request body
+func SetActivitiesCarbon(serv *components.Service, bodyBytes []byte) (err error) {
 	f, err := Unpack(bodyBytes, "application/json")
 	if err != nil {
 		return fmt.Errorf("unmarshalling cost form: %w", err)
 	}
-	acForm, ok := f.(*forms.ActivityCostForm_v1)
+	acForm, ok := f.(*forms.CarbonFootprintForm_v1)
 	if !ok {
 		return fmt.Errorf("couldn't convert to correct form")
 	}
 	if serv.Definition != acForm.Activity {
 		return fmt.Errorf("service definition and activity cost forms activity field doesn't match")
 	}
-	serv.ACost = acForm.Cost // update the service's cost
+	serv.CFootprint = acForm.Footprint // update the service's cost
 	return
 }
 
-// ACServices handles the http request for the cost of a service
-func ACServices(w http.ResponseWriter, r *http.Request, ua *components.UnitAsset, serviceP string) {
+// FCServices handles the carbon footprint service requests
+func FCServices(w http.ResponseWriter, r *http.Request, ua *components.UnitAsset, serviceP string) {
 	// Has to use (*ua) in order to reach the methods for the interface UnitAsset, since ua is a pointer to an interface
 	servicesList := (*ua).GetServices()
 	serv := servicesList[serviceP]
 	switch r.Method {
 	case "GET":
-		payload, err := GetActivitiesCost(serv)
+		payload, err := GetActivitiesCarbon(serv)
 		if err != nil {
 			http.Error(w, "Error marshaling data.", http.StatusInternalServerError)
 			return
@@ -83,7 +102,7 @@ func ACServices(w http.ResponseWriter, r *http.Request, ua *components.UnitAsset
 			http.Error(w, "Error reading registration response body"+err.Error(), http.StatusBadRequest)
 			return
 		}
-		err = SetActivitiesCost(serv, bodyBytes)
+		err = SetActivitiesCarbon(serv, bodyBytes)
 		if err != nil {
 			http.Error(w, "Error occurred while updating activity costs"+err.Error(), http.StatusInternalServerError)
 		}

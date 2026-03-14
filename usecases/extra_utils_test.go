@@ -126,6 +126,8 @@ func createTestSystem(broken bool) (sys components.System) {
 		Details:     map[string][]string{"Developer": {"Test dev"}},
 		ProtoPort:   map[string]int{"https": 0, "http": 1234, "coap": 0},
 		InfoLink:    "https://for.testing.purposes",
+		Host:        components.NewDevice(),
+		Messengers:  make(map[string]int),
 	}
 
 	// create fake services and cervices for a mocked unit asset
@@ -175,7 +177,7 @@ func createTestSystem(broken bool) (sys components.System) {
 			Name: "orchestrator",
 			Url:  "https://orchestator",
 		}
-		sys.CoreS = []*components.CoreSystem{
+		sys.Husk.CoreS = []*components.CoreSystem{
 			leadingRegistrar,
 			orchestrator,
 			test,
@@ -185,7 +187,7 @@ func createTestSystem(broken bool) (sys components.System) {
 			Name: "orchestrator",
 			Url:  brokenUrl,
 		}
-		sys.CoreS = []*components.CoreSystem{
+		sys.Husk.CoreS = []*components.CoreSystem{
 			leadingRegistrar,
 			orchestrator,
 			test,

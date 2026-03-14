@@ -33,6 +33,17 @@ func TestSProtocols(t *testing.T) {
 
 		if len(res) != len(testCase.expectedOutput) {
 			t.Errorf("Expected %v, got: %v", testCase.expectedOutput, res)
+			continue
+		}
+		// Verify every expected protocol appears in the result (order is non-deterministic)
+		resSet := make(map[string]bool, len(res))
+		for _, p := range res {
+			resSet[p] = true
+		}
+		for _, expected := range testCase.expectedOutput {
+			if !resSet[expected] {
+				t.Errorf("Expected protocol %q in result %v", expected, res)
+			}
 		}
 	}
 }

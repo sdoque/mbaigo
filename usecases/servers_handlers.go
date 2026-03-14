@@ -28,6 +28,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"strconv"
@@ -94,7 +95,7 @@ func SetoutServers(sys *components.System) error {
 		}()
 
 		// Inform the user how to access the system's web server (black box documentation)
-		httpsURL := "https://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(httpsPort) + "/" + sys.Name
+		httpsURL := "https://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(httpsPort) + "/" + sys.Name
 		log.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpsURL)
 
 		// Start and monitor the server
@@ -125,7 +126,7 @@ func SetoutServers(sys *components.System) error {
 		}()
 
 		// Inform the user how to access the system's web server (black box documentation)
-		httpURL := "http://" + sys.Host.IPAddresses[0] + ":" + strconv.Itoa(httpPort) + "/" + sys.Name
+		httpURL := "http://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(httpPort) + "/" + sys.Name
 		log.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpURL)
 
 		// Start and monitor the server
@@ -255,11 +256,18 @@ func handleFiveParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 			http.Error(w, "Service not found", http.StatusNotFound)
 		}
 	case "subs", "cansel":
-		fmt.Fprintf(w, "Service %s has no subscription available", servicePath)
+		fmt.Fprintf(w, "Service %s has no subscription available", html.EscapeString(servicePath))
 	case "cost":
 		service := findServiceByDefinition(uAsset.GetServices(), servicePath)
 		if service != nil {
 			ACServices(w, r, &uAsset, servicePath)
+		} else {
+			http.Error(w, "Service not found", http.StatusNotFound)
+		}
+	case "cfootprint":
+		service := findServiceByDefinition(uAsset.GetServices(), servicePath)
+		if service != nil {
+			FCServices(w, r, &uAsset, servicePath)
 		} else {
 			http.Error(w, "Service not found", http.StatusNotFound)
 		}

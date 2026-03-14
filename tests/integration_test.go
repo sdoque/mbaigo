@@ -171,7 +171,7 @@ func countGoroutines() (int, string) {
 	return c, trace
 }
 
-func assertNotEq(t *testing.T, got, want any) {
+func assertEqual(t *testing.T, got, want any) {
 	if got != want {
 		t.Errorf("got %v, expected %v", got, want)
 	}
@@ -187,15 +187,15 @@ func TestSimpleSystemIntegration(t *testing.T) {
 
 	// Validate service registration
 	hits, body, err := m.waitFor(eventRegister)
-	assertNotEq(t, err, nil)
+	assertEqual(t, err, nil)
 	if hits != 1 {
 		t.Errorf("system skipped: %s", eventRegister)
 	}
 	var sr forms.ServiceRecord_v1
 	err = json.Unmarshal(body, &sr)
-	assertNotEq(t, err, nil)
-	assertNotEq(t, sr.SystemName, systemName)
-	assertNotEq(t, sr.SubPath, path.Join(unitName, unitService))
+	assertEqual(t, err, nil)
+	assertEqual(t, sr.SystemName, systemName)
+	assertEqual(t, sr.SubPath, path.Join(unitName, unitService))
 
 	// Validate service usage
 	ua := *sys.UAssets[unitName]
@@ -207,7 +207,7 @@ func TestSimpleSystemIntegration(t *testing.T) {
 		t.Fatalf("unit asset missing cervice: %s", unitService)
 	}
 	f, err := usecases.GetState(service, sys)
-	assertNotEq(t, err, nil)
+	assertEqual(t, err, nil)
 	fs, ok := f.(*forms.SignalA_v1a)
 	if ok == false || fs == nil || fs.Value == 0.0 {
 		t.Errorf("invalid form: %#v", f)
@@ -215,19 +215,19 @@ func TestSimpleSystemIntegration(t *testing.T) {
 
 	// Late validation for service discovery
 	hits, body, err = m.waitFor(eventOrchestrate)
-	assertNotEq(t, err, nil)
+	assertEqual(t, err, nil)
 	if hits != 1 {
 		t.Errorf("system skipped: %s", eventUnregister)
 	}
 	var sq forms.ServiceQuest_v1
 	err = json.Unmarshal(body, &sq)
-	assertNotEq(t, err, nil)
-	assertNotEq(t, sq.ServiceDefinition, unitService)
+	assertEqual(t, err, nil)
+	assertEqual(t, sq.ServiceDefinition, unitService)
 
 	// Validate service unregister
 	stopSystem()
 	hits, _, err = m.waitFor(eventUnregister) // NOTE: doesn't receive a body
-	assertNotEq(t, err, nil)
+	assertEqual(t, err, nil)
 	if hits != 1 {
 		t.Errorf("system skipped: %s", eventUnregister)
 	}
