@@ -276,12 +276,11 @@ func modelCervices(sName string, ua *components.UnitAsset) string {
 	for _, cervice := range cervices {
 		var cerviceModel string
 
-		cerviceModel += fmt.Sprintf("alc:%s_%s_%s a afo:ConsumedService ;\n", sName, asset.GetName(), cervice.Definition)
+		cerviceModel += fmt.Sprintf("alc:%s_%s_%s a afo:ConsumedService ;\n",
+			sName, asset.GetName(), cervice.Definition)
 		cerviceModel += fmt.Sprintf("    afo:consumes \"%s\" ;\n", cervice.Definition)
 
 		details := cervice.Details
-		// keyCounter := 0
-		// keysLen := len(details)
 		for key, values := range details {
 			for _, value := range values {
 				if !(strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")) {
@@ -291,8 +290,6 @@ func modelCervices(sName string, ua *components.UnitAsset) string {
 			}
 		}
 
-		// list of providers
-		// and for providers:
 		for pName, provider := range cervice.Nodes {
 			cerviceModel += fmt.Sprintf("    afo:consumes alc:%s ;\n", pName)
 			for _, url := range provider {
@@ -301,6 +298,9 @@ func modelCervices(sName string, ua *components.UnitAsset) string {
 		}
 
 		cerviceModel = finalizeBlock(cerviceModel)
+
+		// FIX: accumulate this block
+		cervicesModel += cerviceModel
 	}
 
 	return cervicesModel
