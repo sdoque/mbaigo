@@ -28,6 +28,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"strconv"
@@ -255,7 +256,7 @@ func handleFiveParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 			http.Error(w, "Service not found", http.StatusNotFound)
 		}
 	case "subs", "cansel":
-		fmt.Fprintf(w, "Service %s has no subscription available", servicePath)
+		fmt.Fprintf(w, "Service %s has no subscription available", html.EscapeString(servicePath))
 	case "cost":
 		service := findServiceByDefinition(uAsset.GetServices(), servicePath)
 		if service != nil {

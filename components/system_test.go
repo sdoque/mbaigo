@@ -159,6 +159,7 @@ var tableGetRunningCoreSystem = []sampleGetRunningCoreSystem{
 func TestGetRunningCoreSystem(t *testing.T) {
 	name := "testSystem"
 	sys := NewSystem(name, context.Background())
+	sys.Husk = &Husk{}
 
 	// Case: return error for empty core system list (and should not match itself)
 	if len(sys.Husk.CoreS) != 0 {

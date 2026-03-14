@@ -212,6 +212,9 @@ func TestRegisterMessenger(t *testing.T) {
 	}
 
 	sys := components.NewSystem("testsys", context.Background())
+	sys.Husk = &components.Husk{
+		Messengers: make(map[string]int),
+	}
 	testFunc := func(method, content string, body io.ReadCloser) *http.Response {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(method, "/msg", body)

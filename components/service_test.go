@@ -45,20 +45,6 @@ var testServiceWithEmptyDetails = Service{
 	CUnit:         "",
 }
 
-var testService = Service{
-	ID:            1,
-	Definition:    "test",
-	SubPath:       "testSubPath",
-	Details:       make(map[string][]string),
-	RegPeriod:     45,
-	RegTimestamp:  "",
-	RegExpiration: "",
-	Description:   "A test service",
-	SubscribeAble: false,
-	ACost:         0,
-	CUnit:         "",
-}
-
 var testOriginalService = Service{
 	ID:            1,
 	Definition:    "original one",
@@ -74,6 +60,19 @@ var testOriginalService = Service{
 }
 
 func TestMerge(t *testing.T) {
+	testService := Service{
+		ID:            1,
+		Definition:    "test",
+		SubPath:       "testSubPath",
+		Details:       make(map[string][]string),
+		RegPeriod:     45,
+		RegTimestamp:  "",
+		RegExpiration: "",
+		Description:   "A test service",
+		SubscribeAble: false,
+		ACost:         0,
+		CUnit:         "",
+	}
 	testService.Merge(&testOriginalService)
 	if testService.Definition != testOriginalService.Definition ||
 		testService.SubPath != testOriginalService.SubPath ||

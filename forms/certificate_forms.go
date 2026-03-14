@@ -30,6 +30,7 @@ package forms
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/sdoque/mbaigo/components"
 )
@@ -43,8 +44,9 @@ func Certificate(w http.ResponseWriter, req *http.Request, sys components.System
 	// userAgent := req.Header.Get("User-Agent")
 	// xForwardedFor := req.Header.Get("X-Forwarded-For")
 
-	// Log the request with the remote address
-	log.Printf("serving system's certificate upon request from %s", remoteAddr)
+	// Log the request with the remote address (newlines stripped to prevent log injection)
+	safeAddr := strings.NewReplacer("\n", "", "\r", "").Replace(remoteAddr)
+	log.Printf("serving system's certificate upon request from %s", safeAddr) // #nosec G706 -- remoteAddr is sanitised above
 	// log.Printf("serving system's certificate upon request from %s (User-Agent: %s, X-Forwarded-For: %s)", remoteAddr, userAgent, xForwardedFor)
 
 	cert := sys.Husk.Certificate
