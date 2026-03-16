@@ -28,13 +28,13 @@ import "net/http"
 // The system-specific configuration is held in Traits (any), and the HTTP
 // dispatch logic is wired in via ServingFunc at construction time.
 type UnitAsset struct {
-	Name        string                                          `json:"name"`
-	Mission     string                                          `json:"mission,omitempty"`
-	Owner       *System                                         `json:"-"`
-	Details     map[string][]string                             `json:"details"`
-	ServicesMap Services                                        `json:"-"`
-	CervicesMap Cervices                                        `json:"-"`
-	Traits      any                                             `json:"traits,omitempty"`
+	Name        string                                           `json:"name"`
+	Mission     string                                           `json:"mission,omitempty"`
+	Owner       *System                                          `json:"-"`
+	Details     map[string][]string                              `json:"details"`
+	ServicesMap Services                                         `json:"-"`
+	CervicesMap Cervices                                         `json:"-"`
+	Traits      any                                              `json:"traits,omitempty"`
 	ServingFunc func(http.ResponseWriter, *http.Request, string) `json:"-"`
 }
 
