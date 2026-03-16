@@ -24,19 +24,38 @@ package components
 
 import "net/http"
 
-// A asset cannot be defined in the module since it is what makes up unit-asset(s)
-// But it is an interface that has to be implemented by every system's unit-asset
-type UnitAsset interface {
-	GetName() string
-	GetServices() Services
-	GetCervices() Cervices
-	GetDetails() map[string][]string
-	GetTraits() any
-	Serving(w http.ResponseWriter, r *http.Request, servicePath string)
+// UnitAsset is the shared struct that every system's asset is built from.
+// The system-specific configuration is held in Traits (any), and the HTTP
+// dispatch logic is wired in via ServingFunc at construction time.
+type UnitAsset struct {
+	Name        string                                           `json:"name"`
+	Mission     string                                           `json:"mission,omitempty"`
+	Owner       *System                                          `json:"-"`
+	Details     map[string][]string                              `json:"details"`
+	ServicesMap Services                                         `json:"-"`
+	CervicesMap Cervices                                         `json:"-"`
+	Traits      any                                              `json:"traits,omitempty"`
+	ServingFunc func(http.ResponseWriter, *http.Request, string) `json:"-"`
 }
 
-// HasTraits is an interface that defines a method to get traits of a UnitAsset.
-// used in usecases configuration and service discovery.
-type HasTraits interface {
-	GetTraits() any // or interface{} in older Go
+// GetName returns the name of the unit asset.
+func (ua *UnitAsset) GetName() string { return ua.Name }
+
+// GetServices returns the services exposed by the unit asset.
+func (ua *UnitAsset) GetServices() Services { return ua.ServicesMap }
+
+// GetCervices returns the services consumed by the unit asset.
+func (ua *UnitAsset) GetCervices() Cervices { return ua.CervicesMap }
+
+// GetDetails returns the metadata details of the unit asset.
+func (ua *UnitAsset) GetDetails() map[string][]string { return ua.Details }
+
+// GetTraits returns the system-specific traits of the unit asset.
+func (ua *UnitAsset) GetTraits() any { return ua.Traits }
+
+// Serving dispatches an incoming HTTP request to the system-specific handler.
+func (ua *UnitAsset) Serving(w http.ResponseWriter, r *http.Request, servicePath string) {
+	if ua.ServingFunc != nil {
+		ua.ServingFunc(w, r, servicePath)
+	}
 }

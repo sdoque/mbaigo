@@ -19,7 +19,7 @@ import (
 //
 // TODO: this function really needs an error return
 // TODO: feels unnecessarily confusing to provide system instance.
-type NewResourceFunc func(usecases.ConfigurableAsset, *components.System) (components.UnitAsset, func())
+type NewResourceFunc func(usecases.ConfigurableAsset, *components.System) (*components.UnitAsset, func())
 
 // LoadResources loads all unit assets from rawRes (which was loaded from "systemconfig.json" file)
 // and calls newResFunc repeatedly for each loaded asset.
@@ -39,7 +39,7 @@ func LoadResources(sys *components.System, rawRes []json.RawMessage, newResFunc 
 		}
 
 		ua, f := newResFunc(ca, sys)
-		sys.UAssets[ua.GetName()] = &ua
+		sys.UAssets[ua.GetName()] = ua
 		cleanups = append(cleanups, f)
 	}
 

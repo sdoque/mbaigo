@@ -96,7 +96,6 @@ func modelSystem(sys *components.System) (systemModel string) {
 	sName := sys.Husk.Host.Name + "_" + sys.Name
 	systemModel = fmt.Sprintf("alc:%s a afo:System ;\n", sName)
 	systemModel += fmt.Sprintf("    afo:hasName \"%s\" ;\n", sys.Name)
-	systemModel += fmt.Sprintf("    afo:hasMission \"%s\" ;\n", sys.Mission)
 
 	// The Husk instance is in the alc: namespace, not afo:
 	systemModel += fmt.Sprintf("    afo:hasHusk alc:%s_Husk ;\n", sName)
@@ -212,6 +211,9 @@ func modelUAsset(sys *components.System) string {
 
 		assetModel += fmt.Sprintf("alc:%s_%s a afo:UnitAsset ;\n", sName, assetName)
 		assetModel += fmt.Sprintf("    afo:hasName \"%s\" ;\n", assetName)
+		if (*asset).Mission != "" {
+			assetModel += fmt.Sprintf("    afo:hasMission \"%s\" ;\n", (*asset).Mission)
+		}
 
 		details := (*asset).GetDetails()
 		for key, values := range details {

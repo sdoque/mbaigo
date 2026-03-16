@@ -198,8 +198,8 @@ func TestSimpleSystemIntegration(t *testing.T) {
 	assertEqual(t, sr.SubPath, path.Join(unitName, unitService))
 
 	// Validate service usage
-	ua := *sys.UAssets[unitName]
-	if ua == nil {
+	ua, ok := sys.UAssets[unitName]
+	if !ok || ua == nil {
 		t.Fatalf("system missing unit asset: %s", unitName)
 	}
 	service := ua.GetCervices()[unitService]

@@ -114,7 +114,7 @@ func TestSetActivitiesCost(t *testing.T) {
 // ------------------------------------------------------ //
 
 // Creates a unitasset with values used for testing
-func createUnitAsset(cost float64) components.UnitAsset {
+func createUnitAsset(cost float64) *components.UnitAsset {
 	setTest := &components.Service{
 		ID:            1,
 		Definition:    "test",
@@ -126,16 +126,11 @@ func createUnitAsset(cost float64) components.UnitAsset {
 		RegExpiration: "45",
 		ACost:         cost,
 	}
-	ServicesMap := &components.Services{
-		setTest.SubPath: setTest,
-	}
-	var ua components.UnitAsset = &mockUnitAsset{
+	return &components.UnitAsset{
 		Name:        "testUnitAsset",
 		Details:     map[string][]string{"Test": {"Test"}},
-		ServicesMap: *ServicesMap,
-		CervicesMap: nil,
+		ServicesMap: components.Services{setTest.SubPath: setTest},
 	}
-	return ua
 }
 
 type acServicesParams struct {
@@ -143,7 +138,7 @@ type acServicesParams struct {
 	responseWriter *httptest.ResponseRecorder
 	expectError    bool
 	request        *http.Request
-	unitAsset      components.UnitAsset
+	unitAsset      *components.UnitAsset
 	testCase       string
 }
 
@@ -202,7 +197,7 @@ func TestACServices(t *testing.T) {
 		w := c.responseWriter
 		r := c.request
 		// Test
-		ACServices(w, r, &ua, "test")
+		ACServices(w, r, ua, "test")
 
 		if c.expectError == false && w.Result().StatusCode != 200 {
 			t.Errorf("Expected statuscode 200 in testcase '%s' got: %d", c.testCase, w.Result().StatusCode)

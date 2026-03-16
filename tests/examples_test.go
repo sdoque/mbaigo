@@ -26,31 +26,11 @@ type Traits struct {
 	MaxValue float64 `json:"maxValue"` // Maximum value of the IO
 }
 
-// The most simplest unit asset
-type uaRandomiser struct {
-	Name        string              `json:"-"`
-	Owner       *components.System  `json:"-"`
-	Details     map[string][]string `json:"-"`
-	ServicesMap components.Services `json:"-"`
-	CervicesMap components.Cervices `json:"-"`
-	Traits
-}
-
-// Force type check (fulfilling the interface) at compile time
-var _ components.UnitAsset = &uaRandomiser{}
-
-// Add required functions to fulfil the UnitAsset interface
-func (ua uaRandomiser) GetName() string                  { return ua.Name }
-func (ua uaRandomiser) GetServices() components.Services { return ua.ServicesMap }
-func (ua uaRandomiser) GetCervices() components.Cervices { return ua.CervicesMap }
-func (ua uaRandomiser) GetDetails() map[string][]string  { return ua.Details }
-func (ua uaRandomiser) GetTraits() any                   { return ua.Traits }
-func (ua uaRandomiser) Serving(w http.ResponseWriter, r *http.Request, servicePath string) {
+func randomiserServing(w http.ResponseWriter, r *http.Request, servicePath string) {
 	if servicePath != unitService {
 		http.Error(w, "unknown service path: "+servicePath, http.StatusBadRequest)
 		return
 	}
-
 	f := forms.SignalA_v1a{
 		Value: rand.Float64(),
 	}
@@ -73,19 +53,18 @@ func createUATemplate(sys *components.System) {
 		// NOTE: must start with lower-case, it gets embedded into another sentence in the web API
 		Description: "returns a random float64",
 	}
-	ua := components.UnitAsset(&uaRandomiser{
-		Name:    unitName, // WARN: don't use the system name!! this is an asset!
-		Details: map[string][]string{"key2": {"value2"}},
-		ServicesMap: components.Services{
-			s.SubPath: s,
-		},
-	})
-	sys.UAssets[ua.GetName()] = &ua
+	ua := &components.UnitAsset{
+		Name:        unitName, // WARN: don't use the system name!! this is an asset!
+		Details:     map[string][]string{"key2": {"value2"}},
+		ServicesMap: components.Services{s.SubPath: s},
+		ServingFunc: randomiserServing,
+	}
+	sys.UAssets[ua.GetName()] = ua
 }
 
-func loadUAConfig(ca usecases.ConfigurableAsset, sys *components.System) (components.UnitAsset, func()) {
+func loadUAConfig(ca usecases.ConfigurableAsset, sys *components.System) (*components.UnitAsset, func()) {
 	s := ca.Services[0]
-	ua := &uaRandomiser{
+	ua := &components.UnitAsset{
 		Name:        ca.Name,
 		Owner:       sys,
 		Details:     ca.Details,
@@ -97,6 +76,7 @@ func loadUAConfig(ca usecases.ConfigurableAsset, sys *components.System) (compon
 			// Nodes will be filled up by any discovered cervices
 			Nodes: make(map[string][]string, 0),
 		}},
+		ServingFunc: randomiserServing,
 	}
 	return ua, func() {}
 }
