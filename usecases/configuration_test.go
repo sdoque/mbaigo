@@ -3,45 +3,11 @@ package usecases
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"testing"
 
 	"github.com/sdoque/mbaigo/components"
 )
-
-// A mocked UnitAsset used for testing
-type mockUnitAssetWithTraits struct {
-	Name        string              `json:"name"`
-	Owner       *components.System  `json:"-"`
-	Details     map[string][]string `json:"details"`
-	ServicesMap components.Services `json:"-"`
-	CervicesMap components.Cervices `json:"-"`
-	Traits      map[string][]string `json:"-"`
-}
-
-func (mua mockUnitAssetWithTraits) GetTraits() any {
-	return mua.Traits
-}
-
-func (mua mockUnitAssetWithTraits) GetName() string {
-	return mua.Name
-}
-
-func (mua mockUnitAssetWithTraits) GetServices() components.Services {
-	return mua.ServicesMap
-}
-
-func (mua mockUnitAssetWithTraits) GetCervices() components.Cervices {
-	return mua.CervicesMap
-}
-
-func (mua mockUnitAssetWithTraits) GetDetails() map[string][]string {
-	return mua.Details
-}
-
-func (mua mockUnitAssetWithTraits) Serving(w http.ResponseWriter, r *http.Request, servicePath string) {
-}
 
 // --------------------------------------------------------- //
 // Helpfunctions that creates a default config file
@@ -79,25 +45,21 @@ func createConfigHasTraits(sys *components.System) (err error) {
 	ServicesMap := &components.Services{
 		setTest.SubPath: setTest,
 	}
-	mua := &mockUnitAssetWithTraits{
+	mua := &components.UnitAsset{
 		Name:        "testUnitAsset",
 		Details:     map[string][]string{"Test": {"Test"}},
 		ServicesMap: *ServicesMap,
-		CervicesMap: nil,
 		Traits:      map[string][]string{"Trait": {"testTrait"}},
 	}
-	var muaInterface components.UnitAsset = mua
-	sys.UAssets[mua.GetName()] = &muaInterface
+	sys.UAssets[mua.GetName()] = mua
 
 	// If the asset exposes traits, serialize them and store as raw JSON
-	if assetWithTraits, ok := assetTemplate.(components.HasTraits); ok {
-		if traits := assetWithTraits.GetTraits(); traits != nil {
-			traitJSON, err := json.Marshal(traits)
-			if err == nil {
-				confAsset.Traits = []json.RawMessage{traitJSON}
-			} else {
-				return err
-			}
+	if traits := assetTemplate.GetTraits(); traits != nil {
+		traitJSON, err := json.Marshal(traits)
+		if err == nil {
+			confAsset.Traits = []json.RawMessage{traitJSON}
+		} else {
+			return err
 		}
 	}
 	defaultConfig.Assets = []ConfigurableAsset{confAsset}
@@ -368,9 +330,8 @@ func TestGetServiceList(t *testing.T) {
 	ServicesMap := &components.Services{
 		setTest.SubPath: setTest,
 	}
-	mua := mockUnitAsset{
+	mua := components.UnitAsset{
 		Name:        "test",
-		Owner:       nil,
 		Details:     nil,
 		ServicesMap: *ServicesMap,
 	}

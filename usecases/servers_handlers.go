@@ -205,6 +205,8 @@ func handleThreeParts(w http.ResponseWriter, r *http.Request, part string, sys *
 		SysHateoas(w, r, *sys)
 	case "kgraph":
 		KGraphing(w, r, sys)
+	case "smodel":
+		SModeling(w, r, sys)
 	case "cert":
 		forms.Certificate(w, r, *sys)
 	case "msg":

@@ -37,7 +37,6 @@ import (
 // System struct aggregates an Arrowhead compliant system
 type System struct {
 	Name    string                `json:"systemName"`
-	Mission string                // the system's mission or purpose used in access control authorization
 	Husk    *Husk                 // the system aggregates a "husk" (a wrapper or a shell)
 	UAssets map[string]*UnitAsset // the system aggregates "asset", which is made up of one or more unit-asset
 	Ctx     context.Context       // create a context that can be cancelled

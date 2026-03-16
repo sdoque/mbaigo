@@ -34,6 +34,7 @@ import (
 // configurable details and services
 type ConfigurableAsset struct {
 	Name     string               `json:"name"`
+	Mission  string               `json:"mission,omitempty"`
 	Details  map[string][]string  `json:"details"`
 	Services []components.Service `json:"services"`
 	Traits   []json.RawMessage    `json:"traits"`
@@ -76,19 +77,18 @@ func setupDefaultConfig(sys *components.System) (defaultConfig templateOut, err 
 
 	confAsset := ConfigurableAsset{
 		Name:     assetTemplate.GetName(),
+		Mission:  assetTemplate.Mission,
 		Details:  assetTemplate.GetDetails(),
 		Services: servicesTemplate,
 	}
 
 	// If the asset exposes traits, serialize them and store as raw JSON
-	if assetWithTraits, ok := assetTemplate.(components.HasTraits); ok {
-		if traits := assetWithTraits.GetTraits(); traits != nil {
-			traitJSON, err := json.Marshal(traits)
-			if err != nil {
-				return templateOut{}, fmt.Errorf("couldn't marshal traits: %v", err)
-			}
-			confAsset.Traits = []json.RawMessage{traitJSON}
+	if traits := assetTemplate.GetTraits(); traits != nil {
+		traitJSON, err := json.Marshal(traits)
+		if err != nil {
+			return templateOut{}, fmt.Errorf("couldn't marshal traits: %v", err)
 		}
+		confAsset.Traits = []json.RawMessage{traitJSON}
 	}
 
 	// prepare content of configuration file
