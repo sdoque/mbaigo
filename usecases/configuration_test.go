@@ -83,6 +83,7 @@ func createConfigHasTraits(sys *components.System) (err error) {
 
 	defaultConfig.CCoreS = []components.CoreSystem{leadingRegistrar, orchestrator, ca, maitreD}
 	defaultConfig.CName = sys.Name
+	defaultConfig.IPAddresses = sys.Husk.Host.IPAddresses
 	defaultConfig.Protocols = sys.Husk.ProtoPort
 	defaultConfigFile, err := os.Create("systemconfig.json")
 	if err != nil {
@@ -143,6 +144,7 @@ func createConfigNoTraits(sys *components.System, assetAmount int) (err error) {
 
 	defaultConfig.CCoreS = []components.CoreSystem{leadingRegistrar, orchestrator, ca, maitreD}
 	defaultConfig.CName = sys.Name
+	defaultConfig.IPAddresses = sys.Husk.Host.IPAddresses
 	defaultConfig.Protocols = sys.Husk.ProtoPort
 	defaultConfigFile, err := os.Create("systemconfig.json")
 	if err != nil {
@@ -157,6 +159,33 @@ func createConfigNoTraits(sys *components.System, assetAmount int) (err error) {
 		return fmt.Errorf("jsonEncode: %v", err)
 	}
 	return
+}
+
+// createConfigEmptyIPs writes a config file with an explicit empty ipAddresses
+// list, simulating an old config created before IP persistence was added.
+func createConfigEmptyIPs(sys *components.System) error {
+	type minimalConfig struct {
+		CName     string                  `json:"systemname"`
+		Protocols map[string]int          `json:"protocolsNports"`
+		CCoreS    []components.CoreSystem `json:"coreSystems"`
+		Assets    []ConfigurableAsset     `json:"unit_assets"`
+	}
+	cfg := minimalConfig{
+		CName:     sys.Name,
+		Protocols: sys.Husk.ProtoPort,
+		CCoreS: []components.CoreSystem{
+			{Name: "serviceregistrar", Url: "http://localhost:20102/serviceregistrar/registry"},
+		},
+		Assets: []ConfigurableAsset{{Name: "testUnitAsset"}},
+	}
+	f, err := os.Create("systemconfig.json")
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "    ")
+	return enc.Encode(cfg)
 }
 
 // --------------------------------------------------------- //
@@ -310,6 +339,60 @@ func TestConfigure(t *testing.T) {
 			t.Errorf("failed to remove 'systemconfig.json' in testcase '%s'", testCase.testCase)
 		}
 	}
+}
+
+// TestConfigureIPAddresses verifies that IP addresses are correctly persisted
+// and restored through the config file.
+func TestConfigureIPAddresses(t *testing.T) {
+	t.Run("IP addresses from config override discovered IPs", func(t *testing.T) {
+		testSys := createTestSystem(false)
+
+		// Write a config that includes the system's discovered IPs.
+		if err := createConfigNoTraits(&testSys, 1); err != nil {
+			t.Fatalf("setup failed: %v", err)
+		}
+		defer cleanup()
+
+		// Simulate a network change by replacing the in-memory IPs with a sentinel value.
+		testSys.Husk.Host.IPAddresses = []string{"9.9.9.9"}
+
+		if _, err := Configure(&testSys); err != nil {
+			t.Fatalf("Configure returned unexpected error: %v", err)
+		}
+
+		// The IPs should have been restored from the config, not the sentinel.
+		for _, ip := range testSys.Husk.Host.IPAddresses {
+			if ip == "9.9.9.9" {
+				t.Error("expected config IPs to override discovered IPs, but sentinel value survived")
+			}
+		}
+	})
+
+	t.Run("Config without ipAddresses keeps discovered IPs", func(t *testing.T) {
+		testSys := createTestSystem(false)
+
+		// Write a config that has no ipAddresses field (old-style config).
+		if err := createConfigEmptyIPs(&testSys); err != nil {
+			t.Fatalf("setup failed: %v", err)
+		}
+		defer cleanup()
+
+		discovered := make([]string, len(testSys.Husk.Host.IPAddresses))
+		copy(discovered, testSys.Husk.Host.IPAddresses)
+
+		if _, err := Configure(&testSys); err != nil && err != ErrNewConfig {
+			t.Fatalf("Configure returned unexpected error: %v", err)
+		}
+
+		if len(testSys.Husk.Host.IPAddresses) != len(discovered) {
+			t.Errorf("expected %d IPs, got %d", len(discovered), len(testSys.Husk.Host.IPAddresses))
+		}
+		for i, ip := range testSys.Husk.Host.IPAddresses {
+			if ip != discovered[i] {
+				t.Errorf("IP[%d]: expected %s, got %s", i, discovered[i], ip)
+			}
+		}
+	})
 }
 
 // --------------------------------------------------------- //
