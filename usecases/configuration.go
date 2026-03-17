@@ -42,22 +42,24 @@ type ConfigurableAsset struct {
 
 // templateOut is the struct used to prepare the systemconfig.json file
 type templateOut struct {
-	CName      string                  `json:"systemname"`
-	LocalCloud string                  `json:"localcloud,omitempty"`
-	Assets     []ConfigurableAsset     `json:"unit_assets"`
-	Protocols  map[string]int          `json:"protocolsNports"`
-	CCoreS     []components.CoreSystem `json:"coreSystems"`
+	CName       string                  `json:"systemname"`
+	LocalCloud  string                  `json:"localcloud,omitempty"`
+	IPAddresses []string                `json:"ipAddresses"`
+	Assets      []ConfigurableAsset     `json:"unit_assets"`
+	Protocols   map[string]int          `json:"protocolsNports"`
+	CCoreS      []components.CoreSystem `json:"coreSystems"`
 }
 
 // configFileIn is used to extract out the information of the systemconfig.json file
 // Since it does not know about the details of the Thing, it does not unmarsahll this
 // information
 type configFileIn struct {
-	CName      string                  `json:"systemname"`
-	LocalCloud string                  `json:"localcloud,omitempty"`
-	Protocols  map[string]int          `json:"protocolsNports"`
-	CCoreS     []components.CoreSystem `json:"coreSystems"`
-	Resources  []json.RawMessage       `json:"unit_assets"`
+	CName       string                  `json:"systemname"`
+	LocalCloud  string                  `json:"localcloud,omitempty"`
+	IPAddresses []string                `json:"ipAddresses"`
+	Protocols   map[string]int          `json:"protocolsNports"`
+	CCoreS      []components.CoreSystem `json:"coreSystems"`
+	Resources   []json.RawMessage       `json:"unit_assets"`
 }
 
 var ErrNewConfig = errors.New("new config file was created")
@@ -99,6 +101,7 @@ func setupDefaultConfig(sys *components.System) (defaultConfig templateOut, err 
 			break
 		}
 	}
+	defaultConfig.IPAddresses = sys.Husk.Host.IPAddresses
 	defaultConfig.Protocols = sys.Husk.ProtoPort
 	defaultConfig.Assets = []ConfigurableAsset{confAsset} // this is a list of unit assets
 
@@ -175,6 +178,10 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 	}
 
 	sys.Name = configurationIn.CName
+	// Restore IP addresses from config, allowing operators to limit which address is used.
+	if len(configurationIn.IPAddresses) > 0 {
+		sys.Husk.Host.IPAddresses = configurationIn.IPAddresses
+	}
 	// If the systemconfig file has a LocalCloud defined, add it to the system details
 	if configurationIn.LocalCloud != "" {
 		if sys.Husk.Details == nil {
