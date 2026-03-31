@@ -6,6 +6,8 @@
 *.dylib
 *.html
 *.json
+.claude
+Makefile
 
 # Test binary, built with `go test -c`
 *.test

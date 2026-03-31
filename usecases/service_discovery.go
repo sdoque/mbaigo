@@ -147,7 +147,7 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 	if !ok {
 		return fmt.Errorf("unable to unpack discovery request form")
 	}
-	cer.Nodes[df.ServNode] = append(cer.Nodes[df.ServNode], df.ServLocation)
+	cer.Nodes[df.ServNode] = append(cer.Nodes[df.ServNode], components.NodeInfo{URL: df.ServLocation, Details: df.Details})
 	return nil
 }
 
@@ -196,7 +196,7 @@ func Search4MultipleServices(cer *components.Cervice, sys *components.System) (e
 	}
 	for _, values := range srList.List {
 		sp := convertToServicePoint(values)
-		cer.Nodes[sp.ServNode] = append(cer.Nodes[sp.ServNode], sp.ServLocation)
+		cer.Nodes[sp.ServNode] = append(cer.Nodes[sp.ServNode], components.NodeInfo{URL: sp.ServLocation, Details: sp.Details})
 	}
 	return nil
 }

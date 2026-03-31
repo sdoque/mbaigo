@@ -56,16 +56,16 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 	}
 
 	var serviceUrl string
-	for _, values := range cer.Nodes {
-		if len(values) > 0 {
-			serviceUrl = values[0]
+	for _, nodes := range cer.Nodes {
+		if len(nodes) > 0 {
+			serviceUrl = nodes[0].URL
 			break
 		}
 	}
 
 	resp, err := sendHTTPReq(httpMethod, serviceUrl, bodyBytes)
 	if err != nil {
-		cer.Nodes = make(map[string][]string) // Failed to get the resource at that location: reset the providers list, which will trigger a new service search
+		cer.Nodes = make(map[string][]components.NodeInfo) // Failed to get the resource at that location: reset the providers list, which will trigger a new service search
 		return f, err
 	}
 	defer resp.Body.Close()
@@ -167,9 +167,9 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 	}
 
 	var serviceUrls []string
-	for _, values := range cer.Nodes {
-		if len(values) > 0 {
-			serviceUrls = append(serviceUrls, values...)
+	for _, nodes := range cer.Nodes {
+		for _, ni := range nodes {
+			serviceUrls = append(serviceUrls, ni.URL)
 		}
 	}
 
@@ -179,7 +179,7 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 		}
 		resp, currentErr := sendHTTPReq(httpMethod, serviceUrl, bodyBytes)
 		if currentErr != nil {
-			cer.Nodes = make(map[string][]string)
+			cer.Nodes = make(map[string][]components.NodeInfo)
 			f = append(f, nil)
 			err = append(err, currentErr)
 			continue

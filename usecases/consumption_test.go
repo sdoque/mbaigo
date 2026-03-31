@@ -34,7 +34,7 @@ func newTestCerviceWithNodes() *components.Cervice {
 		IReferentce: "test",
 		Definition:  "A test Cervice with nodes",
 		Details:     map[string][]string{"Forms": {"SignalA_v1a"}},
-		Nodes:       map[string][]string{"test": {"https://testSystem/testUnitAsset/test"}},
+		Nodes:       map[string][]components.NodeInfo{"test": {{URL: "https://testSystem/testUnitAsset/test"}}},
 		Protos:      []string{"http"},
 	}
 }
@@ -44,7 +44,7 @@ func newTestCerviceWithoutNodes() *components.Cervice {
 		IReferentce: "test",
 		Definition:  "A test Cervice without nodes",
 		Details:     map[string][]string{"Forms": {"SignalA_v1a"}},
-		Nodes:       make(map[string][]string),
+		Nodes:       make(map[string][]components.NodeInfo),
 		Protos:      []string{"http"},
 	}
 }
@@ -54,7 +54,7 @@ func newTestCerviceWithBrokenUrl() *components.Cervice {
 		IReferentce: "test",
 		Definition:  "A test Cervice with nodes",
 		Details:     map[string][]string{"Forms": {"SignalA_v1a"}},
-		Nodes:       map[string][]string{"test": {brokenUrl}},
+		Nodes:       map[string][]components.NodeInfo{"test": {{URL: brokenUrl}}},
 		Protos:      []string{"http"},
 	}
 }
@@ -385,7 +385,7 @@ func TestGetStates(t *testing.T) {
 		IReferentce: "test",
 		Definition:  "A test Cervice with nodes",
 		Details:     map[string][]string{"Forms": {"SignalA_v1a"}},
-		Nodes:       map[string][]string{"test": {"test1", "test2", "test3"}},
+		Nodes:       map[string][]components.NodeInfo{"test": {{URL: "test1"}, {URL: "test2"}, {URL: "test3"}}},
 		Protos:      []string{"http"},
 	}
 	testSys := createTestSystem(false)
@@ -405,7 +405,7 @@ func TestGetStates(t *testing.T) {
 		IReferentce: "test",
 		Definition:  "A test Cervice with nodes",
 		Details:     map[string][]string{"Forms": {"SignalA_v1a"}},
-		Nodes:       map[string][]string{"test": {"test1", brokenUrl, "test3"}},
+		Nodes:       map[string][]components.NodeInfo{"test": {{URL: "test1"}, {URL: brokenUrl}, {URL: "test3"}}},
 		Protos:      []string{"http"},
 	}
 	testSys = createTestSystem(false)
