@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2024 Synecdoque
+ * Copyright (c) 2026 Synecdoque
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -31,13 +31,37 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sdoque/mbaigo/components"
 )
 
-// RequestCertificate generates the system's public key and a certificate signing request to be sent to the CA
+// RequestCertificate generates the system's public key and a certificate signing request to be sent to the CA.
+// It is a no-op when no HTTPS port is configured. On subsequent startups it reuses the certificate saved
+// to disk from the previous enrollment, requesting a new one only when the saved cert is missing or
+// within 24 hours of expiry. If the CA is unreachable it retries every minute until it succeeds or
+// the system context is cancelled.
 func RequestCertificate(sys *components.System) {
+	// Nothing to do when HTTPS is not enabled.
+	if sys.Husk.ProtoPort["https"] == 0 {
+		return
+	}
+
+	certFile := sys.Name + "_certificate.pem"
+	keyFile := sys.Name + "_private_key.pem"
+
+	// Reuse a previously issued certificate if it is still valid.
+	if key, certPEM, err := loadSystemCertificate(certFile, keyFile); err == nil {
+		log.Printf("reusing existing certificate for %s\n", sys.Name)
+		sys.Husk.Pkey = key
+		sys.Husk.Certificate = certPEM
+		installTLSConfig(sys)
+		return
+	}
+
 	// Generate ECDSA Private Key
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -55,30 +79,49 @@ func RequestCertificate(sys *components.System) {
 	}
 	csrTemplate := x509.CertificateRequest{
 		Subject:            sys.Husk.DName,
-		DNSNames:           dnsNames, // this is the SAN DNS
-		IPAddresses:        ipAddrs,  // this is the SAN IPs
+		DNSNames:           dnsNames,
+		IPAddresses:        ipAddrs,
 		SignatureAlgorithm: x509.ECDSAWithSHA256,
 	}
 
 	csrBytes, err := x509.CreateCertificateRequest(rand.Reader, &csrTemplate, privateKey)
 	if err != nil {
 		log.Fatalf("Failed to create CSR: %v\n", err)
-		return
 	}
 
 	// Encode the CSR to PEM format
 	csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrBytes})
 
-	// Send the CSR to the CA and receive the certificate in response
-	response, err := sendCSR(sys, csrPEM)
-	if err != nil {
-		log.Printf("certification failure: %v\n", err)
-		return
+	// Send the CSR to the CA, retrying every minute until it succeeds or the context is cancelled.
+	var response string
+	for {
+		response, err = sendCSR(sys, csrPEM)
+		if err == nil {
+			break
+		}
+		log.Printf("certification attempt failed (%v); retrying in 1 minute\n", err)
+		select {
+		case <-time.After(time.Minute):
+		case <-sys.Ctx.Done():
+			log.Println("context cancelled, aborting certificate request")
+			return
+		}
 	}
 
-	// Save the received certificate
+	// Save the received certificate and private key to disk for future restarts.
+	if err := saveSystemCertificate(certFile, keyFile, response, privateKey); err != nil {
+		log.Printf("warning: could not save certificate to disk: %v\n", err)
+	}
+
+	// Store the received certificate
 	sys.Husk.Certificate = response
 
+	installTLSConfig(sys)
+}
+
+// installTLSConfig fetches the CA certificate, builds the TLS configuration from the system's
+// certificate and private key, and installs it on http.DefaultClient.
+func installTLSConfig(sys *components.System) {
 	// Get CA's certificate
 	caCert, err := getCACertificate(sys)
 	if err != nil {
@@ -101,12 +144,21 @@ func RequestCertificate(sys *components.System) {
 
 	// Configure Transport Layer Security (TLS)
 	tlsConfig := &tls.Config{
-		Certificates:       []tls.Certificate{clientCert},
-		RootCAs:            caCertPool,
-		InsecureSkipVerify: false,
-		MinVersion:         tls.VersionTLS12,
+		Certificates: []tls.Certificate{clientCert},
+		RootCAs:      caCertPool,
+		MinVersion:   tls.VersionTLS12,
 	}
 	sys.Husk.TlsConfig = tlsConfig
+
+	// Install the TLS config on the default HTTP client so that all subsequent
+	// outbound calls (registration, orchestration, service invocation) present
+	// the client certificate when connecting over HTTPS.
+	http.DefaultClient = &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}
 
 	// Output the certificate details
 	fmt.Printf("System %s's parsed Certificate:\n", sys.Name)
@@ -122,7 +174,6 @@ func RequestCertificate(sys *components.System) {
 	fmt.Printf("  Not After: %s\n", cert.NotAfter)
 	fmt.Printf("  DNS Names: %v\n", cert.DNSNames)
 	fmt.Printf("  IP Addresses: %v\n", cert.IPAddresses)
-
 }
 
 func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
@@ -138,6 +189,7 @@ func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/x-pem-file")
+	req.Header.Set("X-Process-PID", strconv.Itoa(os.Getpid()))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send CSR: %w", err)
@@ -218,4 +270,52 @@ func prepareClientCertificate(certPEM string, privateKey *ecdsa.PrivateKey) (tls
 	}
 
 	return clientCert, nil
+}
+
+// loadSystemCertificate reads the certificate and private key from disk and returns them if the
+// certificate is valid and not expiring within the next 24 hours.
+func loadSystemCertificate(certFile, keyFile string) (*ecdsa.PrivateKey, string, error) {
+	certPEMBytes, err := os.ReadFile(certFile) // #nosec G304 — path is derived from sys.Name, a compile-time constant, not user input
+	if err != nil {
+		return nil, "", err
+	}
+	keyPEMBytes, err := os.ReadFile(keyFile) // #nosec G304 — same rationale as above
+	if err != nil {
+		return nil, "", err
+	}
+
+	certBlock, _ := pem.Decode(certPEMBytes)
+	if certBlock == nil {
+		return nil, "", fmt.Errorf("failed to decode certificate PEM")
+	}
+	cert, err := x509.ParseCertificate(certBlock.Bytes)
+	if err != nil {
+		return nil, "", err
+	}
+	if time.Now().After(cert.NotAfter.Add(-24 * time.Hour)) {
+		return nil, "", fmt.Errorf("certificate expires at %s, requesting a new one", cert.NotAfter)
+	}
+
+	keyBlock, _ := pem.Decode(keyPEMBytes)
+	if keyBlock == nil {
+		return nil, "", fmt.Errorf("failed to decode key PEM")
+	}
+	privateKey, err := x509.ParseECPrivateKey(keyBlock.Bytes)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return privateKey, string(certPEMBytes), nil
+}
+
+// saveSystemCertificate writes the signed certificate and private key to disk.
+func saveSystemCertificate(certFile, keyFile, certPEM string, privateKey *ecdsa.PrivateKey) error {
+	if err := os.WriteFile(certFile, []byte(certPEM), 0600); err != nil {
+		return err
+	}
+	keyPEM, err := encodeECDSAPrivateKeyToPEM(privateKey)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(keyFile, keyPEM, 0600)
 }

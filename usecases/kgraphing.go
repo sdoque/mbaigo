@@ -292,10 +292,10 @@ func modelCervices(sName string, ua *components.UnitAsset) string {
 			}
 		}
 
-		for pName, provider := range cervice.Nodes {
+		for pName, nodes := range cervice.Nodes {
 			cerviceModel += fmt.Sprintf("    afo:consumes alc:%s ;\n", pName)
-			for _, url := range provider {
-				cerviceModel += fmt.Sprintf("    afo:fromUrl <%s> ;\n", url)
+			for _, ni := range nodes {
+				cerviceModel += fmt.Sprintf("    afo:fromUrl <%s> ;\n", ni.URL)
 			}
 		}
 

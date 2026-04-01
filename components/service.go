@@ -112,12 +112,18 @@ func MergeDetails(map1, map2 map[string][]string) map[string][]string {
 
 // ---------------------------------------------------
 
+// NodeInfo holds the URL and registered metadata for a single discovered service endpoint.
+type NodeInfo struct {
+	URL     string
+	Details map[string][]string
+}
+
 // A Cervice is a consumed service
 type Cervice struct {
 	IReferentce string // Internal reference when consuming more than one service of the same type
 	Definition  string // Service definition or purpose
 	Details     map[string][]string
-	Nodes       map[string][]string
+	Nodes       map[string][]NodeInfo
 	Protos      []string
 }
 

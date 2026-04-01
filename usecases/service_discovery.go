@@ -108,7 +108,7 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 		SysId:             0,
 		RequesterName:     sys.Name,
 		ServiceDefinition: cer.Definition,
-		Protocol:          "http",
+		Protocol:          preferredProtocol(cer.Protos),
 		Details:           cer.Details,
 		Version:           "ServiceQuest_v1",
 	}
@@ -147,7 +147,7 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 	if !ok {
 		return fmt.Errorf("unable to unpack discovery request form")
 	}
-	cer.Nodes[df.ServNode] = append(cer.Nodes[df.ServNode], df.ServLocation)
+	cer.Nodes[df.ServNode] = append(cer.Nodes[df.ServNode], components.NodeInfo{URL: df.ServLocation, Details: df.Details})
 	return nil
 }
 
@@ -156,7 +156,7 @@ func Search4MultipleServices(cer *components.Cervice, sys *components.System) (e
 		SysId:             0,
 		RequesterName:     sys.Name,
 		ServiceDefinition: cer.Definition,
-		Protocol:          "http",
+		Protocol:          preferredProtocol(cer.Protos),
 		Details:           cer.Details,
 		Version:           "ServiceQuest_v1",
 	}
@@ -196,7 +196,7 @@ func Search4MultipleServices(cer *components.Cervice, sys *components.System) (e
 	}
 	for _, values := range srList.List {
 		sp := convertToServicePoint(values)
-		cer.Nodes[sp.ServNode] = append(cer.Nodes[sp.ServNode], sp.ServLocation)
+		cer.Nodes[sp.ServNode] = append(cer.Nodes[sp.ServNode], components.NodeInfo{URL: sp.ServLocation, Details: sp.Details})
 	}
 	return nil
 }
@@ -207,9 +207,29 @@ func convertToServicePoint(sr forms.ServiceRecord_v1) (sp forms.ServicePoint_v1)
 	sp.ProviderName = rec.SystemName
 	sp.ServiceDefinition = rec.ServiceDefinition
 	sp.Details = rec.Details
-	sp.ServLocation = "http://" + rec.IPAddresses[0] + ":" + strconv.Itoa(rec.ProtoPort["http"]) + "/" + rec.SystemName + "/" + rec.SubPath
+	proto, port := preferredProtoPort(rec.ProtoPort)
+	sp.ServLocation = proto + "://" + rec.IPAddresses[0] + ":" + strconv.Itoa(port) + "/" + rec.SystemName + "/" + rec.SubPath
 	sp.ServNode = rec.ServiceNode
 	return
+}
+
+// preferredProtocol returns "https" if the cervice supports it, otherwise "http".
+func preferredProtocol(protos []string) string {
+	for _, p := range protos {
+		if p == "https" {
+			return "https"
+		}
+	}
+	return "http"
+}
+
+// preferredProtoPort picks the best protocol and its port from a ProtoPort map,
+// preferring "https" over "http" when both are available and non-zero.
+func preferredProtoPort(protoPort map[string]int) (proto string, port int) {
+	if p, ok := protoPort["https"]; ok && p != 0 {
+		return "https", p
+	}
+	return "http", protoPort["http"]
 }
 
 // FillDiscoveredServices returns a json data byte array with a slice of matching services (e.g., Service Registrar)

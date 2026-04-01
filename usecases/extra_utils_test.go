@@ -97,7 +97,7 @@ func createTestSystem(broken bool) (sys components.System) {
 	testCerv := &components.Cervice{
 		Definition: "testCerv",
 		Details:    map[string][]string{"Forms": {"SignalA_v1a"}},
-		Nodes:      map[string][]string{},
+		Nodes:      map[string][]components.NodeInfo{},
 	}
 
 	CervicesMap := &components.Cervices{
