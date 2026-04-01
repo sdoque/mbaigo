@@ -275,11 +275,11 @@ func prepareClientCertificate(certPEM string, privateKey *ecdsa.PrivateKey) (tls
 // loadSystemCertificate reads the certificate and private key from disk and returns them if the
 // certificate is valid and not expiring within the next 24 hours.
 func loadSystemCertificate(certFile, keyFile string) (*ecdsa.PrivateKey, string, error) {
-	certPEMBytes, err := os.ReadFile(certFile)
+	certPEMBytes, err := os.ReadFile(certFile) // #nosec G304 — path is derived from sys.Name, a compile-time constant, not user input
 	if err != nil {
 		return nil, "", err
 	}
-	keyPEMBytes, err := os.ReadFile(keyFile)
+	keyPEMBytes, err := os.ReadFile(keyFile) // #nosec G304 — same rationale as above
 	if err != nil {
 		return nil, "", err
 	}

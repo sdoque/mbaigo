@@ -74,7 +74,7 @@ func loadUAConfig(ca usecases.ConfigurableAsset, sys *components.System) (*compo
 			Definition: s.Definition,
 			Details:    s.Details,
 			// Nodes will be filled up by any discovered cervices
-			Nodes: make(map[string][]string, 0),
+			Nodes: make(map[string][]components.NodeInfo, 0),
 		}},
 		ServingFunc: randomiserServing,
 	}

@@ -166,10 +166,10 @@ func sysmlIBD(sys *components.System) string {
 					cerv.Definition))
 				continue
 			}
-			for providerName, urls := range cerv.Nodes {
-				for _, url := range urls {
+			for providerName, nodes := range cerv.Nodes {
+				for _, ni := range nodes {
 					out.WriteString(fmt.Sprintf("            connect '%s' to '%s'; // %s\n",
-						cerv.Definition, providerName, url))
+						cerv.Definition, providerName, ni.URL))
 				}
 			}
 		}
