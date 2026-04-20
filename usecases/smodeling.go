@@ -89,6 +89,9 @@ func sysmlPortDefs(sys *components.System) string {
 }
 
 // sysmlBlockDefs emits the BDD: one 'part def' for the overall system and one per unit asset.
+// Per-asset type names are qualified with the system name to prevent collisions
+// when two systems happen to use the same asset name (e.g. both kgrapher and
+// modeler defining an "assembler" asset).
 func sysmlBlockDefs(sys *components.System) string {
 	var out strings.Builder
 
@@ -99,13 +102,13 @@ func sysmlBlockDefs(sys *components.System) string {
 	out.WriteString(fmt.Sprintf("    part def '%s' {\n", sysBlockName))
 	out.WriteString(fmt.Sprintf("        attribute name : String = \"%s\";\n", sys.Name))
 	for assetName := range sys.UAssets {
-		out.WriteString(fmt.Sprintf("        part '%s' : '%s';\n", assetName, sysmlName(assetName)+"Block"))
+		out.WriteString(fmt.Sprintf("        part '%s' : '%s';\n", assetName, assetTypeName(sys, assetName)))
 	}
 	out.WriteString("    }\n\n")
 
 	// Per-asset blocks
 	for assetName, ua := range sys.UAssets {
-		out.WriteString(fmt.Sprintf("    part def '%s' {\n", sysmlName(assetName)+"Block"))
+		out.WriteString(fmt.Sprintf("    part def '%s' {\n", assetTypeName(sys, assetName)))
 		if ua.Mission != "" {
 			out.WriteString(fmt.Sprintf("        attribute mission : String = \"%s\";\n", ua.Mission))
 		}
@@ -117,6 +120,11 @@ func sysmlBlockDefs(sys *components.System) string {
 		for _, cerv := range ua.GetCervices() {
 			out.WriteString(fmt.Sprintf("        in port '%s' : '%s';  // consumed service\n",
 				cerv.Definition, cerv.Definition))
+		}
+
+		// Link the asset to its behaviour when cervices carry Mode tags.
+		if assetHasBehavior(ua) {
+			out.WriteString(fmt.Sprintf("        perform '%s';\n", behaviorTypeName(sys, assetName)))
 		}
 
 		out.WriteString("    }\n\n")
@@ -159,7 +167,11 @@ func sysmlIBD(sys *components.System) string {
 					}
 					url := proto + "://" + sys.Husk.Host.IPAddresses[0] + ":" +
 						strconv.Itoa(port) + "/" + sys.Name + "/" + assetName + "/" + svc.SubPath
-					out.WriteString(fmt.Sprintf("        // provides: %s\n", url))
+					// Path format "<asset>.<definition>" lets the modeler resolve
+					// @connect URLs back to provider ports when building the
+					// LocalCloud IBD's connect statements.
+					out.WriteString(fmt.Sprintf("        // provides %s.%s at %s\n",
+						assetName, svc.Definition, url))
 				}
 			}
 			for _, cerv := range ua.GetCervices() {
@@ -248,7 +260,7 @@ func sysmlBehaviorDefs(sys *components.System) string {
 
 	out.WriteString("    // ── Behaviour Definitions ────────────────────────────────────────────────\n")
 	for _, ab := range behaviors {
-		out.WriteString(fmt.Sprintf("    action def '%sBehavior' {\n", sysmlName(ab.name)))
+		out.WriteString(fmt.Sprintf("    action def '%s' {\n", behaviorTypeName(sys, ab.name)))
 
 		for _, g := range ab.gets {
 			out.WriteString(fmt.Sprintf("        action 'get_%s' : GetState;\n", g))
@@ -290,4 +302,30 @@ func sysmlBehaviorDefs(sys *components.System) string {
 func sysmlName(name string) string {
 	r := strings.NewReplacer("-", "_", " ", "_", ".", "_")
 	return r.Replace(name)
+}
+
+// assetTypeName builds the SysML v2 type name for a unit asset, qualified by
+// the system that owns it so that two systems with an identically named asset
+// do not produce conflicting 'part def' declarations in the merged package.
+func assetTypeName(sys *components.System, assetName string) string {
+	return sysmlName(sys.Name) + "_" + sysmlName(assetName) + "UnitAsset"
+}
+
+// behaviorTypeName builds the SysML v2 name for a unit asset's behaviour
+// action def, qualified by the system for the same collision-avoidance reason
+// as assetTypeName.
+func behaviorTypeName(sys *components.System, assetName string) string {
+	return sysmlName(sys.Name) + "_" + sysmlName(assetName) + "Behavior"
+}
+
+// assetHasBehavior reports whether a unit asset has at least one cervice
+// tagged with Mode "get" or "set" — the precondition for generating a
+// behaviour action def and a matching perform reference.
+func assetHasBehavior(ua *components.UnitAsset) bool {
+	for _, c := range ua.GetCervices() {
+		if c.Mode == "get" || c.Mode == "set" {
+			return true
+		}
+	}
+	return false
 }

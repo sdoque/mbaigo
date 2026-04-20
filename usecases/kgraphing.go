@@ -281,6 +281,9 @@ func modelCervices(sName string, ua *components.UnitAsset) string {
 		cerviceModel += fmt.Sprintf("alc:%s_%s_%s a afo:ConsumedService ;\n",
 			sName, asset.GetName(), cervice.Definition)
 		cerviceModel += fmt.Sprintf("    afo:consumes \"%s\" ;\n", cervice.Definition)
+		if cervice.Mode != "" {
+			cerviceModel += fmt.Sprintf("    afo:hasMode \"%s\" ;\n", cervice.Mode)
+		}
 
 		details := cervice.Details
 		for key, values := range details {
