@@ -97,24 +97,34 @@ func sysmlBlockDefs(sys *components.System) string {
 
 	out.WriteString("    // ── Block Definitions (BDD) ──────────────────────────────────────────────\n")
 
-	// System-level block
+	// System-level block. Specialises from an mAF abstract type so core
+	// systems (ServiceRegistrar, Orchestrator, CertificateAuthority) are
+	// structurally distinguishable from domain systems. Attributes declared
+	// here (host, ports) let the LocalCloud IBD instance assign
+	// per-deployment values via 'redefines'.
 	sysBlockName := sysmlName(sys.Name) + "System"
-	out.WriteString(fmt.Sprintf("    part def '%s' {\n", sysBlockName))
+	out.WriteString(fmt.Sprintf("    part def '%s' :> %s {\n", sysBlockName, systemBaseType(sys.Name)))
 	out.WriteString(fmt.Sprintf("        attribute name : String = \"%s\";\n", sys.Name))
+	out.WriteString("        attribute host : String;\n")
+	for proto, port := range sys.Husk.ProtoPort {
+		if port != 0 {
+			out.WriteString(fmt.Sprintf("        attribute %sPort : Integer;\n", proto))
+		}
+	}
 	for assetName := range sys.UAssets {
 		out.WriteString(fmt.Sprintf("        part '%s' : '%s';\n", assetName, assetTypeName(sys, assetName)))
 	}
 	out.WriteString("    }\n\n")
 
-	// Per-asset blocks
+	// Per-asset blocks: each asset specialises from mAF::UnitAsset.
 	for assetName, ua := range sys.UAssets {
-		out.WriteString(fmt.Sprintf("    part def '%s' {\n", assetTypeName(sys, assetName)))
+		out.WriteString(fmt.Sprintf("    part def '%s' :> UnitAsset {\n", assetTypeName(sys, assetName)))
 		if ua.Mission != "" {
 			out.WriteString(fmt.Sprintf("        attribute mission : String = \"%s\";\n", ua.Mission))
 		}
 
 		for _, svc := range ua.GetServices() {
-			out.WriteString(fmt.Sprintf("        out port '%s' : ~'%s';  // provided service\n",
+			out.WriteString(fmt.Sprintf("        out port '%s' : '%s';  // provided service\n",
 				svc.Definition, svc.Definition))
 		}
 		for _, cerv := range ua.GetCervices() {
@@ -123,8 +133,10 @@ func sysmlBlockDefs(sys *components.System) string {
 		}
 
 		// Link the asset to its behaviour when cervices carry Mode tags.
+		// The "perform action <local-name> : <type>" form is the SysML v2
+		// canonical way to declare that a part performs an action def.
 		if assetHasBehavior(ua) {
-			out.WriteString(fmt.Sprintf("        perform '%s';\n", behaviorTypeName(sys, assetName)))
+			out.WriteString(fmt.Sprintf("        perform action behave : '%s';\n", behaviorTypeName(sys, assetName)))
 		}
 
 		out.WriteString("    }\n\n")
@@ -210,7 +222,6 @@ func sysmlBehaviorDefs(sys *components.System) string {
 	}
 	sort.Strings(assetNames)
 
-	needsGet, needsSet, needsCompute := false, false, false
 	var behaviors []assetBehavior
 
 	for _, assetName := range assetNames {
@@ -229,15 +240,6 @@ func sysmlBehaviorDefs(sys *components.System) string {
 		}
 		sort.Strings(gets)
 		sort.Strings(sets)
-		if len(gets) > 0 {
-			needsGet = true
-		}
-		if len(sets) > 0 {
-			needsSet = true
-		}
-		if len(gets) > 0 && len(sets) > 0 {
-			needsCompute = true
-		}
 		behaviors = append(behaviors, assetBehavior{name: assetName, gets: gets, sets: sets})
 	}
 
@@ -245,19 +247,10 @@ func sysmlBehaviorDefs(sys *components.System) string {
 		return ""
 	}
 
+	// GetState / SetState / Compute are declared in the mAF library emitted
+	// by the modeler, so we don't re-declare them here. We only emit the
+	// per-asset behaviour defs that reference them.
 	var out strings.Builder
-	out.WriteString("    // ── Abstract Action Definitions ──────────────────────────────────────────\n")
-	if needsGet {
-		out.WriteString("    abstract action def GetState;\n")
-	}
-	if needsSet {
-		out.WriteString("    abstract action def SetState;\n")
-	}
-	if needsCompute {
-		out.WriteString("    abstract action def Compute;\n")
-	}
-	out.WriteString("\n")
-
 	out.WriteString("    // ── Behaviour Definitions ────────────────────────────────────────────────\n")
 	for _, ab := range behaviors {
 		out.WriteString(fmt.Sprintf("    action def '%s' {\n", behaviorTypeName(sys, ab.name)))
@@ -328,4 +321,21 @@ func assetHasBehavior(ua *components.UnitAsset) bool {
 		}
 	}
 	return false
+}
+
+// systemBaseType maps an Arrowhead system name to the mAF abstract type it
+// should specialise from. Core infrastructure systems get role-specific
+// types so a SysML v2 tool can answer "which part def is a ServiceRegistrar?"
+// with a simple type query.
+func systemBaseType(name string) string {
+	switch name {
+	case "serviceregistrar":
+		return "ServiceRegistrar"
+	case "orchestrator":
+		return "Orchestrator"
+	case "ca":
+		return "CertificateAuthority"
+	default:
+		return "ArrowheadSystem"
+	}
 }
