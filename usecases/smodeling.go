@@ -63,6 +63,9 @@ func sysmlPackage(sys *components.System) string {
 
 // sysmlPortDefs emits one 'port def' per unique service definition across all unit assets.
 // Each service definition becomes a named port type used by both providers and consumers.
+// The port def name is derived from the service definition so that it is
+// distinct from the port usage name — SysML v2 requires def and usage to use
+// different identifiers. See portDefName for the naming rule.
 func sysmlPortDefs(sys *components.System) string {
 	seen := make(map[string]bool)
 	var out strings.Builder
@@ -73,19 +76,35 @@ func sysmlPortDefs(sys *components.System) string {
 		for _, svc := range ua.GetServices() {
 			if !seen[svc.Definition] {
 				seen[svc.Definition] = true
-				out.WriteString(fmt.Sprintf("    port def '%s';\n", svc.Definition))
+				out.WriteString(fmt.Sprintf("    port def '%s';\n", portDefName(svc.Definition)))
 			}
 		}
 		for _, cerv := range ua.GetCervices() {
 			if !seen[cerv.Definition] {
 				seen[cerv.Definition] = true
-				out.WriteString(fmt.Sprintf("    port def '%s';\n", cerv.Definition))
+				out.WriteString(fmt.Sprintf("    port def '%s';\n", portDefName(cerv.Definition)))
 			}
 		}
 	}
 
 	out.WriteString("\n")
 	return out.String()
+}
+
+// portDefName derives the SysML v2 'port def' identifier from a service
+// definition name. The result must differ from the port usage name (which
+// is just the service definition). We capitalise the first letter; if the
+// input is already capitalised (as with "OnOff"), we append "Port" so the
+// def and the usage still resolve to different identifiers.
+func portDefName(def string) string {
+	if len(def) == 0 {
+		return def
+	}
+	capFirst := strings.ToUpper(def[:1]) + def[1:]
+	if capFirst == def {
+		return def + "Port"
+	}
+	return capFirst
 }
 
 // sysmlBlockDefs emits the BDD: one 'part def' for the overall system and one per unit asset.
@@ -104,8 +123,12 @@ func sysmlBlockDefs(sys *components.System) string {
 	// per-deployment values via 'redefines'.
 	sysBlockName := sysmlName(sys.Name) + "System"
 	out.WriteString(fmt.Sprintf("    part def '%s' :> %s {\n", sysBlockName, systemBaseType(sys.Name)))
-	out.WriteString(fmt.Sprintf("        attribute name : String = \"%s\";\n", sys.Name))
-	out.WriteString("        attribute host : String;\n")
+	// 'name' and 'host' are inherited from ArrowheadSystem in mAF — they
+	// must use 'redefines' to avoid a duplicate-feature error in a strict
+	// SysML v2 tool. 'httpPort' / 'coapPort' / 'httpsPort' are new, so no
+	// redefines.
+	out.WriteString(fmt.Sprintf("        attribute redefines name : String = \"%s\";\n", sys.Name))
+	out.WriteString("        attribute redefines host : String;\n")
 	for proto, port := range sys.Husk.ProtoPort {
 		if port != 0 {
 			out.WriteString(fmt.Sprintf("        attribute %sPort : Integer;\n", proto))
@@ -119,17 +142,18 @@ func sysmlBlockDefs(sys *components.System) string {
 	// Per-asset blocks: each asset specialises from mAF::UnitAsset.
 	for assetName, ua := range sys.UAssets {
 		out.WriteString(fmt.Sprintf("    part def '%s' :> UnitAsset {\n", assetTypeName(sys, assetName)))
+		// 'mission' is inherited from UnitAsset — it must use 'redefines'.
 		if ua.Mission != "" {
-			out.WriteString(fmt.Sprintf("        attribute mission : String = \"%s\";\n", ua.Mission))
+			out.WriteString(fmt.Sprintf("        attribute redefines mission : String = \"%s\";\n", ua.Mission))
 		}
 
 		for _, svc := range ua.GetServices() {
 			out.WriteString(fmt.Sprintf("        out port '%s' : '%s';  // provided service\n",
-				svc.Definition, svc.Definition))
+				svc.Definition, portDefName(svc.Definition)))
 		}
 		for _, cerv := range ua.GetCervices() {
 			out.WriteString(fmt.Sprintf("        in port '%s' : '%s';  // consumed service\n",
-				cerv.Definition, cerv.Definition))
+				cerv.Definition, portDefName(cerv.Definition)))
 		}
 
 		// Link the asset to its behaviour when cervices carry Mode tags.

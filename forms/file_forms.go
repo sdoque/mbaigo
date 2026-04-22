@@ -52,9 +52,12 @@ func (fileForm *FileForm_v1) FormVersion() string {
 	return fileForm.Version
 }
 
-// Register FileForm_v1 in the formTypeMap
+// Register FileForm_v1 in the formTypeMap. The key must match the Version
+// string set in NewForm (see SignalA/SignalB which follow the same "_v1.0"
+// convention) — otherwise Unpack can never resolve an incoming payload back
+// to this type and fails with "unsupported form version".
 func init() {
-	FormTypeMap["FileForm_v1"] = reflect.TypeOf(FileForm_v1{})
+	FormTypeMap["FileForm_v1.0"] = reflect.TypeOf(FileForm_v1{})
 }
 
 const fileDir string = "files"
