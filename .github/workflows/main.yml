@@ -1,31 +1,116 @@
-name: Linters, Spellcheck, and Tests
+# =============================================================================
+# Continuous Integration for mbaigo
+# -----------------------------------------------------------------------------
+# This file lives in .github/workflows/ and is picked up automatically by
+# GitHub Actions. Every time it runs, GitHub spins up a fresh Ubuntu virtual
+# machine (a "runner"), executes the steps below, and reports pass/fail on
+# the commit or pull request.
+#
+# Three independent jobs run in parallel so that a failure in one does not
+# block feedback from the others:
+#   1. lint       — static analysis (gofmt, vet, gosec, staticcheck, govulncheck)
+#   2. test       — unit tests with the race detector
+#   3. spellcheck — typos in code, comments, and docs
+# =============================================================================
 
+name: CI
+
+# -----------------------------------------------------------------------------
+# When does this workflow run?
+# -----------------------------------------------------------------------------
+# - push to main           : every commit that lands on the main branch
+# - pull_request           : every PR, so reviewers see green/red before merge
+# - workflow_dispatch      : a "Run workflow" button in the GitHub UI, useful
+#                            for re-running after a flaky failure
+# -----------------------------------------------------------------------------
 on:
   push:
-    paths:
-      - '**.go'
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
+# -----------------------------------------------------------------------------
+# Security: least-privilege token
+# -----------------------------------------------------------------------------
+# Each run gets an auto-generated GITHUB_TOKEN. By default it can write to
+# the repo; we only need to read source, so we downgrade it. If a future job
+# needs to write (e.g. post a PR comment), it must opt in explicitly.
+# -----------------------------------------------------------------------------
+permissions:
+  contents: read
+
 jobs:
-  LintnTest:
+
+  # ---------------------------------------------------------------------------
+  # Job 1: lint — run every static-analysis tool via `make lint`
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    # Real runs finish in ~2 min; 10 min leaves headroom for a slow runner
+    # or a tool that hangs, without letting a wedged job burn hours.
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup go
+      # Clone the repo at the commit that triggered this run.
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      # Install the Go version declared in go.mod (single source of truth).
+      # setup-go also caches downloaded modules between runs automatically.
+      - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Install dependencies
+
+      # Download deps and install the four CLI linters into $GOPATH/bin
+      # (which setup-go has already put on PATH).
+      - name: Install lint tools
         run: make installpkgs
+
+      # Runs gofmt → go vet → gosec → staticcheck → govulncheck in sequence.
+      # First failure stops the job and shows up as a red X on the commit.
       - name: Run linters
         run: make lint
+
+  # ---------------------------------------------------------------------------
+  # Job 2: test — unit tests with the race detector
+  # ---------------------------------------------------------------------------
+  # Kept separate from lint so a lint failure does not hide a test failure
+  # (and vice versa). Both jobs run at the same time.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # `make test` runs `go test -race ...`. The race detector adds overhead
+      # but catches concurrency bugs that would otherwise only surface in
+      # production — worth the extra seconds for a framework like mbaigo.
       - name: Run tests
         run: make test
 
-  Spellcheck:
+  # ---------------------------------------------------------------------------
+  # Job 3: spellcheck — typos in code, comments, and docs
+  # ---------------------------------------------------------------------------
+  # Uses the official typos GitHub Action, pinned to an exact version so the
+  # dictionary cannot change under us without a deliberate bump.
+  # No Go toolchain needed, so this job finishes in seconds.
+  # ---------------------------------------------------------------------------
+  spellcheck:
+    name: Spellcheck
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v4
-      - uses: crate-ci/typos@v1.29.7
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run typos
+        uses: crate-ci/typos@v1.29.7
