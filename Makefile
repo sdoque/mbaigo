@@ -1,3 +1,8 @@
+# .PHONY tells make these are command names, not files on disk. Without it,
+# a stray file named "test" in the repo would silently stop `make test` from
+# running.
+.PHONY: test lint spellcheck runchecks analyse installpkgs clean
+
 # Run tests and log the test coverage
 test:
 	go test -v -race -coverprofile=".cover.out" $$(go list ./... | grep -v /tmp)
@@ -7,7 +12,9 @@ lint:
 	test -z $$(gofmt -l .) || (echo "Code isn't gofmt'ed!" && exit 1)
 	go vet $$(go list ./... | grep -v /tmp)
 	gosec -quiet -fmt=golint -exclude-dir="tmp" ./...
-	staticcheck -go 1.26 ./...
+	# Let staticcheck infer the Go version from go.mod. Hard-coding -go 1.26
+	# breaks CI when a staticcheck release does not yet know that version.
+	staticcheck ./...
 	govulncheck -test ./...
 	# pointerinterface ./...
 
@@ -37,7 +44,9 @@ installpkgs:
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 	# go install code.larus.se/lmas/pointerinterface@latest
 
-# Clean up built binary and other temporary files (ignores errors from rm)
+# Clean up built binary and other temporary files. The leading "-" on rm
+# tells make to ignore the error if the files do not exist yet (e.g. before
+# the first `make test`). -f also silences rm's own "no such file" message.
 clean:
 	go clean
-	rm .cover.out cover.html
+	-rm -f .cover.out cover.html

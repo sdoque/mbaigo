@@ -1,3 +1,3 @@
 module github.com/sdoque/mbaigo
 
-go 1.26.1
+go 1.26.2

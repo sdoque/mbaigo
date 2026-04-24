@@ -64,6 +64,53 @@ func prefixes() (description string) {
 	return
 }
 
+// rdfObject renders a detail value as a valid Turtle object: a full IRI if the
+// caller supplied one (`<...>`), an `alc:<local>` prefixed name if the value
+// is a legal PN_LOCAL, or a double-quoted string literal otherwise.
+//
+// This prevents values like "SysML v2" (space), "mm/h" (slash), or "W/m²"
+// (non-ASCII superscript) from being emitted as "alc:SysML v2" etc., which
+// strict Turtle parsers reject. Such values become string literals because
+// they are semantically values, not identifiers.
+func rdfObject(value string) string {
+	if strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">") {
+		return value
+	}
+	if isValidPNLocal(value) {
+		return "alc:" + value
+	}
+	// Escape backslashes and double quotes for a Turtle string literal.
+	escaped := strings.ReplaceAll(value, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	return `"` + escaped + `"`
+}
+
+// isValidPNLocal applies a conservative subset of Turtle's PN_LOCAL rule:
+// non-empty, does not start with a digit, and contains only ASCII letters,
+// digits, underscore, or hyphen. This excludes spaces, slashes, dots in
+// value position, and any non-ASCII character — all of which would need
+// explicit escaping to be legal after the "alc:" prefix.
+func isValidPNLocal(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r == '_', r == '-':
+			// always OK
+		case r >= '0' && r <= '9':
+			if i == 0 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // finalizeBlock removes any trailing semicolon from a block of predicate/object
 // lines and appends the final " .\n\n" so the Turtle is syntactically correct.
 func finalizeBlock(block string) string {
@@ -144,10 +191,7 @@ func modelHusk(sys *components.System) string {
 			continue
 		}
 		for _, value := range values {
-			if !(strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")) {
-				value = "alc:" + value
-			}
-			huskModel += fmt.Sprintf("    afo:has%s %s ;\n", key, value)
+			huskModel += fmt.Sprintf("    afo:has%s %s ;\n", key, rdfObject(value))
 		}
 	}
 
@@ -235,10 +279,7 @@ func modelUAsset(sys *components.System) string {
 				continue
 			}
 			for _, value := range values {
-				if !(strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")) {
-					value = "alc:" + value
-				}
-				assetModel += fmt.Sprintf("    alc:has%s %s ;\n", key, value)
+				assetModel += fmt.Sprintf("    alc:has%s %s ;\n", key, rdfObject(value))
 			}
 		}
 
@@ -281,14 +322,14 @@ func modelCervices(sName string, ua *components.UnitAsset) string {
 		cerviceModel += fmt.Sprintf("alc:%s_%s_%s a afo:ConsumedService ;\n",
 			sName, asset.GetName(), cervice.Definition)
 		cerviceModel += fmt.Sprintf("    afo:consumes \"%s\" ;\n", cervice.Definition)
+		if cervice.Mode != "" {
+			cerviceModel += fmt.Sprintf("    afo:hasMode \"%s\" ;\n", cervice.Mode)
+		}
 
 		details := cervice.Details
 		for key, values := range details {
 			for _, value := range values {
-				if !(strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")) {
-					value = "alc:" + value
-				}
-				cerviceModel += fmt.Sprintf("    alc:has%s %s ;\n", key, value)
+				cerviceModel += fmt.Sprintf("    alc:has%s %s ;\n", key, rdfObject(value))
 			}
 		}
 
@@ -341,10 +382,7 @@ func modelServices(sName string, ua *components.UnitAsset, sys *components.Syste
 		details := service.Details
 		for key, values := range details {
 			for _, value := range values {
-				if !(strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">")) {
-					value = "alc:" + value
-				}
-				serviceModel += fmt.Sprintf("    alc:has%s  %s ;\n", key, value)
+				serviceModel += fmt.Sprintf("    alc:has%s  %s ;\n", key, rdfObject(value))
 			}
 		}
 

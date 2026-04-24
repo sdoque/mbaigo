@@ -125,6 +125,7 @@ type Cervice struct {
 	Details     map[string][]string
 	Nodes       map[string][]NodeInfo
 	Protos      []string
+	Mode        string // "get" for GetState, "set" for SetState, "" for unspecified
 }
 
 // Cervises is a collection of "Cervice" structs

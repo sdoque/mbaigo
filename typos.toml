@@ -1,0 +1,24 @@
+# =============================================================================
+# Configuration for the `typos` spellchecker
+# -----------------------------------------------------------------------------
+# Picked up automatically by the `typos` CLI and by the crate-ci/typos GitHub
+# Action when placed at the repo root. Run `typos` locally or `make spellcheck`
+# to apply these rules.
+#
+# Add a line under [default.extend-words] whenever the spellchecker flags a
+# domain term as a typo. Format is:
+#
+#     CorrectWord = "CorrectWord"
+#
+# The left side is the token to recognise; the right side is what it should be
+# corrected to. Making both identical tells typos "this token is already right,
+# leave it alone". Matching is case-insensitive by default, so one entry
+# covers every casing of the same token.
+# =============================================================================
+
+[default.extend-words]
+
+# "PN" is the prefix used in the W3C Turtle grammar (PN_LOCAL, PN_CHARS, etc.)
+# and appears in identifiers like isValidPNLocal in usecases/kgraphing.go.
+# Without this line, typos thinks "PN" is a misspelling of "ON".
+PN = "PN"
