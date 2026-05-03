@@ -22,3 +22,8 @@
 # and appears in identifiers like isValidPNLocal in usecases/kgraphing.go.
 # Without this line, typos thinks "PN" is a misspelling of "ON".
 PN = "PN"
+
+# "OT" — Operational Technology. Standard industrial-automation term used in
+# the SUBSCRIBE spec and likely throughout future docs. The dictionary
+# otherwise flags it as a possible misspelling of TO/OF/OR/NOT.
+OT = "OT"
