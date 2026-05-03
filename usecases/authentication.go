@@ -293,4 +293,3 @@ func prepareClientCertificate(certPEM string, privateKey *ecdsa.PrivateKey) (tls
 
 	return clientCert, nil
 }
-
