@@ -44,6 +44,12 @@ type Husk struct {
 	InfoLink      string              `json:"onlineDocumentation"`
 	Messengers    map[string]int      `json:"-"` // list of messenger systems
 
+	// CertReady is closed once a valid certificate is in Certificate and TLS
+	// has been configured on http.DefaultClient. Lazily initialised by
+	// usecases.RequestCertificate / SetoutServers so existing system mains
+	// do not need to construct it; consumers waiting for the cert (e.g. the
+	// HTTPS server bind) read from it via select with sys.Ctx.Done().
+	CertReady chan struct{} `json:"-"`
 }
 
 // SProtocols returns a slice of supported protocols (i.e., those not configured with 0)

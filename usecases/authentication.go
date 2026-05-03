@@ -39,33 +39,63 @@ import (
 	"github.com/sdoque/mbaigo/components"
 )
 
-// RequestCertificate generates the system's public key and a certificate signing request to be sent to the CA.
-// It is a no-op when no HTTPS port is configured. On subsequent startups it reuses the certificate saved
-// to disk from the previous enrollment, requesting a new one only when the saved cert is missing or
-// within 24 hours of expiry. If the CA is unreachable it retries every minute until it succeeds or
-// the system context is cancelled.
+// EnsureCertReady returns the system's CertReady channel, initialising it on
+// first call. Safe for concurrent use: either RequestCertificate or
+// SetoutServers may be the first to need it.
+func EnsureCertReady(sys *components.System) chan struct{} {
+	sys.Mutex.Lock()
+	defer sys.Mutex.Unlock()
+	if sys.Husk.CertReady == nil {
+		sys.Husk.CertReady = make(chan struct{})
+	}
+	return sys.Husk.CertReady
+}
+
+// RequestCertificate kicks off TLS-certificate acquisition for the system.
+// It is non-blocking: a goroutine generates a fresh ECDSA key pair in
+// memory, builds a CSR, and retries enrolment with the CA until success or
+// context cancellation. CertReady is closed when the cert lands on
+// sys.Husk.Certificate and TLS is installed on http.DefaultClient.
+//
+// **Memory-only keys.** Application systems do not persist their private
+// keys to disk. A fresh key is generated on every startup and the resulting
+// cert lives only for the lifetime of the process. Consequences:
+//
+//   - The system's identity in the cloud is the *running binary* (whitelist
+//     hash + attestation), not a long-lived on-disk credential. The cert is
+//     the cryptographic instantiation of that identity, and ends with the
+//     process.
+//   - There is no filesystem attack surface for the key. An attacker who
+//     compromises the host as the system's user cannot extract the key
+//     without entering the running process's address space.
+//   - Revocation by whitelist edit takes effect at next restart with no
+//     stale cached cert outliving the operator's authorisation.
+//   - The CA must be reachable for the system to reach a TLS-enabled state.
+//     The HTTP server (per SetoutServers) starts immediately regardless,
+//     so plain-HTTP services remain available during a CA outage.
+//
+// The CA itself is the necessary exception: it persists its root key on
+// disk because the entire trust chain depends on its identity surviving
+// restarts. See systems/ca/thing.go.
 func RequestCertificate(sys *components.System) {
-	// Nothing to do when HTTPS is not enabled.
 	if sys.Husk.ProtoPort["https"] == 0 {
 		return
 	}
+	certReady := EnsureCertReady(sys)
+	go acquireCertificate(sys, certReady)
+}
 
-	certFile := sys.Name + "_certificate.pem"
-	keyFile := sys.Name + "_private_key.pem"
-
-	// Reuse a previously issued certificate if it is still valid.
-	if key, certPEM, err := loadSystemCertificate(certFile, keyFile); err == nil {
-		log.Printf("reusing existing certificate for %s\n", sys.Name)
-		sys.Husk.Pkey = key
-		sys.Husk.Certificate = certPEM
-		installTLSConfig(sys)
-		return
-	}
-
-	// Generate ECDSA Private Key
+// acquireCertificate generates a key pair in memory, builds a CSR, and
+// retries enrolment with the CA until success or context cancellation. On
+// success it installs TLS on http.DefaultClient and closes certReady so
+// consumers can proceed. On context cancellation, certReady is left open:
+// any consumer waiting on it should also select on sys.Ctx.Done() to avoid
+// a permanent block.
+func acquireCertificate(sys *components.System, certReady chan struct{}) {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		log.Fatalf("Failed to generate private key: %v\n", err)
+		log.Printf("failed to generate private key for %s: %v", sys.Name, err)
+		return
 	}
 	sys.Husk.Pkey = privateKey
 
@@ -86,13 +116,11 @@ func RequestCertificate(sys *components.System) {
 
 	csrBytes, err := x509.CreateCertificateRequest(rand.Reader, &csrTemplate, privateKey)
 	if err != nil {
-		log.Fatalf("Failed to create CSR: %v\n", err)
+		log.Printf("failed to create CSR for %s: %v", sys.Name, err)
+		return
 	}
-
-	// Encode the CSR to PEM format
 	csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrBytes})
 
-	// Send the CSR to the CA, retrying every minute until it succeeds or the context is cancelled.
 	var response string
 	for {
 		response, err = sendCSR(sys, csrPEM)
@@ -108,15 +136,9 @@ func RequestCertificate(sys *components.System) {
 		}
 	}
 
-	// Save the received certificate and private key to disk for future restarts.
-	if err := saveSystemCertificate(certFile, keyFile, response, privateKey); err != nil {
-		log.Printf("warning: could not save certificate to disk: %v\n", err)
-	}
-
-	// Store the received certificate
 	sys.Husk.Certificate = response
-
 	installTLSConfig(sys)
+	close(certReady)
 }
 
 // installTLSConfig fetches the CA certificate, builds the TLS configuration from the system's
@@ -272,50 +294,3 @@ func prepareClientCertificate(certPEM string, privateKey *ecdsa.PrivateKey) (tls
 	return clientCert, nil
 }
 
-// loadSystemCertificate reads the certificate and private key from disk and returns them if the
-// certificate is valid and not expiring within the next 24 hours.
-func loadSystemCertificate(certFile, keyFile string) (*ecdsa.PrivateKey, string, error) {
-	certPEMBytes, err := os.ReadFile(certFile) // #nosec G304 — path is derived from sys.Name, a compile-time constant, not user input
-	if err != nil {
-		return nil, "", err
-	}
-	keyPEMBytes, err := os.ReadFile(keyFile) // #nosec G304 — same rationale as above
-	if err != nil {
-		return nil, "", err
-	}
-
-	certBlock, _ := pem.Decode(certPEMBytes)
-	if certBlock == nil {
-		return nil, "", fmt.Errorf("failed to decode certificate PEM")
-	}
-	cert, err := x509.ParseCertificate(certBlock.Bytes)
-	if err != nil {
-		return nil, "", err
-	}
-	if time.Now().After(cert.NotAfter.Add(-24 * time.Hour)) {
-		return nil, "", fmt.Errorf("certificate expires at %s, requesting a new one", cert.NotAfter)
-	}
-
-	keyBlock, _ := pem.Decode(keyPEMBytes)
-	if keyBlock == nil {
-		return nil, "", fmt.Errorf("failed to decode key PEM")
-	}
-	privateKey, err := x509.ParseECPrivateKey(keyBlock.Bytes)
-	if err != nil {
-		return nil, "", err
-	}
-
-	return privateKey, string(certPEMBytes), nil
-}
-
-// saveSystemCertificate writes the signed certificate and private key to disk.
-func saveSystemCertificate(certFile, keyFile, certPEM string, privateKey *ecdsa.PrivateKey) error {
-	if err := os.WriteFile(certFile, []byte(certPEM), 0600); err != nil {
-		return err
-	}
-	keyPEM, err := encodeECDSAPrivateKeyToPEM(privateKey)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(keyFile, keyPEM, 0600)
-}

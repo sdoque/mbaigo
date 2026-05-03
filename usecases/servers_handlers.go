@@ -52,57 +52,23 @@ func SetoutServers(sys *components.System) error {
 	// how to handle requests to the servers
 	http.HandleFunc("/"+sys.Name+"/", createResourceHandler(sys))
 
-	// if an HTTPS server is required (configuration file) and the system as a signed certificate, set up and start an HTTPS server
-	if httpsPort != 0 && sys.Husk.Certificate != "" {
-		// Encode the ECDSA private key to PEM format
-		privateKeyPEM, err := encodeECDSAPrivateKeyToPEM(sys.Husk.Pkey)
-		if err != nil {
-			return fmt.Errorf("encoding private key: %w", err)
-		}
-
-		// Load the certificate and key
-		cert, err := tls.X509KeyPair([]byte(sys.Husk.Certificate), privateKeyPEM)
-		if err != nil {
-			return fmt.Errorf("parsing certificate/private key: %w", err)
-		}
-
-		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM([]byte(sys.Husk.CA_cert))
-
-		// create a TLS config with the certificate and CA pool
-		tlsConfig := &tls.Config{
-			Certificates: []tls.Certificate{cert},
-			ClientAuth:   tls.RequireAndVerifyClientCert,
-			ClientCAs:    caCertPool,
-			MinVersion:   tls.VersionTLS12,
-		}
-
-		// Create a HTTPS server with the TLS config
-		httpsServer := &http.Server{
-			Addr:         ":" + strconv.Itoa(httpsPort),
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 60 * time.Second,
-			TLSConfig:    tlsConfig,
-			Handler:      nil,
-		}
-
-		// Initiate graceful shutdown on signal reception
+	// HTTPS bind is deferred until the certificate is ready. We start a
+	// goroutine that waits on CertReady (closed by RequestCertificate when
+	// the cert is in place) and then binds the TLS server. The HTTP server
+	// below is unaffected — it starts immediately, so the system is
+	// reachable on its plain-HTTP services even while cert acquisition is
+	// still in progress.
+	if httpsPort != 0 {
+		certReady := EnsureCertReady(sys)
 		go func() {
-			<-sys.Ctx.Done()
-			if err := httpsServer.Shutdown(context.Background()); err != nil {
-				log.Printf("Error during shutdown: %v", err)
+			select {
+			case <-certReady:
+				// proceed to bind HTTPS
+			case <-sys.Ctx.Done():
+				return
 			}
-		}()
-
-		// Inform the user how to access the system's web server (black box documentation)
-		httpsURL := "https://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(httpsPort) + "/" + sys.Name
-		log.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpsURL)
-
-		// Start and monitor the server
-		go func() {
-			err := httpsServer.ListenAndServeTLS("", "")
-			if err != nil && err != http.ErrServerClosed {
-				log.Fatalf("Error from web server: %v\n", err)
+			if err := startHTTPSServer(sys, httpsPort); err != nil {
+				log.Printf("HTTPS server failed to start: %v", err)
 			}
 		}()
 	}
@@ -138,6 +104,56 @@ func SetoutServers(sys *components.System) error {
 		}()
 	}
 
+	return nil
+}
+
+// startHTTPSServer builds the TLS configuration from the system's now-ready
+// certificate and binds the HTTPS server on the given port. Called by
+// SetoutServers from a goroutine that waited on CertReady, so the cert is
+// guaranteed to be in place by the time we reach here.
+func startHTTPSServer(sys *components.System, httpsPort int) error {
+	privateKeyPEM, err := encodeECDSAPrivateKeyToPEM(sys.Husk.Pkey)
+	if err != nil {
+		return fmt.Errorf("encoding private key: %w", err)
+	}
+
+	cert, err := tls.X509KeyPair([]byte(sys.Husk.Certificate), privateKeyPEM)
+	if err != nil {
+		return fmt.Errorf("parsing certificate/private key: %w", err)
+	}
+
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM([]byte(sys.Husk.CA_cert))
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    caCertPool,
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	httpsServer := &http.Server{
+		Addr:         ":" + strconv.Itoa(httpsPort),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		TLSConfig:    tlsConfig,
+		Handler:      nil,
+	}
+
+	// Graceful shutdown on context cancellation.
+	go func() {
+		<-sys.Ctx.Done()
+		if err := httpsServer.Shutdown(context.Background()); err != nil {
+			log.Printf("Error during HTTPS shutdown: %v", err)
+		}
+	}()
+
+	httpsURL := "https://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(httpsPort) + "/" + sys.Name
+	log.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpsURL)
+
+	if err := httpsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("HTTPS server: %w", err)
+	}
 	return nil
 }
 
