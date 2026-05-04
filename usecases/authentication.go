@@ -57,6 +57,17 @@ func EnsureCertReady(sys *components.System) chan struct{} {
 // context cancellation. CertReady is closed when the cert lands on
 // sys.Husk.Certificate and TLS is installed on http.DefaultClient.
 //
+// **Every system enrols, regardless of whether it serves HTTPS.**
+// Cert acquisition is decoupled from the HTTPS server binding: the cert
+// configures `http.DefaultClient` for outbound mTLS calls (so any system
+// can call HTTPS-only services elsewhere in the cloud), while the HTTPS
+// server is bound by SetoutServers if and only if `https != 0`. A
+// pure-consumer system (e.g. an aggregator or monitor) gains a CA-signed
+// identity for client-side mTLS without exposing an HTTPS endpoint of its
+// own. This also means every system passes through the maitreD's
+// attestation gate at startup — the security model applies uniformly,
+// not just to systems that serve HTTPS.
+//
 // **Memory-only keys.** Application systems do not persist their private
 // keys to disk. A fresh key is generated on every startup and the resulting
 // cert lives only for the lifetime of the process. Consequences:
@@ -76,11 +87,9 @@ func EnsureCertReady(sys *components.System) chan struct{} {
 //
 // The CA itself is the necessary exception: it persists its root key on
 // disk because the entire trust chain depends on its identity surviving
-// restarts. See systems/ca/thing.go.
+// restarts, and it bypasses RequestCertificate entirely (which would
+// nonsensically attempt to enrol with itself). See systems/ca/thing.go.
 func RequestCertificate(sys *components.System) {
-	if sys.Husk.ProtoPort["https"] == 0 {
-		return
-	}
 	certReady := EnsureCertReady(sys)
 	go acquireCertificate(sys, certReady)
 }
