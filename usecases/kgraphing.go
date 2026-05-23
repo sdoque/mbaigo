@@ -261,25 +261,16 @@ func modelUAsset(sys *components.System) string {
 
 		details := (*asset).GetDetails()
 		for key, values := range details {
-			fmt.Printf("key: %s, values: %v\n", key, values)
-			if strings.HasSuffix(key, ":") {
-				for _, value := range values {
-					if value == "" {
-						log.Printf("Warning: empty value for key '%s' in asset '%s'. Skipping.", key, assetName)
-						continue
-					}
-					relationship := value[0] // byte
-					reference := value[1:]   // string (from second character onward)
-
-					switch relationship {
-					case '=': // single quotes for byte comparison
-						assetModel += fmt.Sprintf("    owl:sameAs %s ;\n", reference)
-					}
-				}
-				continue
+			// FunctionalLocation is emitted in the AFO namespace so the
+			// AFO-IDO/DEXPI/STEP alignment ontologies can bridge it to
+			// the upstream vocabularies. Other detail keys remain local
+			// (alc:has<Key>) until they too have an alignment target.
+			predicate := "alc:has" + key
+			if key == "FunctionalLocation" {
+				predicate = "afo:hasFunctionalLocation"
 			}
 			for _, value := range values {
-				assetModel += fmt.Sprintf("    alc:has%s %s ;\n", key, rdfObject(value))
+				assetModel += fmt.Sprintf("    %s %s ;\n", predicate, rdfObject(value))
 			}
 		}
 
@@ -292,7 +283,7 @@ func modelUAsset(sys *components.System) string {
 		servicesLen := len(services)
 		serviceCount := 0
 		for _, service := range services {
-			// Use service.Definition for the IRI, so it matches the Service block
+			//`` Use service.Definition for the IRI, so it matches the Service block
 			assetModel += fmt.Sprintf("    afo:providesService alc:%s_%s_%s", sName, assetName, service.Definition)
 			serviceCount++
 			if serviceCount < servicesLen {
