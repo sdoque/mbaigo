@@ -117,14 +117,13 @@ func setupDefaultConfig(sys *components.System) (defaultConfig templateOut, err 
 		Name: "ca",
 		Url:  "http://localhost:20100/ca/certification",
 	}
-	maitreD := components.CoreSystem{
-		Name: "maitreD",
-		Url:  "http://localhost:20101/maitreD/maitreD",
-	}
 
-	// add the core systems to the configuration file
-	// the system is part of a local cloud with mandatory core systems
-	coreSystems := []components.CoreSystem{servReg, orches, ca, maitreD}
+	// add the core systems to the configuration file.
+	// maitreD is intentionally NOT listed here: no system dereferences a
+	// maitreD URL via the coreSystems map. The CA reaches the requester's
+	// host-local maitreD by combining the source IP of the inbound CSR with
+	// its own MaitreDPort trait (see systems/ca/thing.go), not via this list.
+	coreSystems := []components.CoreSystem{servReg, orches, ca}
 	defaultConfig.CCoreS = coreSystems
 	return defaultConfig, nil
 }
