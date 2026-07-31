@@ -52,6 +52,10 @@ func SetoutServers(sys *components.System) error {
 	// how to handle requests to the servers
 	http.HandleFunc("/"+sys.Name+"/", createResourceHandler(sys))
 
+	// Obtain the key incoming access tokens are verified against. Started here
+	// rather than in each system's main so that every provider enforces alike.
+	AcquireAuthorizerKey(sys)
+
 	// HTTPS bind is deferred until the certificate is ready. We start a
 	// goroutine that waits on CertReady (closed by RequestCertificate when
 	// the cert is in place) and then binds the TLS server. The HTTP server
@@ -183,6 +187,8 @@ func createResourceHandler(sys *components.System) http.HandlerFunc {
 // as in http://192.168.1.4:8700/photographer/picam/files/image_20240325-211555.jpg
 // where photographer is part[1], picam is part[2](with len==3), files is part[3] (with len==4)
 func ResourceHandler(sys *components.System, w http.ResponseWriter, r *http.Request) {
+	logPeer(sys, r)
+
 	parts := strings.Split(r.URL.Path, "/")
 
 	if len(parts) < 3 {
@@ -247,6 +253,9 @@ func handleFourParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 
 	default:
 		uAsset := *Resource
+		if !permitted(sys, w, r, resourceName, uAsset.GetServices(), servicePath) {
+			return
+		}
 		uAsset.Serving(w, r, servicePath)
 	}
 }
@@ -290,8 +299,35 @@ func handleFiveParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 			http.Error(w, "Service not found", http.StatusNotFound)
 		}
 	default:
+		if !permitted(sys, w, r, resourceName, uAsset.GetServices(), servicePath) {
+			return
+		}
 		uAsset.Serving(w, r, servicePath)
 	}
+}
+
+// permitted refuses a request the authorizer has not sanctioned, writing the
+// refusal itself and reporting whether serving may continue.
+//
+// It guards service dispatch only. The system-level endpoints — /doc, /kgraph,
+// /smodel and above all /cert — stay open: a provider fetches the authorizer's
+// own certificate through /cert, so requiring a token to read one would leave the
+// cloud unable to bootstrap verification at all.
+func permitted(sys *components.System, w http.ResponseWriter, r *http.Request, assetName string, services map[string]*components.Service, servicePath string) bool {
+	serv := findServiceByPath(services, servicePath)
+	if serv == nil {
+		// Nothing to classify the request as. Harmless where no authorizer is
+		// configured, and refused where one is.
+		serv = &components.Service{}
+	}
+
+	status, err := AuthorizeRequest(sys, r, assetName, serv)
+	if status == 0 {
+		return true
+	}
+	log.Printf("%s: refusing %s %s: %v\n", sys.Name, r.Method, r.URL.Path, err)
+	http.Error(w, err.Error(), status)
+	return false
 }
 
 // findServiceByPath returns a service's pointer based on it sub-path

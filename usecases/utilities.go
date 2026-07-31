@@ -179,12 +179,22 @@ func init() {
 const userAgent string = "mbaigo"
 
 func sendHTTPReq(method string, url string, data []byte) (*http.Response, error) {
+	return sendHTTPReqWithToken(method, url, "", data)
+}
+
+// sendHTTPReqWithToken is sendHTTPReq with an access token attached. The token
+// is what proves to the provider that the authorizer permitted this specific
+// call; without it a provider in an authorised cloud refuses.
+func sendHTTPReqWithToken(method string, url string, token string, data []byte) (*http.Response, error) {
 	req, err := http.NewRequest(method, url, bytes.NewBuffer(data))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent)
+	if token != "" {
+		req.Header.Set(TokenHeader, token)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err

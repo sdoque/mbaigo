@@ -108,6 +108,7 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 		SysId:             0,
 		RequesterName:     sys.Name,
 		ServiceDefinition: cer.Definition,
+		Action:            ActionForMode(cer.Mode),
 		Protocol:          preferredProtocol(cer.Protos),
 		Details:           cer.Details,
 		Version:           "ServiceQuest_v1",
@@ -147,7 +148,7 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 	if !ok {
 		return fmt.Errorf("unable to unpack discovery request form")
 	}
-	cer.Nodes[df.ServNode] = append(cer.Nodes[df.ServNode], components.NodeInfo{URL: df.ServLocation, Details: df.Details})
+	cer.Nodes[df.ServNode] = append(cer.Nodes[df.ServNode], components.NodeInfo{URL: df.ServLocation, Details: df.Details, Token: df.Token})
 	return nil
 }
 
@@ -156,6 +157,7 @@ func Search4MultipleServices(cer *components.Cervice, sys *components.System) (e
 		SysId:             0,
 		RequesterName:     sys.Name,
 		ServiceDefinition: cer.Definition,
+		Action:            ActionForMode(cer.Mode),
 		Protocol:          preferredProtocol(cer.Protos),
 		Details:           cer.Details,
 		Version:           "ServiceQuest_v1",
@@ -195,13 +197,18 @@ func Search4MultipleServices(cer *components.Cervice, sys *components.System) (e
 		return fmt.Errorf("unable to unpack discovery request form")
 	}
 	for _, values := range srList.List {
-		sp := convertToServicePoint(values)
-		cer.Nodes[sp.ServNode] = append(cer.Nodes[sp.ServNode], components.NodeInfo{URL: sp.ServLocation, Details: sp.Details})
+		sp := ConvertToServicePoint(values)
+		cer.Nodes[sp.ServNode] = append(cer.Nodes[sp.ServNode], components.NodeInfo{URL: sp.ServLocation, Details: sp.Details, Token: sp.Token})
 	}
 	return nil
 }
 
-func convertToServicePoint(sr forms.ServiceRecord_v1) (sp forms.ServicePoint_v1) {
+// ConvertToServicePoint turns a registration record into the service point handed
+// to a consumer. The endpoint URL is built with preferredProtoPort, so a provider
+// that has bound HTTPS is reached over HTTPS and the consumer's request carries
+// its client certificate. Building the URL by hand instead loses the caller's
+// identity at the provider, however well enrolled both ends are.
+func ConvertToServicePoint(sr forms.ServiceRecord_v1) (sp forms.ServicePoint_v1) {
 	rec := sr
 	sp.NewForm()
 	sp.ProviderName = rec.SystemName
@@ -211,6 +218,21 @@ func convertToServicePoint(sr forms.ServiceRecord_v1) (sp forms.ServicePoint_v1)
 	sp.ServLocation = proto + "://" + rec.IPAddresses[0] + ":" + strconv.Itoa(port) + "/" + rec.SystemName + "/" + rec.SubPath
 	sp.ServNode = rec.ServiceNode
 	return
+}
+
+// ActionForMode translates a cervice's mode into the action the authorizer
+// reasons about. An unspecified mode is taken as a read: it is the least a
+// consumer could mean, and asking for more than is intended would widen what a
+// policy has to permit.
+func ActionForMode(mode string) string {
+	switch mode {
+	case "set":
+		return "write"
+	case "do":
+		return "invoke"
+	default:
+		return "read"
+	}
 }
 
 // preferredProtocol returns "https" if the cervice supports it, otherwise "http".

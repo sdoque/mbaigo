@@ -54,6 +54,16 @@ func (rt *registrarTracker) get() string {
 
 // RegisterServices keeps track of the leading Service Registrar and keeps all services registered
 func RegisterServices(sys *components.System) {
+	// Refuse to start rather than register a service the authorizer cannot
+	// classify. A mission that may be left blank is one that gets left blank,
+	// and an absent mission has no safe reading: a permissive default is a hole
+	// and a restrictive one gets worked around. Failing here — after the unit
+	// assets are built, before anything is advertised — is what keeps the field
+	// trustworthy enough to authorise against.
+	if err := ValidateMissions(sys); err != nil {
+		log.Fatalf("mission configuration error: %v\n", err)
+	}
+
 	// Keep track of the registrar URL. The URL is shared between goroutines,
 	// so it must be protected from data races using a mutex.
 	registrar := &registrarTracker{}
@@ -232,6 +242,14 @@ func serviceRegistrationForm(sys *components.System, ua *components.UnitAsset, s
 				sr.ProtoPort[key] = port
 			}
 		}
+		// The mission travels on the record because the authorizer evaluates
+		// policy along it and reads from the registrar, not from each system's
+		// local configuration file. Registration copies only Details otherwise,
+		// so without this line the mission never leaves the providing system.
+		// It is the service's effective mission, not the asset's: an asset that
+		// fronts a device — a PLC, a broker, a gateway — is too coarse to
+		// authorise against.
+		sr.Mission = components.EffectiveMission(ua, serv)
 		sr.Details = deepCopyMap((*ua).GetDetails())
 		for key, valueSlice := range serv.Details {
 			sr.Details[key] = append(sr.Details[key], valueSlice...)

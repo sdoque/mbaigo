@@ -50,6 +50,20 @@ type Husk struct {
 	// do not need to construct it; consumers waiting for the cert (e.g. the
 	// HTTPS server bind) read from it via select with sys.Ctx.Done().
 	CertReady chan struct{} `json:"-"`
+
+	// AuthorizerKey is the public key a provider verifies access tokens with,
+	// taken from the authorizer's certificate and validated against CA_cert.
+	//
+	// It is re-acquired rather than held for the process's life because
+	// application systems keep their private keys in memory only: the authorizer
+	// generates a fresh key at every startup, so a provider that cached one
+	// forever would reject every token minted after the authorizer restarted.
+	// Guarded by System.Mutex.
+	AuthorizerKey *ecdsa.PublicKey `json:"-"`
+
+	// AuthorizerReady is closed once AuthorizerKey holds a chain-validated key.
+	// Until then a provider refuses token-bearing requests rather than guessing.
+	AuthorizerReady chan struct{} `json:"-"`
 }
 
 // SProtocols returns a slice of supported protocols (i.e., those not configured with 0)

@@ -55,15 +55,16 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 		}
 	}
 
-	var serviceUrl string
+	var serviceUrl, token string
 	for _, nodes := range cer.Nodes {
 		if len(nodes) > 0 {
 			serviceUrl = nodes[0].URL
+			token = nodes[0].Token
 			break
 		}
 	}
 
-	resp, err := sendHTTPReq(httpMethod, serviceUrl, bodyBytes)
+	resp, err := sendHTTPReqWithToken(httpMethod, serviceUrl, token, bodyBytes)
 	if err != nil {
 		cer.Nodes = make(map[string][]components.NodeInfo) // Failed to get the resource at that location: reset the providers list, which will trigger a new service search
 		return f, err

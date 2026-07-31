@@ -27,6 +27,7 @@ type Service struct {
 	ID            int                 `json:"-"`                  // Id assigned by the Service Registrar
 	Definition    string              `json:"definition"`         // Service definition or purpose
 	SubPath       string              `json:"subpath"`            // The URL subpath after the resource's
+	Mission       string              `json:"mission,omitempty"`  // Overrides the unit asset's mission, where the asset's is too coarse (see EffectiveMission)
 	Details       map[string][]string `json:"details"`            // Metadata or details about the service
 	RegPeriod     int                 `json:"registrationPeriod"` // The period until the registrar is expecting a sign of life
 	RegTimestamp  string              `json:"-"`                  // the creation date in the Service Registry to ensure that reRegistration is with the same record
@@ -116,6 +117,11 @@ func MergeDetails(map1, map2 map[string][]string) map[string][]string {
 type NodeInfo struct {
 	URL     string
 	Details map[string][]string
+	// Token is the access token the orchestrator obtained for this provider. It
+	// is presented on every request to the node and outlives none of them: when
+	// it expires the provider refuses, the node cache is cleared, and the next
+	// call re-orchestrates for a fresh one.
+	Token string
 }
 
 // A Cervice is a consumed service
