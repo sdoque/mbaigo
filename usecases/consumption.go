@@ -82,7 +82,13 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 	}
 
 	headerContentType := resp.Header.Get("Content-Type")
-	return Unpack(bodyBytes, headerContentType)
+	f, err = Unpack(bodyBytes, headerContentType)
+	if err != nil {
+		return f, err
+	}
+	// The provider answers in its own unit; the consumer reads in the one it
+	// asked for. Neither has to know about the other.
+	return NormaliseUnits(cer, f)
 }
 
 const messengerMaxErrors int = 3

@@ -109,7 +109,7 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 		RequesterName:     sys.Name,
 		ServiceDefinition: cer.Definition,
 		Protocol:          preferredProtocol(cer.Protos),
-		Details:           cer.Details,
+		Details:           questDetails(cer.Details),
 		Version:           "ServiceQuest_v1",
 	}
 	//pack the service quest form
@@ -157,7 +157,7 @@ func Search4MultipleServices(cer *components.Cervice, sys *components.System) (e
 		RequesterName:     sys.Name,
 		ServiceDefinition: cer.Definition,
 		Protocol:          preferredProtocol(cer.Protos),
-		Details:           cer.Details,
+		Details:           questDetails(cer.Details),
 		Version:           "ServiceQuest_v1",
 	}
 	// Pack the service quest form
@@ -211,6 +211,29 @@ func convertToServicePoint(sr forms.ServiceRecord_v1) (sp forms.ServicePoint_v1)
 	sp.ServLocation = proto + "://" + rec.IPAddresses[0] + ":" + strconv.Itoa(port) + "/" + rec.SystemName + "/" + rec.SubPath
 	sp.ServNode = rec.ServiceNode
 	return
+}
+
+// questDetails narrows a cervice's details to what the registrar should match on.
+//
+// A consumer that names a QuantityKind is asking for a temperature, not for
+// Celsius, so the unit is dropped from the quest: the registrar compares strings,
+// and a consumer wanting degrees Celsius would never be paired with a sensor
+// reporting Fahrenheit if the unit were part of the query. The unit is still what
+// the reading is converted into once a provider is chosen — it is a conversion
+// target, not a search key.
+//
+// Measure is dropped for the same reason: whether the consumer treats values as
+// points or intervals says nothing about which provider suits it.
+func questDetails(details map[string][]string) map[string][]string {
+	matched := make(map[string][]string, len(details))
+	relaxUnit := len(details["QuantityKind"]) > 0
+	for key, values := range details {
+		if key == "Measure" || (key == "Unit" && relaxUnit) {
+			continue
+		}
+		matched[key] = values
+	}
+	return matched
 }
 
 // preferredProtocol returns "https" if the cervice supports it, otherwise "http".
