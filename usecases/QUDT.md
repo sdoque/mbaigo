@@ -1,7 +1,30 @@
 # QUDT unit handling — design note
 
-Status: **design discussion, nothing implemented.** Captured on the `qudt` branch
-so the reasoning survives until someone picks it up.
+Status: **largely implemented.** The conversion machinery, the discovery
+relaxation and the consumption hook are in `usecases/qudt.go`; `ds18b20`,
+`ds18b20F`, `thermostat` and `parallax` declare QUDT identifiers. What is not
+done is listed at the end.
+
+Two decisions differ from the plan below, and the plan is left as written so the
+change of mind is visible:
+
+- **No new signal form.** Section 9 argued for `SignalA_v1b` because putting an
+  IRI in `Unit` changes the meaning of a field. In the end the IRI went into
+  `SignalA_v1a.Unit` and normalisation was made inert wherever either side is not
+  a QUDT unit, so a pre-QUDT deployment is untouched and no form had to be
+  versioned. The compatibility the version bump was meant to buy is bought by the
+  conversion being conditional.
+- **Discovery relaxes at the consumer, not the orchestrator.** Section 2 put the
+  quantity-kind widening in the orchestrator. It turned out to belong in
+  `Search4Services`, which builds the quest from the cervice's own details: a
+  consumer that names a quantity kind is asking for a temperature, so the unit is
+  dropped there and the orchestrator needed no change at all.
+
+One thing the plan did not anticipate: the dimension guard is not enough. A plane
+angle and a plain ratio are both dimensionless, so nothing in the arithmetic
+objects to converting 50% into 28.6 degrees — while a servo with 180 degrees of
+travel is at 90. `Convert` refuses across quantity kinds for that reason, and
+`parallax` states its range so a consumer can do what unit conversion cannot.
 
 Motivating question: if the `ds18b20` system provides its temperature service in
 °F while the `thermostat` system consumes °C, where does that get resolved — in
@@ -20,7 +43,7 @@ The unit appears in three unconnected places:
 | Where | ds18b20 | thermostat |
 |---|---|---|
 | Registered detail | `thing.go:67` — `{"Unit": {"Celsius"}}` | `thing.go:139` — cervice wants `{"Unit": {"Celsius"}}` |
-| Payload field | `thing.go:204` — `f.Unit = "Celsius"` hardcoded | — |
+| Payload field | ~~`f.Unit = "Celsius"` hardcoded~~ — now stamped from the configured unit | — |
 | Consumption | — | `thing.go:252-259` asserts `*SignalA_v1a`, reads `.Value`, **never reads `.Unit`** |
 
 The ESR filter (`systems/esr/thing.go:251-280`) is a plain string-set membership
@@ -223,7 +246,24 @@ Across all systems today:
   opening". Only the quantity-kind match at the Orchestrator prevents that —
   which is the argument for treating it as mandatory, not optional.
 
-## 12. If implemented, the touch list
+## 12. What remains
+
+- **The generated table.** `units` in `usecases/qudt.go` is a curated subset
+  covering what these systems register. Generating the whole QUDT vocabulary from
+  a pinned release would make an unfamiliar unit impossible rather than merely
+  refused, and would replace the hand-written dimension vectors and quantity
+  kinds with the release's own.
+- **The remaining systems.** `ethermostat`, `leveler`, `flattener`, `emulator`,
+  `revolutionary`, `modboss` and the weather systems still declare pre-QUDT unit
+  strings. They work — normalisation is inert for them — but they cannot be
+  paired across units.
+- **Gauge versus absolute pressure**, which QUDT does not model, and which the
+  seven kPa services make a live question.
+- **The knowledge-graph side**, section 8: the `qudt:` prefixes and a real
+  predicate for the unit. Note that `kgrapher/files/alc-ontology-local.ttl`
+  already declares `qudt:` and `qudt-unit:`.
+
+## 13. The original touch list
 
 - `mbaigo/usecases/qudt_units_gen.go` — generated table (new)
 - `mbaigo/usecases/qudt.go` — `UnitDef`, `Convert`, IRI lookup (new)
