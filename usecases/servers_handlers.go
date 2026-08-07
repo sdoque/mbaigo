@@ -56,6 +56,13 @@ func SetoutServers(sys *components.System) error {
 	// rather than in each system's main so that every provider enforces alike.
 	AcquireAuthorizerKey(sys)
 
+	// Said once, plainly, at the point the system starts serving. An adopter
+	// running a cloud for the first time should learn what protection is in
+	// force from the terminal rather than by reading the configuration back.
+	// The same facts are in the knowledge graph, where a whole cloud's posture
+	// can be read at once.
+	log.Printf("%s: %s\n", sys.Name, Posture(sys))
+
 	// HTTPS bind is deferred until the certificate is ready. We start a
 	// goroutine that waits on CertReady (closed by RequestCertificate when
 	// the cert is in place) and then binds the TLS server. The HTTP server
