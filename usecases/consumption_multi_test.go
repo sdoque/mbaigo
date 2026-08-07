@@ -17,6 +17,7 @@
 package usecases
 
 import (
+	jsonpkg "encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -96,8 +97,8 @@ func TestGetStatesSendsEachProvidersToken(t *testing.T) {
 	})
 
 	cer := multiProviderCervice([]components.NodeInfo{
-		{URL: "http://north/temperature", Token: "token-north"},
-		{URL: "http://south/temperature", Token: "token-south"},
+		{URL: "http://north/temperature", Tokens: map[string]string{"read": "token-north"}},
+		{URL: "http://south/temperature", Tokens: map[string]string{"read": "token-south"}},
 	}, map[string][]string{"Forms": {"SignalA_v1a"}})
 
 	sys := createTestSystem(false)
@@ -131,8 +132,8 @@ func TestGetStatesNormalisesEveryProvidersUnit(t *testing.T) {
 	})
 
 	cer := multiProviderCervice([]components.NodeInfo{
-		{URL: "http://celsius/temperature"},
-		{URL: "http://fahrenheit/temperature"},
+		{URL: "http://celsius/temperature", Tokens: map[string]string{"read": ""}},
+		{URL: "http://fahrenheit/temperature", Tokens: map[string]string{"read": ""}},
 	}, map[string][]string{
 		"Forms": {"SignalA_v1a"},
 		"Unit":  {"<http://qudt.org/vocab/unit/DEG_C>"},
@@ -174,8 +175,8 @@ func TestGetStatesDoesNotSendOneProvidersAnswerToTheNext(t *testing.T) {
 	})
 
 	cer := multiProviderCervice([]components.NodeInfo{
-		{URL: "http://first/temperature"},
-		{URL: "http://second/temperature"},
+		{URL: "http://first/temperature", Tokens: map[string]string{"write": ""}},
+		{URL: "http://second/temperature", Tokens: map[string]string{"write": ""}},
 	}, map[string][]string{"Forms": {"SignalA_v1a"}})
 
 	sys := createTestSystem(false)
@@ -201,8 +202,8 @@ func TestGetStatesKeepsWorkingProvidersWhenOneFails(t *testing.T) {
 	})
 
 	cer := multiProviderCervice([]components.NodeInfo{
-		{URL: "http://alive/temperature"},
-		{URL: "http://dead/temperature"},
+		{URL: "http://alive/temperature", Tokens: map[string]string{"read": ""}},
+		{URL: "http://dead/temperature", Tokens: map[string]string{"read": ""}},
 	}, map[string][]string{"Forms": {"SignalA_v1a"}})
 
 	sys := createTestSystem(false)
@@ -228,8 +229,8 @@ func TestGetStatesForgetsProvidersWhenNoneAnswer(t *testing.T) {
 	mockProviders(map[string]string{})
 
 	cer := multiProviderCervice([]components.NodeInfo{
-		{URL: "http://dead1/temperature"},
-		{URL: "http://dead2/temperature"},
+		{URL: "http://dead1/temperature", Tokens: map[string]string{"read": ""}},
+		{URL: "http://dead2/temperature", Tokens: map[string]string{"read": ""}},
 	}, map[string][]string{"Forms": {"SignalA_v1a"}})
 
 	sys := createTestSystem(false)
@@ -239,4 +240,156 @@ func TestGetStatesForgetsProvidersWhenNoneAnswer(t *testing.T) {
 	if len(cer.Nodes) != 0 {
 		t.Error("no provider answered, but the stale list was kept")
 	}
+}
+
+// actionRecordingTransport answers orchestration quests with a token naming the
+// action asked for, and records the action each service request presented.
+type actionRecordingTransport struct {
+	serviceURL string
+	quested    []string // action of each orchestration quest
+	presented  []string // token presented on each service request
+}
+
+func (t *actionRecordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	json := func(body string) (*http.Response, error) {
+		return &http.Response{
+			Status: "200 OK", StatusCode: 200,
+			Header: http.Header{"Content-Type": []string{"application/json"}},
+			Body:   io.NopCloser(strings.NewReader(body)), Request: req,
+		}, nil
+	}
+
+	if strings.HasSuffix(req.URL.Path, "/squest") {
+		raw, _ := io.ReadAll(req.Body)
+		var quest forms.ServiceQuest_v1
+		if err := jsonpkg.Unmarshal(raw, &quest); err != nil {
+			return nil, err
+		}
+		t.quested = append(t.quested, quest.Action)
+		// A token that names the action it was minted for, as the real one does.
+		return json(fmt.Sprintf(
+			`{"serviceURL":%q,"serviceNode":"n","token":"tok-%s","version":"ServicePoint_v1"}`,
+			t.serviceURL, quest.Action))
+	}
+
+	t.presented = append(t.presented, req.Header.Get(TokenHeader))
+	return json(signalBody(20, ""))
+}
+
+// TestTheTokenIsMintedForTheActionPerformed is the defect this test was written
+// for: the action came from Cervice.Mode, which defaults to "read" when unset.
+// A cervice that only ever writes got a read token, the provider recomputed
+// "write" from the PUT, and every write through it was refused — which is why
+// the ethermostat's heaters never switched.
+func TestTheTokenIsMintedForTheActionPerformed(t *testing.T) {
+	rt := &actionRecordingTransport{serviceURL: "http://provider/OnOff"}
+	http.DefaultClient.Transport = rt
+
+	// No Mode at all — the case that used to silently mean "read".
+	cer := &components.Cervice{
+		IReferentce: "test", Definition: "OnOff",
+		Details: map[string][]string{"Forms": {"SignalA_v1a"}},
+		Nodes:   make(map[string][]components.NodeInfo),
+		Protos:  []string{"http"},
+	}
+	sys := createTestSystem(false)
+
+	if _, err := SetState(cer, &sys, []byte(signalBody(1, ""))); err != nil {
+		t.Fatalf("SetState: %v", err)
+	}
+
+	if len(rt.quested) != 1 || rt.quested[0] != "write" {
+		t.Fatalf("orchestrated for %v, want one quest for \"write\"", rt.quested)
+	}
+	if len(rt.presented) != 1 || rt.presented[0] != "tok-write" {
+		t.Errorf("presented %v, want the write token", rt.presented)
+	}
+}
+
+// TestOneCerviceHoldsATokenPerAction is the other half: NodeInfo.Token was a
+// single string, so a cervice used for both a GET and a PUT — the clerk's order
+// service — structurally could not hold both tokens. Whichever action was
+// discovered first won, and the other was refused for the life of the process.
+func TestOneCerviceHoldsATokenPerAction(t *testing.T) {
+	rt := &actionRecordingTransport{serviceURL: "http://provider/order"}
+	http.DefaultClient.Transport = rt
+
+	cer := &components.Cervice{
+		IReferentce: "test", Definition: "order",
+		Details: map[string][]string{"Forms": {"SignalA_v1a"}},
+		Nodes:   make(map[string][]components.NodeInfo),
+		Protos:  []string{"http"},
+	}
+	sys := createTestSystem(false)
+
+	if _, err := GetState(cer, &sys); err != nil {
+		t.Fatalf("GetState: %v", err)
+	}
+	if _, err := SetState(cer, &sys, []byte(signalBody(1, ""))); err != nil {
+		t.Fatalf("SetState: %v", err)
+	}
+
+	if want := []string{"tok-read", "tok-write"}; !equalStrings(rt.presented, want) {
+		t.Errorf("presented %v, want %v", rt.presented, want)
+	}
+
+	// One provider, not two: the second discovery must merge into the node the
+	// first found rather than append a duplicate the caller would poll twice.
+	total := 0
+	for _, nodes := range cer.Nodes {
+		total += len(nodes)
+	}
+	if total != 1 {
+		t.Errorf("the cervice holds %d nodes for one provider, want 1", total)
+	}
+	for _, nodes := range cer.Nodes {
+		for _, ni := range nodes {
+			if len(ni.Tokens) != 2 {
+				t.Errorf("the node holds %v, want a token for each of read and write", ni.Tokens)
+			}
+		}
+	}
+}
+
+// TestARefusalCarriesItsReason: the provider writes why it refused into the
+// body, and returning a bare status code left the operator with "403" for a
+// refusal that names its own cause.
+func TestARefusalCarriesItsReason(t *testing.T) {
+	http.DefaultClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			Status: "403 Forbidden", StatusCode: 403,
+			Header:  http.Header{"Content-Type": []string{"text/plain"}},
+			Body:    io.NopCloser(strings.NewReader("mismatch (action): read vs write")),
+			Request: req,
+		}, nil
+	})
+
+	cer := multiProviderCervice([]components.NodeInfo{
+		{URL: "http://provider/OnOff", Tokens: map[string]string{"read": "stale"}},
+	}, map[string][]string{"Forms": {"SignalA_v1a"}})
+	sys := createTestSystem(false)
+
+	_, err := GetState(cer, &sys)
+	if err == nil {
+		t.Fatal("a 403 was not reported as an error")
+	}
+	if !strings.Contains(err.Error(), "mismatch (action)") {
+		t.Errorf("the refusal reads %q, which does not say why", err)
+	}
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

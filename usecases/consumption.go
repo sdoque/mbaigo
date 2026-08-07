@@ -48,20 +48,21 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 }
 
 func stateHandler(httpMethod string, cer *components.Cervice, sys *components.System, bodyBytes []byte) (f forms.Form, err error) {
-	if len(cer.Nodes) == 0 {
-		err = Search4Services(cer, sys)
-		if err != nil {
+	// The action is what this call will actually do, not what Cervice.Mode says
+	// it might. The provider recomputes it from the method, so a token minted for
+	// anything else is refused.
+	action := ActionForMethod(httpMethod)
+
+	// Nothing discovered yet, or what is discovered was discovered for a
+	// different action — a cervice used for both a GET and a PUT, or one whose
+	// Mode did not describe this call. Either way, ask for this action rather
+	// than present a token minted for another one.
+	serviceUrl, token, found := pickNode(cer, action)
+	if !found {
+		if err = Search4ServicesAs(cer, sys, action); err != nil {
 			return f, err
 		}
-	}
-
-	var serviceUrl, token string
-	for _, nodes := range cer.Nodes {
-		if len(nodes) > 0 {
-			serviceUrl = nodes[0].URL
-			token = nodes[0].Token
-			break
-		}
+		serviceUrl, token, _ = pickNode(cer, action)
 	}
 
 	resp, err := sendHTTPReqWithToken(httpMethod, serviceUrl, token, bodyBytes)
@@ -90,6 +91,21 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 	// The provider answers in its own unit; the consumer reads in the one it
 	// asked for. Neither has to know about the other.
 	return NormaliseUnits(cer, f)
+}
+
+// pickNode returns the first node discovered for one action, and whether any
+// was. It looks past the first entry: a cervice discovered for two actions holds
+// one node per provider, but a provider that answered only one of the two
+// discoveries is present without a token for the other.
+func pickNode(cer *components.Cervice, action string) (url, token string, ok bool) {
+	for _, nodes := range cer.Nodes {
+		for _, ni := range nodes {
+			if tok, discovered := ni.TokenFor(action); discovered {
+				return ni.URL, tok, true
+			}
+		}
+	}
+	return "", "", false
 }
 
 const messengerMaxErrors int = 3
@@ -164,9 +180,12 @@ func sendLogMessage(host string, body []byte) error {
 }
 
 func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.System, bodyBytes []byte) (f []forms.Form, err []error) {
+	// As in stateHandler: the action is what this call performs, not what
+	// Cervice.Mode says it might.
+	action := ActionForMethod(httpMethod)
+
 	if len(cer.Nodes) == 0 {
-		currentErr := Search4MultipleServices(cer, sys)
-		if currentErr != nil {
+		if currentErr := Search4MultipleServicesAs(cer, sys, action); currentErr != nil {
 			f = append(f, nil)
 			err = append(err, currentErr)
 			return f, err
@@ -182,12 +201,27 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 		providers = append(providers, nodes...)
 	}
 
+	// Discovered for a different action than this call performs. One round for
+	// the whole cervice rather than one per provider: they were all discovered
+	// together and they all need the same action.
+	if needsDiscovery(providers, action) {
+		if currentErr := Search4MultipleServicesAs(cer, sys, action); currentErr != nil {
+			f = append(f, nil)
+			err = append(err, currentErr)
+			return f, err
+		}
+		providers = providers[:0]
+		for _, nodes := range cer.Nodes {
+			providers = append(providers, nodes...)
+		}
+	}
+
 	failures := 0
 	for _, ni := range providers {
 		if len(ni.URL) == 0 {
 			continue
 		}
-		formValue, currentErr := askOneProvider(httpMethod, ni, cer, bodyBytes)
+		formValue, currentErr := askOneProvider(httpMethod, ni, cer, action, bodyBytes)
 		if currentErr != nil {
 			failures++
 			f = append(f, nil)
@@ -208,6 +242,20 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 	return f, err
 }
 
+// needsDiscovery reports whether any provider lacks a token for this action, and
+// so has not been discovered for it.
+func needsDiscovery(providers []components.NodeInfo, action string) bool {
+	for _, ni := range providers {
+		if len(ni.URL) == 0 {
+			continue
+		}
+		if _, discovered := ni.TokenFor(action); !discovered {
+			return true
+		}
+	}
+	return false
+}
+
 // askOneProvider performs one request of a multi-provider round and returns the
 // reading in the unit the consumer asked for.
 //
@@ -215,8 +263,9 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 // closed when this provider is done with. The loop used to defer every Close to
 // the end of the round, holding one connection open per provider for the
 // duration of the slowest of them.
-func askOneProvider(httpMethod string, ni components.NodeInfo, cer *components.Cervice, bodyBytes []byte) (forms.Form, error) {
-	resp, err := sendHTTPReqWithToken(httpMethod, ni.URL, ni.Token, bodyBytes)
+func askOneProvider(httpMethod string, ni components.NodeInfo, cer *components.Cervice, action string, bodyBytes []byte) (forms.Form, error) {
+	token, _ := ni.TokenFor(action)
+	resp, err := sendHTTPReqWithToken(httpMethod, ni.URL, token, bodyBytes)
 	if err != nil {
 		return nil, err
 	}

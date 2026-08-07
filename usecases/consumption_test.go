@@ -34,8 +34,13 @@ func newTestCerviceWithNodes() *components.Cervice {
 		IReferentce: "test",
 		Definition:  "A test Cervice with nodes",
 		Details:     map[string][]string{"Forms": {"SignalA_v1a"}},
-		Nodes:       map[string][]components.NodeInfo{"test": {{URL: "https://testSystem/testUnitAsset/test"}}},
-		Protos:      []string{"http"},
+		// Discovered for both, since this fixture serves the GET and the PUT
+		// suites alike. A cervice used for both actions holds a token for each.
+		Nodes: map[string][]components.NodeInfo{"test": {{
+			URL:    "https://testSystem/testUnitAsset/test",
+			Tokens: map[string]string{"read": "", "write": ""},
+		}}},
+		Protos: []string{"http"},
 	}
 }
 
@@ -54,9 +59,22 @@ func newTestCerviceWithBrokenUrl() *components.Cervice {
 		IReferentce: "test",
 		Definition:  "A test Cervice with nodes",
 		Details:     map[string][]string{"Forms": {"SignalA_v1a"}},
-		Nodes:       map[string][]components.NodeInfo{"test": {{URL: brokenUrl}}},
+		Nodes:       map[string][]components.NodeInfo{"test": {readNode(brokenUrl)}},
 		Protos:      []string{"http"},
 	}
+}
+
+// readNode is a node already discovered for a read, which is what a consumer
+// holds after a GET-mode search. The action key has to be there: a node with no
+// token for the action being performed is one that has not been discovered for
+// it, and the consumer re-orchestrates rather than present the wrong token.
+func readNode(url string) components.NodeInfo {
+	return components.NodeInfo{URL: url, Tokens: map[string]string{"read": ""}}
+}
+
+// writeNode is the same for a PUT.
+func writeNode(url string) components.NodeInfo {
+	return components.NodeInfo{URL: url, Tokens: map[string]string{"write": ""}}
 }
 
 var form forms.SignalA_v1a
@@ -245,6 +263,11 @@ func createServRecListTestForm(amount int) (servRecList forms.ServiceRecordList_
 	for i := range amount {
 		servRecList.List[i].IPAddresses = []string{"123.456.789"}
 		servRecList.List[i].ProtoPort = map[string]int{"http": 123}
+		// Distinct providers, not the same one repeated. Every record used to
+		// carry identical fields, so all three resolved to one ServLocation and
+		// the list exercised duplication rather than the multiple providers it
+		// is named for.
+		servRecList.List[i].SystemName = fmt.Sprintf("provider%d", i)
 	}
 	return servRecList
 }
@@ -385,7 +408,7 @@ func TestGetStates(t *testing.T) {
 		IReferentce: "test",
 		Definition:  "A test Cervice with nodes",
 		Details:     map[string][]string{"Forms": {"SignalA_v1a"}},
-		Nodes:       map[string][]components.NodeInfo{"test": {{URL: "test1"}, {URL: "test2"}, {URL: "test3"}}},
+		Nodes:       map[string][]components.NodeInfo{"test": {readNode("test1"), readNode("test2"), readNode("test3")}},
 		Protos:      []string{"http"},
 	}
 	testSys := createTestSystem(false)
@@ -405,7 +428,7 @@ func TestGetStates(t *testing.T) {
 		IReferentce: "test",
 		Definition:  "A test Cervice with nodes",
 		Details:     map[string][]string{"Forms": {"SignalA_v1a"}},
-		Nodes:       map[string][]components.NodeInfo{"test": {{URL: "test1"}, {URL: brokenUrl}, {URL: "test3"}}},
+		Nodes:       map[string][]components.NodeInfo{"test": {readNode("test1"), readNode(brokenUrl), readNode("test3")}},
 		Protos:      []string{"http"},
 	}
 	testSys = createTestSystem(false)

@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 	"strings"
@@ -200,7 +201,18 @@ func sendHTTPReqWithToken(method string, url string, token string, data []byte) 
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("bad response: %d %s", resp.StatusCode, resp.Status)
+		// The body carries the reason — "the token expired at ...", "mismatch
+		// (action): read vs write" — and returning without it left the operator
+		// with a bare status code for a refusal that names its own cause.
+		// Reading it also closes the response: returning early with the body
+		// open leaked a connection on every refusal, which a control loop
+		// polling against a standing 403 does once per tick.
+		reason, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		resp.Body.Close()
+		if detail := strings.TrimSpace(string(reason)); detail != "" {
+			return nil, fmt.Errorf("%s: %s", resp.Status, detail)
+		}
+		return nil, fmt.Errorf("bad response: %s", resp.Status)
 	}
 	return resp, nil
 }

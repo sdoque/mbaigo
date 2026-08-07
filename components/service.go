@@ -117,11 +117,33 @@ func MergeDetails(map1, map2 map[string][]string) map[string][]string {
 type NodeInfo struct {
 	URL     string
 	Details map[string][]string
-	// Token is the access token the orchestrator obtained for this provider. It
-	// is presented on every request to the node and outlives none of them: when
-	// it expires the provider refuses, the node cache is cleared, and the next
-	// call re-orchestrates for a fresh one.
-	Token string
+	// Tokens are the access tokens the orchestrator obtained for this provider,
+	// keyed by the action each was minted for — "read", "write" or "invoke".
+	//
+	// One per action, because a token names the action it permits and the
+	// provider recomputes that action from the HTTP method it receives. A read
+	// token presented on a PUT is refused, so a cervice used for both a GET and
+	// a POST needs one of each — which a single token string could not hold.
+	//
+	// An entry with an empty value is meaningful: it records that this action was
+	// discovered and the cloud issued no token, which is what an unauthorised
+	// cloud does. Without it a consumer would re-orchestrate before every call.
+	//
+	// A token outlives none of the requests it is presented on: when it expires
+	// the provider refuses, the node cache is cleared, and the next call
+	// re-orchestrates for a fresh one.
+	Tokens map[string]string
+}
+
+// TokenFor returns the token minted for one action, and whether this node has
+// been discovered for that action at all. The two are distinct: a discovered
+// action with no token is an unauthorised cloud, not a missing discovery.
+func (ni NodeInfo) TokenFor(action string) (token string, discovered bool) {
+	if ni.Tokens == nil {
+		return "", false
+	}
+	token, discovered = ni.Tokens[action]
+	return token, discovered
 }
 
 // A Cervice is a consumed service
