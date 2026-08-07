@@ -177,8 +177,10 @@ func TestUnknownUnitsAreRefused(t *testing.T) {
 	if _, ok := LookupUnit("http://qudt.org/vocab/unit/FURLONG"); ok {
 		t.Error("an absent unit resolved")
 	}
-	if _, err := ConvertUnits(1, "Celsius", degF, false); err == nil {
-		t.Error("a pre-QUDT unit name was accepted")
+	// A unit with no QUDT entry at all. "Celsius" is no longer one of these —
+	// see TestLegacyUnitNamesStillConvert — but a price or a rainfall rate is.
+	if _, err := ConvertUnits(1, "SEK/kWh", degF, false); err == nil {
+		t.Error("a unit outside the table was accepted")
 	}
 	if _, err := ConvertUnits(1, degC, "", false); err == nil {
 		t.Error("an empty target unit was accepted")
@@ -195,8 +197,8 @@ func TestUnitTableIsWellFormed(t *testing.T) {
 		if def.Dimension == "" {
 			t.Errorf("%s: no dimension, so the dimension guard cannot apply", iri)
 		}
-		if def.HasFactor && def.Multiplier == 0 {
-			t.Errorf("%s: claims an affine relationship but its multiplier is zero", iri)
+		if def.HasFactor && (def.Num == 0 || def.Den == 0) {
+			t.Errorf("%s: claims an affine relationship but its scale is degenerate (%v/%v)", iri, def.Num, def.Den)
 		}
 	}
 }
@@ -268,8 +270,9 @@ func TestNormaliseUnitsLeavesPreQudtDeploymentsAlone(t *testing.T) {
 // But a mismatch it cannot reason about is reported rather than passed on. A
 // control loop must never receive a number in a unit it did not expect.
 func TestNormaliseUnitsRefusesWhatItCannotConvert(t *testing.T) {
-	c := cervice(map[string][]string{"Unit": {"Celsius"}})
-	if _, err := NormaliseUnits(c, reading(70, "Fahrenheit")); err == nil {
+	// Two names the table has no entry for, so there is nothing to reason with.
+	c := cervice(map[string][]string{"Unit": {"SEK/kWh"}})
+	if _, err := NormaliseUnits(c, reading(70, "ppm")); err == nil {
 		t.Error("an unconvertible mismatch was passed through as though it were correct")
 	}
 
@@ -378,8 +381,8 @@ func TestConvertWithinAQuantityKind(t *testing.T) {
 // dimension guard only earns its place when a kind is missing — which a
 // generated table makes possible. This is that case.
 func TestDimensionGuardCoversUnitsWithoutAQuantityKind(t *testing.T) {
-	anonymousHeat := UnitDef{IRI: "urn:test:heat", Symbol: "h", Dimension: DimTemperature, Multiplier: 1, HasFactor: true}
-	anonymousSpan := UnitDef{IRI: "urn:test:span", Symbol: "s", Dimension: DimLength, Multiplier: 1, HasFactor: true}
+	anonymousHeat := UnitDef{IRI: "urn:test:heat", Symbol: "h", Dimension: DimTemperature, Num: 1, Den: 1, HasFactor: true}
+	anonymousSpan := UnitDef{IRI: "urn:test:span", Symbol: "s", Dimension: DimLength, Num: 1, Den: 1, HasFactor: true}
 
 	_, err := Convert(20, anonymousHeat, anonymousSpan, false)
 	if err == nil {
@@ -396,6 +399,133 @@ func TestEveryConvertibleUnitDeclaresItsQuantityKind(t *testing.T) {
 	for iri, def := range units {
 		if def.HasFactor && def.QuantityKind == "" {
 			t.Errorf("%s is convertible but declares no quantity kind", iri)
+		}
+	}
+}
+
+// TestConversionsLandOnTheirBoundaries is review finding #20: the scale was a
+// decimal, and five ninths in binary floating point is not five ninths. 100 C
+// reached 211.99999999999991 F, so a threshold at 212 never fired and every log
+// line carried the noise.
+func TestConversionsLandOnTheirBoundaries(t *testing.T) {
+	c, f := mustLookup(t, qudtUnit+"DEG_C"), mustLookup(t, qudtUnit+"DEG_F")
+	k := mustLookup(t, qudtUnit+"K")
+
+	for _, tc := range []struct {
+		from, to UnitDef
+		in, want float64
+		what     string
+	}{
+		{c, f, 100, 212, "water boils"},
+		{c, f, 0, 32, "water freezes"},
+		{c, f, -40, -40, "the scales cross"},
+		{c, f, 37, 98.6, "blood heat"},
+		{f, c, 212, 100, "back again"},
+		{f, c, 32, 0, "back again"},
+		{f, c, 68, 20, "room temperature"},
+		{c, k, 0, 273.15, "absolute"},
+		{k, c, 373.15, 100, "absolute, back"},
+	} {
+		got, err := Convert(tc.in, tc.from, tc.to, false)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.what, err)
+		}
+		if got != tc.want {
+			t.Errorf("%s: %v %s is %v %s, want exactly %v",
+				tc.what, tc.in, tc.from.Symbol, got, tc.to.Symbol, tc.want)
+		}
+	}
+}
+
+// TestTwoUnresolvedUnitsDoNotConvert is review finding #18: the identity check
+// compared IRIs, and two zero UnitDefs both have an empty one — so a caller that
+// dropped the ok from two LookupUnits and mistyped both got its number back
+// unchanged, as though it had been converted.
+func TestTwoUnresolvedUnitsDoNotConvert(t *testing.T) {
+	var nothing UnitDef
+
+	if got, err := Convert(20, nothing, nothing, false); err == nil {
+		t.Errorf("two unresolved units converted 20 to %v", got)
+	}
+
+	// One resolved and one not is the same mistake, half made.
+	c := mustLookup(t, qudtUnit+"DEG_C")
+	if got, err := Convert(20, c, nothing, false); err == nil {
+		t.Errorf("converting into an unresolved unit gave %v", got)
+	}
+	if got, err := Convert(20, nothing, c, false); err == nil {
+		t.Errorf("converting from an unresolved unit gave %v", got)
+	}
+}
+
+// TestNormaliseUnitsWithholdsAFormItCouldNotConvert is review finding #19:
+// returning the unconverted form alongside the error handed a caller that logs
+// and continues a valid-looking reading in the wrong unit.
+func TestNormaliseUnitsWithholdsAFormItCouldNotConvert(t *testing.T) {
+	var f forms.SignalA_v1a
+	f.NewForm()
+	f.Value = 50
+	f.Unit = qudtUnit + "PERCENT"
+
+	got, err := NormaliseUnits(cervice(map[string][]string{"Unit": {qudtUnit + "DEG_C"}}), &f)
+	if err == nil {
+		t.Fatal("a percentage was accepted as a temperature")
+	}
+	if got != nil {
+		t.Errorf("a form was returned alongside the error: %+v", got)
+	}
+}
+
+func mustLookup(t *testing.T, iri string) UnitDef {
+	t.Helper()
+	def, ok := LookupUnit(iri)
+	if !ok {
+		t.Fatalf("the QUDT table has no %s", iri)
+	}
+	return def
+}
+
+// TestLegacyUnitNamesStillConvert is review finding #21: the framework promises
+// twice that a deployment naming "Celsius" keeps working, and every
+// configuration written before the migration names one. Without the alias table
+// a system that treats an unresolvable unit as fatal stopped booting on upgrade
+// — and, worse, a pre-QUDT provider and a QUDT consumer refused each other
+// instead of converting.
+func TestLegacyUnitNamesStillConvert(t *testing.T) {
+	// A pre-QUDT consumer meeting a pre-QUDT provider in another unit. This used
+	// to be an error; there is nothing unreasonable about it.
+	c := cervice(map[string][]string{"Unit": {"Celsius"}})
+	got, err := NormaliseUnits(c, reading(68, "Fahrenheit"))
+	if err != nil {
+		t.Fatalf("a legacy pairing was refused: %v", err)
+	}
+	closeTo(t, got.(*forms.SignalA_v1a).Value, 20)
+
+	// A pre-QUDT provider meeting a QUDT consumer.
+	c = cervice(map[string][]string{"Unit": {degC}})
+	got, err = NormaliseUnits(c, reading(68, "Fahrenheit"))
+	if err != nil {
+		t.Fatalf("a legacy provider was refused by a QUDT consumer: %v", err)
+	}
+	closeTo(t, got.(*forms.SignalA_v1a).Value, 20)
+
+	// And the names resolve to the units they have always meant.
+	for name, want := range map[string]string{
+		"Celsius": qudtUnit + "DEG_C",
+		"Percent": qudtUnit + "PERCENT",
+		"%":       qudtUnit + "PERCENT",
+		"mbar":    qudtUnit + "MilliBAR",
+	} {
+		def, ok := LookupUnit(name)
+		if !ok {
+			t.Errorf("%q does not resolve", name)
+			continue
+		}
+		if def.IRI != want {
+			t.Errorf("%q resolves to %s, want %s", name, def.IRI, want)
+		}
+		if canonical, ok := CanonicalUnit(name); !ok || canonical != want {
+			t.Errorf("CanonicalUnit(%q) = %q, %v; want %q", name, canonical, ok, want)
 		}
 	}
 }

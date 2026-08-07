@@ -20,8 +20,15 @@
 // is N entries instead of N squared, and it is why the same code converts
 // temperature, pressure, length and mass without special cases.
 //
-//	si       = value * from.Multiplier + from.Offset
-//	value_to = (si - to.Offset) / to.Multiplier
+//	si       = (value * from.Num + from.Add) / from.Den
+//	value_to = (si * to.Den - to.Add) / to.Num
+//
+// The scale is a ratio rather than a decimal because the interesting one is not
+// representable: Fahrenheit is five ninths of a kelvin, and 5.0/9.0 in binary
+// floating point is not five ninths. Multiplying by it and dividing by it again
+// leaves 100 C as 211.99999999999991 F, so a threshold at 212 never fires and
+// every log line carries the noise. Kept as 5 and 9 and applied as one
+// multiplication and one division, 100 C is 212.
 //
 // The offset is zero for everything except temperature and gauge pressure, so
 // most conversions collapse to a scaling. Temperature is the case that exercises
@@ -34,6 +41,7 @@ package usecases
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/sdoque/mbaigo/components"
@@ -63,10 +71,16 @@ type UnitDef struct {
 	// units. Refusing is the only correct response.
 	QuantityKind string
 
-	// Multiplier and Offset relate this unit to the SI coincident unit:
-	// si = value*Multiplier + Offset.
-	Multiplier float64
-	Offset     float64
+	// Num, Den and Add relate this unit to the SI coincident unit:
+	// si = (value*Num + Add) / Den.
+	//
+	// A ratio rather than a decimal multiplier so that a scale like five ninths
+	// stays exact until it is applied. Add is expressed in the same scaled
+	// space, so degrees Fahrenheit carry 2298.35 over 9 rather than
+	// 255.37222222222223: the repeating decimal is never written down.
+	Num float64
+	Den float64
+	Add float64
 
 	// HasFactor is false for units whose relationship to SI is not affine —
 	// decibels, pH, Richter. Their multiplier and offset are meaningless, so
@@ -126,37 +140,37 @@ const (
 // release the generator pins.
 var units = map[string]UnitDef{
 	// Temperature. The only entries here with a non-zero offset.
-	qudtUnit + "K":     {Symbol: "K", QuantityKind: KindTemperature, Dimension: DimTemperature, Multiplier: 1, Offset: 0, HasFactor: true},
-	qudtUnit + "DEG_C": {Symbol: "°C", QuantityKind: KindTemperature, Dimension: DimTemperature, Multiplier: 1, Offset: 273.15, HasFactor: true},
-	qudtUnit + "DEG_F": {Symbol: "°F", QuantityKind: KindTemperature, Dimension: DimTemperature, Multiplier: 5.0 / 9.0, Offset: 255.37222222222223, HasFactor: true},
-	qudtUnit + "DEG_R": {Symbol: "°R", QuantityKind: KindTemperature, Dimension: DimTemperature, Multiplier: 5.0 / 9.0, Offset: 0, HasFactor: true},
+	qudtUnit + "K":     {Symbol: "K", QuantityKind: KindTemperature, Dimension: DimTemperature, Num: 1, Den: 1, Add: 0, HasFactor: true},
+	qudtUnit + "DEG_C": {Symbol: "°C", QuantityKind: KindTemperature, Dimension: DimTemperature, Num: 1, Den: 1, Add: 273.15, HasFactor: true},
+	qudtUnit + "DEG_F": {Symbol: "°F", QuantityKind: KindTemperature, Dimension: DimTemperature, Num: 5, Den: 9, Add: 2298.35, HasFactor: true},
+	qudtUnit + "DEG_R": {Symbol: "°R", QuantityKind: KindTemperature, Dimension: DimTemperature, Num: 5, Den: 9, Add: 0, HasFactor: true},
 
 	// Pressure.
-	qudtUnit + "PA":       {Symbol: "Pa", QuantityKind: KindPressure, Dimension: DimPressure, Multiplier: 1, Offset: 0, HasFactor: true},
-	qudtUnit + "KiloPA":   {Symbol: "kPa", QuantityKind: KindPressure, Dimension: DimPressure, Multiplier: 1000, Offset: 0, HasFactor: true},
-	qudtUnit + "BAR":      {Symbol: "bar", QuantityKind: KindPressure, Dimension: DimPressure, Multiplier: 100000, Offset: 0, HasFactor: true},
-	qudtUnit + "MilliBAR": {Symbol: "mbar", QuantityKind: KindPressure, Dimension: DimPressure, Multiplier: 100, Offset: 0, HasFactor: true},
+	qudtUnit + "PA":       {Symbol: "Pa", QuantityKind: KindPressure, Dimension: DimPressure, Num: 1, Den: 1, Add: 0, HasFactor: true},
+	qudtUnit + "KiloPA":   {Symbol: "kPa", QuantityKind: KindPressure, Dimension: DimPressure, Num: 1000, Den: 1, Add: 0, HasFactor: true},
+	qudtUnit + "BAR":      {Symbol: "bar", QuantityKind: KindPressure, Dimension: DimPressure, Num: 100000, Den: 1, Add: 0, HasFactor: true},
+	qudtUnit + "MilliBAR": {Symbol: "mbar", QuantityKind: KindPressure, Dimension: DimPressure, Num: 100, Den: 1, Add: 0, HasFactor: true},
 
 	// Time.
-	qudtUnit + "SEC":      {Symbol: "s", QuantityKind: KindTime, Dimension: DimTime, Multiplier: 1, Offset: 0, HasFactor: true},
-	qudtUnit + "MilliSEC": {Symbol: "ms", QuantityKind: KindTime, Dimension: DimTime, Multiplier: 0.001, Offset: 0, HasFactor: true},
-	qudtUnit + "MIN":      {Symbol: "min", QuantityKind: KindTime, Dimension: DimTime, Multiplier: 60, Offset: 0, HasFactor: true},
-	qudtUnit + "HR":       {Symbol: "h", QuantityKind: KindTime, Dimension: DimTime, Multiplier: 3600, Offset: 0, HasFactor: true},
+	qudtUnit + "SEC":      {Symbol: "s", QuantityKind: KindTime, Dimension: DimTime, Num: 1, Den: 1, Add: 0, HasFactor: true},
+	qudtUnit + "MilliSEC": {Symbol: "ms", QuantityKind: KindTime, Dimension: DimTime, Num: 1, Den: 1000, Add: 0, HasFactor: true},
+	qudtUnit + "MIN":      {Symbol: "min", QuantityKind: KindTime, Dimension: DimTime, Num: 60, Den: 1, Add: 0, HasFactor: true},
+	qudtUnit + "HR":       {Symbol: "h", QuantityKind: KindTime, Dimension: DimTime, Num: 3600, Den: 1, Add: 0, HasFactor: true},
 
 	// Length and mass, to show the pattern is general.
-	qudtUnit + "M":  {Symbol: "m", QuantityKind: KindLength, Dimension: DimLength, Multiplier: 1, Offset: 0, HasFactor: true},
-	qudtUnit + "FT": {Symbol: "ft", QuantityKind: KindLength, Dimension: DimLength, Multiplier: 0.3048, Offset: 0, HasFactor: true},
-	qudtUnit + "KG": {Symbol: "kg", QuantityKind: KindMass, Dimension: DimMass, Multiplier: 1, Offset: 0, HasFactor: true},
-	qudtUnit + "LB": {Symbol: "lb", QuantityKind: KindMass, Dimension: DimMass, Multiplier: 0.45359237, Offset: 0, HasFactor: true},
+	qudtUnit + "M":  {Symbol: "m", QuantityKind: KindLength, Dimension: DimLength, Num: 1, Den: 1, Add: 0, HasFactor: true},
+	qudtUnit + "FT": {Symbol: "ft", QuantityKind: KindLength, Dimension: DimLength, Num: 3048, Den: 10000, Add: 0, HasFactor: true},
+	qudtUnit + "KG": {Symbol: "kg", QuantityKind: KindMass, Dimension: DimMass, Num: 1, Den: 1, Add: 0, HasFactor: true},
+	qudtUnit + "LB": {Symbol: "lb", QuantityKind: KindMass, Dimension: DimMass, Num: 45359237, Den: 100000000, Add: 0, HasFactor: true},
 
 	// Plane angle. Dimensionless in SI, exactly like a ratio — which is why the
 	// quantity kind, not the dimension, is what keeps them apart.
-	qudtUnit + "RAD": {Symbol: "rad", QuantityKind: KindAngle, Dimension: DimDimensionless, Multiplier: 1, Offset: 0, HasFactor: true},
-	qudtUnit + "DEG": {Symbol: "°", QuantityKind: KindAngle, Dimension: DimDimensionless, Multiplier: 0.017453292519943295, Offset: 0, HasFactor: true},
+	qudtUnit + "RAD": {Symbol: "rad", QuantityKind: KindAngle, Dimension: DimDimensionless, Num: 1, Den: 1, Add: 0, HasFactor: true},
+	qudtUnit + "DEG": {Symbol: "°", QuantityKind: KindAngle, Dimension: DimDimensionless, Num: math.Pi, Den: 180, Add: 0, HasFactor: true},
 
 	// Dimensionless ratios.
-	qudtUnit + "PERCENT": {Symbol: "%", QuantityKind: KindRatio, Dimension: DimDimensionless, Multiplier: 0.01, Offset: 0, HasFactor: true},
-	qudtUnit + "NUM":     {Symbol: "", QuantityKind: KindRatio, Dimension: DimDimensionless, Multiplier: 1, Offset: 0, HasFactor: true},
+	qudtUnit + "PERCENT": {Symbol: "%", QuantityKind: KindRatio, Dimension: DimDimensionless, Num: 1, Den: 100, Add: 0, HasFactor: true},
+	qudtUnit + "NUM":     {Symbol: "", QuantityKind: KindRatio, Dimension: DimDimensionless, Num: 1, Den: 1, Add: 0, HasFactor: true},
 
 	// Logarithmic: present so that a request to convert one is refused with a
 	// reason rather than failing to resolve.
@@ -183,8 +197,69 @@ func LookupUnit(iri string) (UnitDef, bool) {
 	trimmed = strings.TrimPrefix(trimmed, "<")
 	trimmed = strings.TrimSuffix(trimmed, ">")
 
-	def, ok := units[trimmed]
-	return def, ok
+	if def, ok := units[trimmed]; ok {
+		return def, true
+	}
+	if canonical, ok := legacyUnitNames[trimmed]; ok {
+		return units[canonical], true
+	}
+	return UnitDef{}, false
+}
+
+// legacyUnitNames are the plain unit names these systems used before QUDT.
+//
+// The framework promises in two places that a deployment naming "Celsius" keeps
+// working. Without this it did not: every configuration written before the
+// migration named a unit LookupUnit could not resolve, and a system that treats
+// that as fatal stops booting on upgrade — which is not a promise kept.
+//
+// A migration aid, not a second vocabulary. Only names this repository actually
+// wrote are here, and a new configuration should state the IRI: a name is
+// ambiguous across domains in a way an IRI is not, which is the reason for
+// adopting QUDT in the first place.
+var legacyUnitNames = map[string]string{
+	"Celsius":     qudtUnit + "DEG_C",
+	"celsius":     qudtUnit + "DEG_C",
+	"C":           qudtUnit + "DEG_C",
+	"Fahrenheit":  qudtUnit + "DEG_F",
+	"fahrenheit":  qudtUnit + "DEG_F",
+	"F":           qudtUnit + "DEG_F",
+	"Kelvin":      qudtUnit + "K",
+	"Percent":     qudtUnit + "PERCENT",
+	"percent":     qudtUnit + "PERCENT",
+	"%":           qudtUnit + "PERCENT",
+	"millisecond": qudtUnit + "MilliSEC",
+	"ms":          qudtUnit + "MilliSEC",
+	"second":      qudtUnit + "SEC",
+	"s":           qudtUnit + "SEC",
+	"minute":      qudtUnit + "MIN",
+	"hour":        qudtUnit + "HR",
+	"mbar":        qudtUnit + "MilliBAR",
+	"bar":         qudtUnit + "BAR",
+	"kPa":         qudtUnit + "KiloPA",
+	"Pa":          qudtUnit + "PA",
+	"dB":          qudtUnit + "DeciB",
+	"degree":      qudtUnit + "DEG",
+	"°":           qudtUnit + "DEG",
+	"radian":      qudtUnit + "RAD",
+	"meter":       qudtUnit + "M",
+	"metre":       qudtUnit + "M",
+	"m":           qudtUnit + "M",
+	"foot":        qudtUnit + "FT",
+	"ft":          qudtUnit + "FT",
+	"kg":          qudtUnit + "KG",
+	"lb":          qudtUnit + "LB",
+}
+
+// CanonicalUnit reports the QUDT IRI a legacy unit name stands for, so a system
+// that refuses an unknown unit can name the replacement instead of only the
+// problem.
+func CanonicalUnit(name string) (string, bool) {
+	trimmed := strings.TrimSpace(name)
+	trimmed = strings.TrimPrefix(trimmed, "<")
+	trimmed = strings.TrimSuffix(trimmed, ">")
+	canonical, ok := legacyUnitNames[trimmed]
+	return canonical, ok
 }
 
 // Convert changes a value from one unit to another.
@@ -194,6 +269,14 @@ func LookupUnit(iri string) (UnitDef, bool) {
 // great deal: 5 °C of control error is 9 °F, not 41 °F. A controller's setpoint
 // and its measurement are points; the error between them is an interval.
 func Convert(value float64, from, to UnitDef, interval bool) (float64, error) {
+	// Both resolved, and the same. Two *unresolved* units are also equal here —
+	// a zero UnitDef has an empty IRI — and returning the value unchanged for
+	// them was a silent identity conversion: a caller that dropped the ok from
+	// two LookupUnits and mistyped both got its number back as though it had
+	// been converted.
+	if from.IRI == "" || to.IRI == "" {
+		return 0, fmt.Errorf("cannot convert between units that were not resolved")
+	}
 	if from.IRI == to.IRI {
 		return value, nil
 	}
@@ -211,16 +294,37 @@ func Convert(value float64, from, to UnitDef, interval bool) (float64, error) {
 		return 0, fmt.Errorf("cannot convert %s to %s: different dimensions (%s vs %s)",
 			describe(from), describe(to), from.Dimension, to.Dimension)
 	}
-	if to.Multiplier == 0 {
-		return 0, fmt.Errorf("%s has a zero multiplier and cannot be converted to", describe(to))
+	if to.Num == 0 || to.Den == 0 || from.Den == 0 {
+		return 0, fmt.Errorf("%s has a degenerate scale and cannot be converted", describe(to))
 	}
 
 	if interval {
 		// Offsets cancel across a difference, so only the scale applies.
-		return value * from.Multiplier / to.Multiplier, nil
+		return tidy(value * from.Num * to.Den / (from.Den * to.Num)), nil
 	}
-	si := value*from.Multiplier + from.Offset
-	return (si - to.Offset) / to.Multiplier, nil
+	si := (value*from.Num + from.Add) / from.Den
+	return tidy((si*to.Den - to.Add) / to.Num), nil
+}
+
+// significantDigits is where a converted value is rounded.
+//
+// Even with the scale kept as a ratio, a conversion through SI is two operations
+// and the last bits do not always land: 0 C reaches 31.99999999999998 F. That
+// residue is an artefact of the arithmetic, not a measurement — no sensor in
+// this framework reports twelve significant figures — and leaving it in means a
+// threshold at 32 does not fire and every log line carries the noise.
+//
+// Twelve is well inside float64's fifteen to seventeen, so nothing a caller
+// could legitimately have measured is discarded.
+const significantDigits = 12
+
+// tidy rounds a converted value to significantDigits.
+func tidy(v float64) float64 {
+	if v == 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+		return v
+	}
+	scale := math.Pow(10, float64(significantDigits)-math.Ceil(math.Log10(math.Abs(v))))
+	return math.Round(v*scale) / scale
 }
 
 // ConvertUnits is Convert by IRI, for callers holding what a form or a
@@ -277,7 +381,11 @@ func NormaliseUnits(cer *components.Cervice, f forms.Form) (forms.Form, error) {
 		return f, nil // not a form whose value carries a unit
 	}
 	if err := AdoptUnit(bearer, want, isInterval(cer.Details)); err != nil {
-		return f, err
+		// No form alongside the error. Returning the unconverted one handed any
+		// caller that logs and continues a valid-looking reading in the wrong
+		// unit — the exact thing this function exists to prevent. Every caller
+		// already returns on error, so nothing loses anything it was using.
+		return nil, err
 	}
 	return f, nil
 }
