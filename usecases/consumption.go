@@ -173,46 +173,23 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 		}
 	}
 
-	var serviceUrls []string
+	// The whole NodeInfo, not just its URL. The token is what proves to the
+	// provider that the authorizer permitted this call, and flattening the nodes
+	// to a list of strings threw it away — every request from this path went out
+	// unauthorised while the single-provider path above sent one.
+	var providers []components.NodeInfo
 	for _, nodes := range cer.Nodes {
-		for _, ni := range nodes {
-			serviceUrls = append(serviceUrls, ni.URL)
-		}
+		providers = append(providers, nodes...)
 	}
 
-	for _, serviceUrl := range serviceUrls {
-		if len(serviceUrl) == 0 {
+	failures := 0
+	for _, ni := range providers {
+		if len(ni.URL) == 0 {
 			continue
 		}
-		resp, currentErr := sendHTTPReq(httpMethod, serviceUrl, bodyBytes)
+		formValue, currentErr := askOneProvider(httpMethod, ni, cer, bodyBytes)
 		if currentErr != nil {
-			cer.Nodes = make(map[string][]components.NodeInfo)
-			f = append(f, nil)
-			err = append(err, currentErr)
-			continue
-		}
-		defer resp.Body.Close()
-
-		// If the response includes a payload, unpack it into a forms.Form
-		bodyBytes, currentErr = io.ReadAll(resp.Body)
-		if currentErr != nil {
-			currentErr = fmt.Errorf("reading state response body: %w", currentErr)
-			f = append(f, nil)
-			err = append(err, currentErr)
-			continue
-		}
-
-		if len(bodyBytes) < 1 {
-			currentErr = fmt.Errorf("got empty response body")
-			f = append(f, nil)
-			err = append(err, currentErr)
-			continue
-		}
-
-		headerContentType := resp.Header.Get("Content-Type")
-		formValue, currentErr := Unpack(bodyBytes, headerContentType)
-		if currentErr != nil {
-			currentErr = fmt.Errorf("unpacking response body: %w", currentErr)
+			failures++
 			f = append(f, nil)
 			err = append(err, currentErr)
 			continue
@@ -220,5 +197,48 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 		f = append(f, formValue)
 		err = append(err, nil)
 	}
+
+	// Only when nothing answered. Discarding every provider because one of them
+	// failed threw away the ones that had just worked, and forced a rediscovery
+	// on the next call for no reason.
+	if failures > 0 && failures == len(f) {
+		cer.Nodes = make(map[string][]components.NodeInfo)
+	}
+
 	return f, err
+}
+
+// askOneProvider performs one request of a multi-provider round and returns the
+// reading in the unit the consumer asked for.
+//
+// It is a function rather than the body of the loop so that the response is
+// closed when this provider is done with. The loop used to defer every Close to
+// the end of the round, holding one connection open per provider for the
+// duration of the slowest of them.
+func askOneProvider(httpMethod string, ni components.NodeInfo, cer *components.Cervice, bodyBytes []byte) (forms.Form, error) {
+	resp, err := sendHTTPReqWithToken(httpMethod, ni.URL, ni.Token, bodyBytes)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	// A separate variable: assigning into bodyBytes made the previous provider's
+	// answer the request body sent to the next one.
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading state response body: %w", err)
+	}
+	if len(respBytes) < 1 {
+		return nil, fmt.Errorf("got empty response body")
+	}
+
+	formValue, err := Unpack(respBytes, resp.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, fmt.Errorf("unpacking response body: %w", err)
+	}
+
+	// Each provider answers in its own unit. Without this the caller received a
+	// mixture — °C from one sensor and °F from the next — with nothing in the
+	// slice to say which was which.
+	return NormaliseUnits(cer, formValue)
 }
