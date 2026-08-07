@@ -269,9 +269,17 @@ func handleFiveParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 	}
 
 	uAsset := *Resource
+
+	// Files are a service's payload, so they are guarded like one. The check has
+	// to precede the transfer: TransferFile writes headers and body, and a
+	// refusal issued afterwards is a superfluous WriteHeader against a response
+	// that has already gone out.
 	if servicePath == "files" {
+		if !permitted(sys, w, r, resourceName, uAsset.GetServices(), servicePath) {
+			return
+		}
 		forms.TransferFile(w, r)
-		// return
+		return
 	}
 
 	switch record {
