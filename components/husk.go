@@ -67,6 +67,12 @@ type Husk struct {
 	// existed, the request path never touched System.Mutex at all.
 	AuthorizerKey atomic.Pointer[ecdsa.PublicKey] `json:"-"`
 
+	// Bound is what this system is actually serving, which is not what
+	// ProtoPort names: an HTTPS endpoint binds only after enrolment. Services
+	// are registered with what is bound, so a consumer is never handed a port
+	// nothing is listening on.
+	Bound BoundPorts `json:"-"`
+
 	// AuthorizerReady is closed once AuthorizerKey holds a chain-validated key.
 	// Until then a provider refuses token-bearing requests rather than guessing.
 	AuthorizerReady chan struct{} `json:"-"`

@@ -117,6 +117,14 @@ func RegisterServices(sys *components.System) {
 // registerService makes a POST or PUT request to register or register individual services
 func registerService(sys *components.System, registrar string, ua *components.UnitAsset, serv *components.Service) (delay time.Duration, err error) {
 	delay = 15 * time.Second
+
+	// Nothing bound yet, so there is no endpoint to advertise. Registration
+	// starts before the servers do, and a record with no port is worse than no
+	// record: a consumer would be sent to port 0.
+	if !sys.Husk.Bound.Any() {
+		return 2 * time.Second, nil
+	}
+
 	if registrar == "" {
 		if serv.ID != 0 {
 			serv.ID = 0 // reset the service ID, so that a new registration (POST) will be made when the registrar is back
@@ -236,12 +244,12 @@ func serviceRegistrationForm(sys *components.System, ua *components.UnitAsset, s
 		sr.SystemName = sys.Name
 		sr.ServiceNode = sys.Husk.Host.Name + "_" + sys.Name + "_" + resName + "_" + serv.Definition
 		sr.IPAddresses = sys.Husk.Host.IPAddresses
-		sr.ProtoPort = make(map[string]int) // initialize the map
-		for key, port := range sys.Husk.ProtoPort {
-			if port != 0 { // exclude entries where the port is 0
-				sr.ProtoPort[key] = port
-			}
-		}
+		// What this system is serving, not what its configuration names. An
+		// HTTPS port binds only after enrolment, and a consumer is handed the
+		// HTTPS endpoint in preference to the HTTP one — so advertising it early
+		// sent every consumer to a port nothing was listening on, for as long as
+		// enrolment took, while the HTTP port beside it worked the whole time.
+		sr.ProtoPort = sys.Husk.Bound.Serving()
 		// The mission travels on the record because the authorizer evaluates
 		// policy along it and reads from the registrar, not from each system's
 		// local configuration file. Registration copies only Details otherwise,

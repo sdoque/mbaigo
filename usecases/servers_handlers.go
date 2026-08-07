@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"html"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -102,13 +103,23 @@ func SetoutServers(sys *components.System) error {
 			}
 		}()
 
+		// Bind before announcing. ListenAndServe does both at once, so the
+		// system reported it was up and then, on a port already in use, failed
+		// immediately afterwards — two lines that contradict each other, in
+		// that order.
+		listener, err := net.Listen("tcp", httpServer.Addr)
+		if err != nil {
+			return fmt.Errorf("binding the HTTP port: %w", err)
+		}
+		sys.Husk.Bound.Bind("http", httpPort)
+
 		// Inform the user how to access the system's web server (black box documentation)
 		httpURL := "http://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(httpPort) + "/" + sys.Name
 		log.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpURL)
 
 		// Start and monitor the server
 		go func() {
-			err := httpServer.ListenAndServe()
+			err := httpServer.Serve(listener)
 			if err != nil && err != http.ErrServerClosed {
 				log.Fatalf("Error from web server: %v\n", err)
 			}
@@ -159,10 +170,22 @@ func startHTTPSServer(sys *components.System, httpsPort int) error {
 		}
 	}()
 
+	listener, err := net.Listen("tcp", httpsServer.Addr)
+	if err != nil {
+		return fmt.Errorf("binding the HTTPS port: %w", err)
+	}
+	// Recorded only now. Everything before this point — the certificate
+	// request, the enrolment, the wait on CertReady — can take minutes, and for
+	// all of it this port refuses connections. Registering it as though it were
+	// serving is what sent consumers to a dead endpoint while the HTTP one
+	// beside it worked.
+	sys.Husk.Bound.Bind("https", httpsPort)
+	defer sys.Husk.Bound.Release("https")
+
 	httpsURL := "https://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(httpsPort) + "/" + sys.Name
 	log.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpsURL)
 
-	if err := httpsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+	if err := httpsServer.ServeTLS(listener, "", ""); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("HTTPS server: %w", err)
 	}
 	return nil
