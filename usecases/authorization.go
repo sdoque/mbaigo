@@ -81,6 +81,19 @@ func AcquireAuthorizerKey(sys *components.System) {
 	}
 
 	go func() {
+		// Wait for this system's own certificate before the first attempt.
+		// fetchAuthorizerKey validates the authorizer's certificate against
+		// CA_cert, which installTLSConfig writes at the end of enrolment — so at
+		// SetoutServers time it is essentially always empty. The first fetch
+		// failed on that, the loop slept a full minute, and AuthorizeRequest
+		// answered 503 to everything for the whole of it: every provider
+		// unservable for up to a minute after it was otherwise up.
+		select {
+		case <-EnsureCertReady(sys):
+		case <-sys.Ctx.Done():
+			return
+		}
+
 		for {
 			if err := fetchAuthorizerKey(sys); err != nil {
 				log.Printf("%s: cannot verify tokens yet: %v\n", sys.Name, err)
@@ -106,10 +119,13 @@ func AcquireAuthorizerKey(sys *components.System) {
 }
 
 // AuthorizerKey returns the key to verify with, and whether one is in place.
+//
+// It takes no lock. This runs on every inbound request, and System.Mutex is held
+// by Log across a POST to each registered messenger: taking it here put the
+// whole request path behind an unreachable messenger's 30-second timeout.
 func AuthorizerKey(sys *components.System) (*ecdsa.PublicKey, bool) {
-	sys.Mutex.Lock()
-	defer sys.Mutex.Unlock()
-	return sys.Husk.AuthorizerKey, sys.Husk.AuthorizerKey != nil
+	key := sys.Husk.AuthorizerKey.Load()
+	return key, key != nil
 }
 
 // ReacquireAuthorizerKey refreshes the key after a signature failure.
@@ -162,14 +178,18 @@ func fetchAuthorizerKey(sys *components.System) error {
 		return fmt.Errorf("reading the authorizer's certificate: %w", err)
 	}
 
-	key, err := authorizerPublicKey(certPEM, sys.Husk.CA_cert)
+	// Read under the lock: the enrolment goroutine writes CA_cert from
+	// installTLSConfig, and there is no ordering between that and this.
+	sys.Mutex.Lock()
+	caCert := sys.Husk.CA_cert
+	sys.Mutex.Unlock()
+
+	key, err := authorizerPublicKey(certPEM, caCert)
 	if err != nil {
 		return err
 	}
 
-	sys.Mutex.Lock()
-	sys.Husk.AuthorizerKey = key
-	sys.Mutex.Unlock()
+	sys.Husk.AuthorizerKey.Store(key)
 	return nil
 }
 

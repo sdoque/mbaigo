@@ -26,6 +26,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/tls"
 	"crypto/x509/pkix"
+	"sync/atomic"
 )
 
 // An Arrowhead husk enwraps the "thing" and has specific properties
@@ -58,8 +59,13 @@ type Husk struct {
 	// application systems keep their private keys in memory only: the authorizer
 	// generates a fresh key at every startup, so a provider that cached one
 	// forever would reject every token minted after the authorizer restarted.
-	// Guarded by System.Mutex.
-	AuthorizerKey *ecdsa.PublicKey `json:"-"`
+	//
+	// Atomic rather than guarded by System.Mutex, because it is read on every
+	// inbound request and Log takes that same mutex while POSTing to each
+	// registered messenger. One unreachable messenger would otherwise stall
+	// every request behind a 30-second HTTP timeout — before token verification
+	// existed, the request path never touched System.Mutex at all.
+	AuthorizerKey atomic.Pointer[ecdsa.PublicKey] `json:"-"`
 
 	// AuthorizerReady is closed once AuthorizerKey holds a chain-validated key.
 	// Until then a provider refuses token-bearing requests rather than guessing.

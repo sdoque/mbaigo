@@ -34,12 +34,14 @@ func postureSystem(cores []string, cert, caCert string, key *ecdsa.PublicKey, po
 		Name:  "test",
 		Mutex: &sync.Mutex{},
 		Husk: &components.Husk{
-			ProtoPort:     ports,
-			Certificate:   cert,
-			CA_cert:       caCert,
-			AuthorizerKey: key,
-			Host:          &components.HostingDevice{Name: "testhost"},
+			ProtoPort:   ports,
+			Certificate: cert,
+			CA_cert:     caCert,
+			Host:        &components.HostingDevice{Name: "testhost"},
 		},
+	}
+	if key != nil {
+		sys.Husk.AuthorizerKey.Store(key)
 	}
 	for _, name := range cores {
 		// The registrar takes a different path through GetRunningCoreSystemURL

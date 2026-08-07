@@ -89,7 +89,7 @@ func Posture(sys *components.System) SecurityPosture {
 	}
 	p.Identified = sys.Husk.Certificate != ""
 	p.CanVerifyPeers = sys.Husk.CA_cert != ""
-	p.VerifiesTokens = sys.Husk.AuthorizerKey != nil
+	p.VerifiesTokens = sys.Husk.AuthorizerKey.Load() != nil
 
 	p.OffersTLS = sys.Husk.ProtoPort["https"] != 0
 	p.AcceptsPlaintext = sys.Husk.ProtoPort["http"] != 0

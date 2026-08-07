@@ -215,7 +215,7 @@ func TestAuthorizeRequestRequiresIdentityAndToken(t *testing.T) {
 	sys := systemUnderTest(t, &components.CoreSystem{
 		Name: AuthorizerName, Url: "http://localhost:20104/authorizer/authorization",
 	})
-	sys.Husk.AuthorizerKey = &key.PublicKey
+	sys.Husk.AuthorizerKey.Store(&key.PublicKey)
 
 	serv := &components.Service{Definition: "temperature"}
 
@@ -245,7 +245,7 @@ func TestAuthorizeRequestAcceptsOnlyTheMatchingToken(t *testing.T) {
 	sys := systemUnderTest(t, &components.CoreSystem{
 		Name: AuthorizerName, Url: "http://localhost:20104/authorizer/authorization",
 	})
-	sys.Husk.AuthorizerKey = &key.PublicKey
+	sys.Husk.AuthorizerKey.Store(&key.PublicKey)
 	serv := &components.Service{Definition: "temperature"}
 
 	now := time.Now()

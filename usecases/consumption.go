@@ -132,24 +132,45 @@ func Log(sys *components.System, lvl forms.MessageLevel, msg string, args ...any
 		// Only print the msg locally if not running during `go test`
 		log.Println(sm.String())
 	}
-	var body []byte
+	// Snapshot under the lock, send outside it. The lock used to be held for the
+	// whole loop, across a POST to each messenger on a client with a 30-second
+	// timeout — so one unreachable messenger held System.Mutex for half a minute
+	// and every other holder of it waited. Sending is network work and does not
+	// belong under a lock the rest of the system contends for.
+	sys.Mutex.Lock()
+	messengers := make(map[string]int, len(sys.Husk.Messengers))
+	for host, errors := range sys.Husk.Messengers {
+		messengers[host] = errors
+	}
+	sys.Mutex.Unlock()
+
+	if len(messengers) == 0 {
+		return
+	}
+
+	body, err := Pack(forms.Form(&sm), "application/json")
+	if err != nil {
+		log.Printf("failed to pack SystemMessage: %v\n", err)
+		return
+	}
+
+	// Outcomes are collected and applied afterwards rather than written as they
+	// happen: a messenger may have been registered or dropped while this was
+	// sending, and reinstating one from a stale snapshot would resurrect it.
+	failed := make(map[string]bool, len(messengers))
+	for host := range messengers {
+		failed[host] = sendLogMessage(host, body) != nil
+	}
+
 	sys.Mutex.Lock()
 	defer sys.Mutex.Unlock()
-
-	// Iterate over all messengers and try sending a copy of the log msg
-	for host, errors := range sys.Husk.Messengers {
-		// Lazy-load the packed body, only at the first iteration
-		if body == nil {
-			var err error
-			body, err = Pack(forms.Form(&sm), "application/json")
-			if err != nil {
-				log.Printf("failed to pack SystemMessage: %v\n", err)
-				return
-			}
+	for host, wasFailure := range failed {
+		errors, stillRegistered := sys.Husk.Messengers[host]
+		if !stillRegistered {
+			continue
 		}
-
 		errCount := 0 // If there's no error while sending msg, the count is reset
-		if err := sendLogMessage(host, body); err != nil {
+		if wasFailure {
 			// Don't care what kinds of errors might be returned
 			errCount = errors + 1
 		}
