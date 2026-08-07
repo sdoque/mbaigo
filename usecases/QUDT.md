@@ -2,8 +2,9 @@
 
 Status: **largely implemented.** The conversion machinery, the discovery
 relaxation and the consumption hook are in `usecases/qudt.go`; `ds18b20`,
-`ds18b20F`, `thermostat` and `parallax` declare QUDT identifiers. What is not
-done is listed at the end.
+`ds18b20F`, `thermostat`, `parallax`, `leveler`, `ethermostat`, `revolutionary`,
+`meteorologue` and `flattener` declare QUDT identifiers. What is not done is
+listed at the end.
 
 Two decisions differ from the plan below, and the plan is left as written so the
 change of mind is visible:
@@ -253,10 +254,13 @@ Across all systems today:
   a pinned release would make an unfamiliar unit impossible rather than merely
   refused, and would replace the hand-written dimension vectors and quantity
   kinds with the release's own.
-- **The remaining systems.** `ethermostat`, `leveler`, `flattener`, `emulator`,
-  `revolutionary`, `modboss` and the weather systems still declare pre-QUDT unit
-  strings. They work — normalisation is inert for them — but they cannot be
-  paired across units.
+- **The remaining systems.** `emulator`, `modboss` and the other weather systems
+  still declare pre-QUDT unit strings. They work — normalisation is inert for
+  them — but they cannot be paired across units.
+- **The units QUDT does not cover here.** `meteorologue` still states `ppm`,
+  `km/h`, `mm/h` and `mm` as plain symbols, because `units` in `qudt.go` has no
+  entry for them. An IRI that resolves to nothing would read as a promise the
+  conversion cannot keep, so the symbol stays until the table grows.
 - **Gauge versus absolute pressure**, which QUDT does not model, and which the
   seven kPa services make a live question.
 - **The knowledge-graph side**, section 8: the `qudt:` prefixes and a real
