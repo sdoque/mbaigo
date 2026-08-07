@@ -276,27 +276,49 @@ func NormaliseUnits(cer *components.Cervice, f forms.Form) (forms.Form, error) {
 	if !ok {
 		return f, nil // not a form whose value carries a unit
 	}
+	if err := AdoptUnit(bearer, want, isInterval(cer.Details)); err != nil {
+		return f, err
+	}
+	return f, nil
+}
+
+// AdoptUnit converts a value into the unit the caller works in, in place.
+//
+// It is the same judgement NormaliseUnits applies to a reading coming back from
+// a provider, exposed for the other direction: a setpoint arriving in a PUT is a
+// number in someone else's unit, and writing it into a control loop without
+// asking is how a Fahrenheit target becomes a Celsius one.
+//
+// Conservative on purpose. A unit outside the QUDT table is accepted when the
+// two strings already agree, so a deployment that has not migrated keeps
+// working; when they disagree and cannot be reconciled it is an error, because
+// the alternative is a wrong number that looks entirely reasonable.
+func AdoptUnit(bearer forms.UnitBearer, want string, interval bool) error {
+	if want == "" {
+		return nil
+	}
 	got := bearer.GetUnit()
 
 	target, known := LookupUnit(want)
 	source, sent := LookupUnit(got)
 	if !known || !sent {
-		// One side is not a QUDT unit. Pre-QUDT deployments match on the unit
-		// string, so equality is all the assurance there ever was; say so when
-		// it does not hold rather than converting something unrecognised.
 		if got != want {
-			return f, fmt.Errorf("the provider sent %q but %q was expected, and neither is a QUDT unit that can be converted", got, want)
+			return fmt.Errorf("the value is in %q but %q was expected, and neither is a QUDT unit that can be converted", got, want)
 		}
-		return f, nil
+		return nil
 	}
 
-	converted, err := Convert(bearer.GetValue(), source, target, isInterval(cer.Details))
+	converted, err := Convert(bearer.GetValue(), source, target, interval)
 	if err != nil {
-		return f, fmt.Errorf("converting the reading: %w", err)
+		return err
 	}
 	bearer.SetValue(converted)
-	bearer.SetUnit(target.IRI)
-	return f, nil
+	// Label it with the unit as the caller wrote it, not the canonical IRI. The
+	// caller asked in a particular notation — configuration and Turtle use the
+	// angle-bracketed form — and answering in another leaves the same unit
+	// spelled two ways depending on whether a conversion happened.
+	bearer.SetUnit(strings.TrimSpace(want))
+	return nil
 }
 
 // isInterval reports whether a cervice consumes differences rather than points
