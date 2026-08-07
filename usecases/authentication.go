@@ -28,6 +28,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -229,7 +230,16 @@ func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
 
 	// Check if the request was successful
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("CA returned non-OK status: %s", resp.Status)
+		// The CA says why it refused — "Attestation failed: maitreD rejected
+		// attestation: ..." — and reporting only the status code left that in
+		// the CA's log alone. A system retrying enrolment once a minute could
+		// not learn from its own output that the cause was a maitreD that was
+		// not running.
+		reason, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if detail := strings.TrimSpace(string(reason)); detail != "" {
+			return "", fmt.Errorf("the CA refused to certify (%s): %s", resp.Status, detail)
+		}
+		return "", fmt.Errorf("the CA refused to certify: %s", resp.Status)
 	}
 
 	// Read the response body
