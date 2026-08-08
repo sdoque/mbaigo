@@ -282,7 +282,9 @@ func TestForLogCannotForgeALogLine(t *testing.T) {
 
 	// An ordinary path is untouched, including non-ASCII: a Swedish place name
 	// in a functional location is not an attack.
-	for _, ordinary := range []string{"/thermostat/Kitchen/setpoint", "/väderstation/temperatur"} {
+	// Luleå rather than a Swedish common noun: the point is that non-ASCII
+	// survives, and the spell checker in CI has its own opinion about Swedish.
+	for _, ordinary := range []string{"/thermostat/Kitchen/setpoint", "/thermostat/Luleå/setpoint"} {
 		if ForLog(ordinary) != ordinary {
 			t.Errorf("ForLog(%q) = %q, want it unchanged", ordinary, ForLog(ordinary))
 		}

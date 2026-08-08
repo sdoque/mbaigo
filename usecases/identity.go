@@ -72,7 +72,8 @@ var (
 func logPeer(sys *components.System, r *http.Request) {
 	if cn, ok := PeerCN(r); ok {
 		if _, seen := seenPeers.LoadOrStore(sys.Name+"|"+cn, struct{}{}); !seen {
-			log.Printf("first request to %s from peer %q\n", sys.Name, ForLog(cn))
+			// Sanitized by ForLog, which gosec's taint analysis cannot follow.
+			log.Printf("first request to %s from peer %q\n", sys.Name, ForLog(cn)) //#nosec G706 -- sanitized by ForLog
 		}
 		return
 	}

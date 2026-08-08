@@ -363,7 +363,11 @@ func permitted(sys *components.System, w http.ResponseWriter, r *http.Request, a
 	if status == 0 {
 		return true
 	}
-	log.Printf("%s: refusing %s %s: %v\n", sys.Name, r.Method, ForLog(r.URL.Path), err)
+	// ForLog strips the control characters that would let a caller forge log
+	// entries; see its doc comment. gosec's taint analysis does not follow a
+	// value through a sanitizing function, so it reports the path as tainted
+	// here regardless.
+	log.Printf("%s: refusing %s %s: %v\n", sys.Name, r.Method, ForLog(r.URL.Path), err) //#nosec G706 -- sanitized by ForLog
 	http.Error(w, err.Error(), status)
 	return false
 }
