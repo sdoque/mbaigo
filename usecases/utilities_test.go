@@ -263,3 +263,35 @@ func TestICamelCase(t *testing.T) {
 		}
 	}
 }
+
+// TestForLogCannotForgeALogLine: a request path and a certificate common name
+// are chosen by the caller, and a newline in either lets that caller write log
+// entries of their own. A forged line is indistinguishable from a real one once
+// it is in the file, and the log is what an operator reads to work out what
+// happened.
+func TestForLogCannotForgeALogLine(t *testing.T) {
+	forged := "/thermostat/setpoint\n2026-08-08 09:00:00 first request to ca from peer \"root\""
+	got := ForLog(forged)
+
+	if strings.ContainsAny(got, "\n\r") {
+		t.Errorf("a newline survived: %q", got)
+	}
+	if strings.Contains(got, "\x00") {
+		t.Errorf("a NUL survived: %q", got)
+	}
+
+	// An ordinary path is untouched, including non-ASCII: a Swedish place name
+	// in a functional location is not an attack.
+	// Luleå rather than a Swedish common noun: the point is that non-ASCII
+	// survives, and the spell checker in CI has its own opinion about Swedish.
+	for _, ordinary := range []string{"/thermostat/Kitchen/setpoint", "/thermostat/Luleå/setpoint"} {
+		if ForLog(ordinary) != ordinary {
+			t.Errorf("ForLog(%q) = %q, want it unchanged", ordinary, ForLog(ordinary))
+		}
+	}
+
+	// And a caller does not get to choose how long a log line is.
+	if long := ForLog(strings.Repeat("a", 5000)); len(long) > 300 {
+		t.Errorf("a 5000-character path produced a %d-character log field", len(long))
+	}
+}

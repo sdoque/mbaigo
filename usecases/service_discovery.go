@@ -103,13 +103,26 @@ func Search4Service(qf forms.ServiceQuest_v1, sys *components.System) (servLocat
 
 // Search4Services requests from the core systems the address of resources' services that meet the need
 func Search4Services(cer *components.Cervice, sys *components.System) (err error) {
+	return Search4ServicesAs(cer, sys, ActionForMode(cer.Mode))
+}
+
+// Search4ServicesAs is Search4Services for one named action.
+//
+// The action the token is minted for has to be the action the request will
+// perform: the provider recomputes it from the HTTP method, so a token minted
+// for anything else is refused. Deriving it from Cervice.Mode alone was not
+// enough — Mode is metadata a consumer may leave unset, and unset reads as
+// "read", so a cervice that only ever writes got a read token and every PUT
+// through it was refused.
+func Search4ServicesAs(cer *components.Cervice, sys *components.System, action string) (err error) {
 	// instantiate the service quest form
 	questForm := forms.ServiceQuest_v1{
 		SysId:             0,
 		RequesterName:     sys.Name,
 		ServiceDefinition: cer.Definition,
+		Action:            action,
 		Protocol:          preferredProtocol(cer.Protos),
-		Details:           cer.Details,
+		Details:           questDetails(cer.Details),
 		Version:           "ServiceQuest_v1",
 	}
 	//pack the service quest form
@@ -147,17 +160,50 @@ func Search4Services(cer *components.Cervice, sys *components.System) (err error
 	if !ok {
 		return fmt.Errorf("unable to unpack discovery request form")
 	}
-	cer.Nodes[df.ServNode] = append(cer.Nodes[df.ServNode], components.NodeInfo{URL: df.ServLocation, Details: df.Details})
+	recordNode(cer, df.ServNode, df.ServLocation, df.Details, action, df.Token)
 	return nil
 }
 
+// recordNode files a discovered endpoint under the action it was discovered for.
+//
+// It merges rather than appends: a cervice used for both a GET and a PUT is
+// discovered twice, once per action, and appending would leave two entries for
+// the same provider — the caller would then poll it twice per round and, worse,
+// might pick the copy carrying the wrong token.
+func recordNode(cer *components.Cervice, node, url string, details map[string][]string, action, token string) {
+	for i, ni := range cer.Nodes[node] {
+		if ni.URL != url {
+			continue
+		}
+		if ni.Tokens == nil {
+			ni.Tokens = make(map[string]string)
+		}
+		ni.Tokens[action] = token
+		ni.Details = details
+		cer.Nodes[node][i] = ni
+		return
+	}
+	cer.Nodes[node] = append(cer.Nodes[node], components.NodeInfo{
+		URL:     url,
+		Details: details,
+		Tokens:  map[string]string{action: token},
+	})
+}
+
 func Search4MultipleServices(cer *components.Cervice, sys *components.System) (err error) {
+	return Search4MultipleServicesAs(cer, sys, ActionForMode(cer.Mode))
+}
+
+// Search4MultipleServicesAs is Search4MultipleServices for one named action.
+// See Search4ServicesAs for why the action is not taken from Cervice.Mode.
+func Search4MultipleServicesAs(cer *components.Cervice, sys *components.System, action string) (err error) {
 	questForm := forms.ServiceQuest_v1{
 		SysId:             0,
 		RequesterName:     sys.Name,
 		ServiceDefinition: cer.Definition,
+		Action:            action,
 		Protocol:          preferredProtocol(cer.Protos),
-		Details:           cer.Details,
+		Details:           questDetails(cer.Details),
 		Version:           "ServiceQuest_v1",
 	}
 	// Pack the service quest form
@@ -195,13 +241,18 @@ func Search4MultipleServices(cer *components.Cervice, sys *components.System) (e
 		return fmt.Errorf("unable to unpack discovery request form")
 	}
 	for _, values := range srList.List {
-		sp := convertToServicePoint(values)
-		cer.Nodes[sp.ServNode] = append(cer.Nodes[sp.ServNode], components.NodeInfo{URL: sp.ServLocation, Details: sp.Details})
+		sp := ConvertToServicePoint(values)
+		recordNode(cer, sp.ServNode, sp.ServLocation, sp.Details, action, sp.Token)
 	}
 	return nil
 }
 
-func convertToServicePoint(sr forms.ServiceRecord_v1) (sp forms.ServicePoint_v1) {
+// ConvertToServicePoint turns a registration record into the service point handed
+// to a consumer. The endpoint URL is built with preferredProtoPort, so a provider
+// that has bound HTTPS is reached over HTTPS and the consumer's request carries
+// its client certificate. Building the URL by hand instead loses the caller's
+// identity at the provider, however well enrolled both ends are.
+func ConvertToServicePoint(sr forms.ServiceRecord_v1) (sp forms.ServicePoint_v1) {
 	rec := sr
 	sp.NewForm()
 	sp.ProviderName = rec.SystemName
@@ -211,6 +262,44 @@ func convertToServicePoint(sr forms.ServiceRecord_v1) (sp forms.ServicePoint_v1)
 	sp.ServLocation = proto + "://" + rec.IPAddresses[0] + ":" + strconv.Itoa(port) + "/" + rec.SystemName + "/" + rec.SubPath
 	sp.ServNode = rec.ServiceNode
 	return
+}
+
+// ActionForMode translates a cervice's mode into the action the authorizer
+// reasons about. An unspecified mode is taken as a read: it is the least a
+// consumer could mean, and asking for more than is intended would widen what a
+// policy has to permit.
+func ActionForMode(mode string) string {
+	switch mode {
+	case "set":
+		return "write"
+	case "do":
+		return "invoke"
+	default:
+		return "read"
+	}
+}
+
+// questDetails narrows a cervice's details to what the registrar should match on.
+//
+// A consumer that names a QuantityKind is asking for a temperature, not for
+// Celsius, so the unit is dropped from the quest: the registrar compares strings,
+// and a consumer wanting degrees Celsius would never be paired with a sensor
+// reporting Fahrenheit if the unit were part of the query. The unit is still what
+// the reading is converted into once a provider is chosen — it is a conversion
+// target, not a search key.
+//
+// Measure is dropped for the same reason: whether the consumer treats values as
+// points or intervals says nothing about which provider suits it.
+func questDetails(details map[string][]string) map[string][]string {
+	matched := make(map[string][]string, len(details))
+	relaxUnit := len(details["QuantityKind"]) > 0
+	for key, values := range details {
+		if key == "Measure" || (key == "Unit" && relaxUnit) {
+			continue
+		}
+		matched[key] = values
+	}
+	return matched
 }
 
 // preferredProtocol returns "https" if the cervice supports it, otherwise "http".

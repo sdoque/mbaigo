@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"html"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -51,6 +52,17 @@ func SetoutServers(sys *components.System) error {
 
 	// how to handle requests to the servers
 	http.HandleFunc("/"+sys.Name+"/", createResourceHandler(sys))
+
+	// Obtain the key incoming access tokens are verified against. Started here
+	// rather than in each system's main so that every provider enforces alike.
+	AcquireAuthorizerKey(sys)
+
+	// Said once, plainly, at the point the system starts serving. An adopter
+	// running a cloud for the first time should learn what protection is in
+	// force from the terminal rather than by reading the configuration back.
+	// The same facts are in the knowledge graph, where a whole cloud's posture
+	// can be read at once.
+	log.Printf("%s: %s\n", sys.Name, Posture(sys))
 
 	// HTTPS bind is deferred until the certificate is ready. We start a
 	// goroutine that waits on CertReady (closed by RequestCertificate when
@@ -91,13 +103,23 @@ func SetoutServers(sys *components.System) error {
 			}
 		}()
 
+		// Bind before announcing. ListenAndServe does both at once, so the
+		// system reported it was up and then, on a port already in use, failed
+		// immediately afterwards — two lines that contradict each other, in
+		// that order.
+		listener, err := net.Listen("tcp", httpServer.Addr)
+		if err != nil {
+			return fmt.Errorf("binding the HTTP port: %w", err)
+		}
+		sys.Husk.Bound.Bind("http", httpPort)
+
 		// Inform the user how to access the system's web server (black box documentation)
 		httpURL := "http://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(httpPort) + "/" + sys.Name
 		log.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpURL)
 
 		// Start and monitor the server
 		go func() {
-			err := httpServer.ListenAndServe()
+			err := httpServer.Serve(listener)
 			if err != nil && err != http.ErrServerClosed {
 				log.Fatalf("Error from web server: %v\n", err)
 			}
@@ -148,10 +170,22 @@ func startHTTPSServer(sys *components.System, httpsPort int) error {
 		}
 	}()
 
+	listener, err := net.Listen("tcp", httpsServer.Addr)
+	if err != nil {
+		return fmt.Errorf("binding the HTTPS port: %w", err)
+	}
+	// Recorded only now. Everything before this point — the certificate
+	// request, the enrollment, the wait on CertReady — can take minutes, and for
+	// all of it this port refuses connections. Registering it as though it were
+	// serving is what sent consumers to a dead endpoint while the HTTP one
+	// beside it worked.
+	sys.Husk.Bound.Bind("https", httpsPort)
+	defer sys.Husk.Bound.Release("https")
+
 	httpsURL := "https://" + sys.Husk.Host.IPAddresses[0] + ":" + strconv.Itoa(httpsPort) + "/" + sys.Name
 	log.Printf("The system %s is up with its web server available at %s\n", sys.Name, httpsURL)
 
-	if err := httpsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+	if err := httpsServer.ServeTLS(listener, "", ""); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("HTTPS server: %w", err)
 	}
 	return nil
@@ -183,6 +217,8 @@ func createResourceHandler(sys *components.System) http.HandlerFunc {
 // as in http://192.168.1.4:8700/photographer/picam/files/image_20240325-211555.jpg
 // where photographer is part[1], picam is part[2](with len==3), files is part[3] (with len==4)
 func ResourceHandler(sys *components.System, w http.ResponseWriter, r *http.Request) {
+	logPeer(sys, r)
+
 	parts := strings.Split(r.URL.Path, "/")
 
 	if len(parts) < 3 {
@@ -247,6 +283,9 @@ func handleFourParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 
 	default:
 		uAsset := *Resource
+		if !permitted(sys, w, r, resourceName, uAsset.GetServices(), servicePath) {
+			return
+		}
 		uAsset.Serving(w, r, servicePath)
 	}
 }
@@ -260,9 +299,17 @@ func handleFiveParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 	}
 
 	uAsset := *Resource
+
+	// Files are a service's payload, so they are guarded like one. The check has
+	// to precede the transfer: TransferFile writes headers and body, and a
+	// refusal issued afterwards is a superfluous WriteHeader against a response
+	// that has already gone out.
 	if servicePath == "files" {
+		if !permitted(sys, w, r, resourceName, uAsset.GetServices(), servicePath) {
+			return
+		}
 		forms.TransferFile(w, r)
-		// return
+		return
 	}
 
 	switch record {
@@ -290,8 +337,39 @@ func handleFiveParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 			http.Error(w, "Service not found", http.StatusNotFound)
 		}
 	default:
+		if !permitted(sys, w, r, resourceName, uAsset.GetServices(), servicePath) {
+			return
+		}
 		uAsset.Serving(w, r, servicePath)
 	}
+}
+
+// permitted refuses a request the authorizer has not sanctioned, writing the
+// refusal itself and reporting whether serving may continue.
+//
+// It guards service dispatch only. The system-level endpoints — /doc, /kgraph,
+// /smodel and above all /cert — stay open: a provider fetches the authorizer's
+// own certificate through /cert, so requiring a token to read one would leave the
+// cloud unable to bootstrap verification at all.
+func permitted(sys *components.System, w http.ResponseWriter, r *http.Request, assetName string, services map[string]*components.Service, servicePath string) bool {
+	serv := findServiceByPath(services, servicePath)
+	if serv == nil {
+		// Nothing to classify the request as. Harmless where no authorizer is
+		// configured, and refused where one is.
+		serv = &components.Service{}
+	}
+
+	status, err := AuthorizeRequest(sys, r, assetName, serv)
+	if status == 0 {
+		return true
+	}
+	// ForLog strips the control characters that would let a caller forge log
+	// entries; see its doc comment. gosec's taint analysis does not follow a
+	// value through a sanitizing function, so it reports the path as tainted
+	// here regardless.
+	log.Printf("%s: refusing %s %s: %v\n", sys.Name, r.Method, ForLog(r.URL.Path), err) //#nosec G706 -- sanitized by ForLog
+	http.Error(w, err.Error(), status)
+	return false
 }
 
 // findServiceByPath returns a service's pointer based on it sub-path

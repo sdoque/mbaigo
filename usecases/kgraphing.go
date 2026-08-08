@@ -45,6 +45,7 @@ func KGraphing(w http.ResponseWriter, req *http.Request, sys *components.System)
 	rdf += modelHusk(sys)
 	rdf += modelEndpoints(sys)
 	rdf += modelHost(sys)
+	rdf += modelSecurity(sys)
 	rdf += modelUAsset(sys)
 
 	w.Header().Set("Content-Type", "text/turtle")
@@ -163,8 +164,48 @@ func modelSystem(sys *components.System) (systemModel string) {
 		systemModel += fmt.Sprintf("    afo:hasUnitAsset alc:%s_%s ;\n", sName, assetName)
 	}
 
+	systemModel += fmt.Sprintf("    afo:hasSecurityPosture alc:%s_Security ;\n", sName)
+
 	systemModel = finalizeBlock(systemModel)
 	return
+}
+
+// modelSecurity states how this system is actually protected.
+//
+// It belongs in the graph rather than only in a log because the question an
+// operator asks is about the cloud, not about one system: which systems are
+// enrolled, which are still reachable in the clear, which name an authorizer
+// they cannot reach. Each system reports only what it observes about itself, and
+// the graph is where those observations add up.
+//
+// Every property is a fact, not a setting. afo:namesAuthorizer says an
+// authorizer is configured; afo:verifiesTokens says its key was obtained. A
+// system where those disagree intends to authorize and currently cannot — it is
+// refusing every request with 503 — and that is precisely the state worth being
+// able to query for.
+func modelSecurity(sys *components.System) string {
+	sName := sys.Husk.Host.Name + "_" + sys.Name
+	p := Posture(sys)
+
+	m := fmt.Sprintf("alc:%s_Security a afo:SecurityPosture ;\n", sName)
+	m += fmt.Sprintf("    afo:hasSecurityLevel \"%s\" ;\n", p.Level)
+	for _, f := range []struct {
+		predicate string
+		value     bool
+	}{
+		{"namesCertificateAuthority", p.NamesCA},
+		{"namesAuthorizer", p.NamesAuthorizer},
+		{"isIdentified", p.Identified},
+		{"canVerifyPeers", p.CanVerifyPeers},
+		{"verifiesTokens", p.VerifiesTokens},
+		{"offersTLS", p.OffersTLS},
+		{"acceptsPlaintext", p.AcceptsPlaintext},
+	} {
+		m += fmt.Sprintf("    afo:%s \"%t\"^^xsd:boolean ;\n", f.predicate, f.value)
+	}
+
+	m = finalizeBlock(m)
+	return m
 }
 
 // modelHusk creates a knowledge graph of the husk that wraps the unit assets

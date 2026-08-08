@@ -79,3 +79,28 @@ func (sig *SignalB_v1a) FormVersion() string {
 func init() {
 	FormTypeMap["SignalB_v1.0"] = reflect.TypeOf(SignalB_v1a{})
 }
+
+// UnitBearer is a form carrying a single value whose unit travels with it.
+//
+// Unit normalization in the consumption path works through this interface rather
+// than on a concrete form, so the framework converts what it can understand and
+// leaves everything else untouched. A form that does not declare a unit is not a
+// form whose value can be converted.
+type UnitBearer interface {
+	GetUnit() string
+	SetUnit(string)
+	GetValue() float64
+	SetValue(float64)
+}
+
+// GetUnit returns the unit the value is expressed in.
+func (sig *SignalA_v1a) GetUnit() string { return sig.Unit }
+
+// SetUnit records the unit the value is expressed in.
+func (sig *SignalA_v1a) SetUnit(u string) { sig.Unit = u }
+
+// GetValue returns the digitised value.
+func (sig *SignalA_v1a) GetValue() float64 { return sig.Value }
+
+// SetValue replaces the digitised value.
+func (sig *SignalA_v1a) SetValue(v float64) { sig.Value = v }

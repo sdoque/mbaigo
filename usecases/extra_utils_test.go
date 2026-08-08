@@ -29,7 +29,7 @@ func newMockTransport(respFunc func() *http.Response, v int, err error) *mockTra
 	return t
 }
 
-// RoundTrip method is required to fulfil the RoundTripper interface (as required by the DefaultClient).
+// RoundTrip method is required to fulfill the RoundTripper interface (as required by the DefaultClient).
 // It prevents the request from being sent over the network, and count how many times
 // a http request was sent
 func (t *mockTransport) RoundTrip(req *http.Request) (resp *http.Response, err error) {
@@ -92,6 +92,11 @@ func createTestSystem(broken bool) (sys components.System) {
 		Host:        components.NewDevice(),
 		Messengers:  make(map[string]int),
 	}
+
+	// A system that is serving has bound its port. Registration advertises what
+	// is bound rather than what is configured, so a fixture that only configures
+	// one describes a system that has not started yet.
+	sys.Husk.Bound.Bind("http", 1234)
 
 	// create fake services and cervices for a mocked unit asset
 	testCerv := &components.Cervice{

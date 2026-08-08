@@ -27,10 +27,29 @@ package forms
 
 import "reflect"
 
+// ServiceQuest_v1 asks the registrar which services match.
+//
+// RequesterName and ProviderName are opposite ends of the question and are easy
+// to confuse: RequesterName is who is asking, ProviderName filters on whose
+// records are wanted — the same sense as ServicePoint_v1.ProviderName in the
+// answer. Neither is an identity claim the registrar acts on; authorization uses
+// the certificate CN of the connection, never a name carried in a form.
+//
+// ProviderName is what lets the authorizer ask "what does system X provide", so
+// it can read that system's own attributes — its functional location, say — from
+// the registry rather than from anything the caller asserted. Omitting it matches
+// any provider.
+//
+// Action states what the consumer intends — read, write or invoke — so that
+// discovery can be filtered to the providers it may actually use rather than to
+// every provider of the definition. The registrar ignores it; only the authorizer
+// reads it. An omitted action is taken as read, the least it could mean.
 type ServiceQuest_v1 struct {
 	SysId             int                 `json:"systemId"`
 	RequesterName     string              `json:"requesterName"`
+	ProviderName      string              `json:"providerName,omitempty"`
 	ServiceDefinition string              `json:"serviceDefinition"`
+	Action            string              `json:"action,omitempty"`
 	Protocol          string              `json:"protocol"`
 	Details           map[string][]string `json:"details"`
 	Version           string              `json:"version"`

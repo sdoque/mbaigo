@@ -27,6 +27,7 @@ type Service struct {
 	ID            int                 `json:"-"`                  // Id assigned by the Service Registrar
 	Definition    string              `json:"definition"`         // Service definition or purpose
 	SubPath       string              `json:"subpath"`            // The URL subpath after the resource's
+	Mission       string              `json:"mission,omitempty"`  // Overrides the unit asset's mission, where the asset's is too coarse (see EffectiveMission)
 	Details       map[string][]string `json:"details"`            // Metadata or details about the service
 	RegPeriod     int                 `json:"registrationPeriod"` // The period until the registrar is expecting a sign of life
 	RegTimestamp  string              `json:"-"`                  // the creation date in the Service Registry to ensure that reRegistration is with the same record
@@ -116,6 +117,33 @@ func MergeDetails(map1, map2 map[string][]string) map[string][]string {
 type NodeInfo struct {
 	URL     string
 	Details map[string][]string
+	// Tokens are the access tokens the orchestrator obtained for this provider,
+	// keyed by the action each was minted for — "read", "write" or "invoke".
+	//
+	// One per action, because a token names the action it permits and the
+	// provider recomputes that action from the HTTP method it receives. A read
+	// token presented on a PUT is refused, so a cervice used for both a GET and
+	// a POST needs one of each — which a single token string could not hold.
+	//
+	// An entry with an empty value is meaningful: it records that this action was
+	// discovered and the cloud issued no token, which is what an unauthorized
+	// cloud does. Without it a consumer would re-orchestrate before every call.
+	//
+	// A token outlives none of the requests it is presented on: when it expires
+	// the provider refuses, the node cache is cleared, and the next call
+	// re-orchestrates for a fresh one.
+	Tokens map[string]string
+}
+
+// TokenFor returns the token minted for one action, and whether this node has
+// been discovered for that action at all. The two are distinct: a discovered
+// action with no token is an unauthorized cloud, not a missing discovery.
+func (ni NodeInfo) TokenFor(action string) (token string, discovered bool) {
+	if ni.Tokens == nil {
+		return "", false
+	}
+	token, discovered = ni.Tokens[action]
+	return token, discovered
 }
 
 // A Cervice is a consumed service

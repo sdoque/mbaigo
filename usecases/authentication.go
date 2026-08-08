@@ -28,6 +28,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -39,7 +40,7 @@ import (
 	"github.com/sdoque/mbaigo/components"
 )
 
-// EnsureCertReady returns the system's CertReady channel, initialising it on
+// EnsureCertReady returns the system's CertReady channel, initializing it on
 // first call. Safe for concurrent use: either RequestCertificate or
 // SetoutServers may be the first to need it.
 func EnsureCertReady(sys *components.System) chan struct{} {
@@ -53,11 +54,11 @@ func EnsureCertReady(sys *components.System) chan struct{} {
 
 // RequestCertificate kicks off TLS-certificate acquisition for the system.
 // It is non-blocking: a goroutine generates a fresh ECDSA key pair in
-// memory, builds a CSR, and retries enrolment with the CA until success or
+// memory, builds a CSR, and retries enrollment with the CA until success or
 // context cancellation. CertReady is closed when the cert lands on
 // sys.Husk.Certificate and TLS is installed on http.DefaultClient.
 //
-// **Every system enrols, regardless of whether it serves HTTPS.**
+// **Every system enrolls, regardless of whether it serves HTTPS.**
 // Cert acquisition is decoupled from the HTTPS server binding: the cert
 // configures `http.DefaultClient` for outbound mTLS calls (so any system
 // can call HTTPS-only services elsewhere in the cloud), while the HTTPS
@@ -80,7 +81,7 @@ func EnsureCertReady(sys *components.System) chan struct{} {
 //     compromises the host as the system's user cannot extract the key
 //     without entering the running process's address space.
 //   - Revocation by whitelist edit takes effect at next restart with no
-//     stale cached cert outliving the operator's authorisation.
+//     stale cached cert outliving the operator's authorization.
 //   - The CA must be reachable for the system to reach a TLS-enabled state.
 //     The HTTP server (per SetoutServers) starts immediately regardless,
 //     so plain-HTTP services remain available during a CA outage.
@@ -88,14 +89,14 @@ func EnsureCertReady(sys *components.System) chan struct{} {
 // The CA itself is the necessary exception: it persists its root key on
 // disk because the entire trust chain depends on its identity surviving
 // restarts, and it bypasses RequestCertificate entirely (which would
-// nonsensically attempt to enrol with itself). See systems/ca/thing.go.
+// nonsensically attempt to enroll with itself). See systems/ca/thing.go.
 func RequestCertificate(sys *components.System) {
 	certReady := EnsureCertReady(sys)
 	go acquireCertificate(sys, certReady)
 }
 
 // acquireCertificate generates a key pair in memory, builds a CSR, and
-// retries enrolment with the CA until success or context cancellation. On
+// retries enrollment with the CA until success or context cancellation. On
 // success it installs TLS on http.DefaultClient and closes certReady so
 // consumers can proceed. On context cancellation, certReady is left open:
 // any consumer waiting on it should also select on sys.Ctx.Done() to avoid
@@ -229,7 +230,16 @@ func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
 
 	// Check if the request was successful
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("CA returned non-OK status: %s", resp.Status)
+		// The CA says why it refused — "Attestation failed: maitreD rejected
+		// attestation: ..." — and reporting only the status code left that in
+		// the CA's log alone. A system retrying enrollment once a minute could
+		// not learn from its own output that the cause was a maitreD that was
+		// not running.
+		reason, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if detail := strings.TrimSpace(string(reason)); detail != "" {
+			return "", fmt.Errorf("the CA refused to certify (%s): %s", resp.Status, detail)
+		}
+		return "", fmt.Errorf("the CA refused to certify: %s", resp.Status)
 	}
 
 	// Read the response body

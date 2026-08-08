@@ -54,7 +54,10 @@ func createUATemplate(sys *components.System) {
 		Description: "returns a random float64",
 	}
 	ua := &components.UnitAsset{
-		Name:        unitName, // WARN: don't use the system name!! this is an asset!
+		Name: unitName, // WARN: don't use the system name!! this is an asset!
+		// A random float64 is observed, not driven. Every unit asset must
+		// declare a mission or RegisterServices refuses to start the system.
+		Mission:     components.MissionMeasurement,
 		Details:     map[string][]string{"key2": {"value2"}},
 		ServicesMap: components.Services{s.SubPath: s},
 		ServingFunc: randomiserServing,
@@ -66,6 +69,7 @@ func loadUAConfig(ca usecases.ConfigurableAsset, sys *components.System) (*compo
 	s := ca.Services[0]
 	ua := &components.UnitAsset{
 		Name:        ca.Name,
+		Mission:     ca.Mission,
 		Owner:       sys,
 		Details:     ca.Details,
 		ServicesMap: usecases.MakeServiceMap(ca.Services),
