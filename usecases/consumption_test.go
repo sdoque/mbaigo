@@ -72,11 +72,6 @@ func readNode(url string) components.NodeInfo {
 	return components.NodeInfo{URL: url, Tokens: map[string]string{"read": ""}}
 }
 
-// writeNode is the same for a PUT.
-func writeNode(url string) components.NodeInfo {
-	return components.NodeInfo{URL: url, Tokens: map[string]string{"write": ""}}
-}
-
 var form forms.SignalA_v1a
 
 var errEmptyRespBody = errors.New("got empty response body")
