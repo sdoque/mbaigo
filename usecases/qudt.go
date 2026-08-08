@@ -342,7 +342,7 @@ func ConvertUnits(value float64, fromIRI, toIRI string, interval bool) (float64,
 }
 
 // describe names a unit for an error message, preferring the symbol because it
-// is what an operator recognises, and falling back to the IRI.
+// is what an operator recognizes, and falling back to the IRI.
 func describe(u UnitDef) string {
 	if u.Symbol != "" {
 		return u.Symbol
@@ -392,7 +392,7 @@ func NormalizeUnits(cer *components.Cervice, f forms.Form) (forms.Form, error) {
 
 // AdoptUnit converts a value into the unit the caller works in, in place.
 //
-// It is the same judgement NormalizeUnits applies to a reading coming back from
+// It is the same judgment NormalizeUnits applies to a reading coming back from
 // a provider, exposed for the other direction: a setpoint arriving in a PUT is a
 // number in someone else's unit, and writing it into a control loop without
 // asking is how a Fahrenheit target becomes a Celsius one.

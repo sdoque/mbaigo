@@ -156,7 +156,7 @@ func sysmlBlockDefs(sys *components.System) string {
 				cerv.Definition, portDefName(cerv.Definition)))
 		}
 
-		// Link the asset to its behaviour when cervices carry Mode tags.
+		// Link the asset to its behavior when cervices carry Mode tags.
 		// The "perform action <local-name> : <type>" form is the SysML v2
 		// canonical way to declare that a part performs an action def.
 		if assetHasBehavior(ua) {
@@ -273,9 +273,9 @@ func sysmlBehaviorDefs(sys *components.System) string {
 
 	// GetState / SetState / Compute are declared in the mAF library emitted
 	// by the modeler, so we don't re-declare them here. We only emit the
-	// per-asset behaviour defs that reference them.
+	// per-asset behavior defs that reference them.
 	var out strings.Builder
-	out.WriteString("    // ── Behaviour Definitions ────────────────────────────────────────────────\n")
+	out.WriteString("    // ── Behavior Definitions ────────────────────────────────────────────────\n")
 	for _, ab := range behaviors {
 		out.WriteString(fmt.Sprintf("    action def '%s' {\n", behaviorTypeName(sys, ab.name)))
 
@@ -328,7 +328,7 @@ func assetTypeName(sys *components.System, assetName string) string {
 	return sysmlName(sys.Name) + "_" + sysmlName(assetName) + "UnitAsset"
 }
 
-// behaviorTypeName builds the SysML v2 name for a unit asset's behaviour
+// behaviorTypeName builds the SysML v2 name for a unit asset's behavior
 // action def, qualified by the system for the same collision-avoidance reason
 // as assetTypeName.
 func behaviorTypeName(sys *components.System, assetName string) string {
@@ -337,7 +337,7 @@ func behaviorTypeName(sys *components.System, assetName string) string {
 
 // assetHasBehavior reports whether a unit asset has at least one cervice
 // tagged with Mode "get" or "set" — the precondition for generating a
-// behaviour action def and a matching perform reference.
+// behavior action def and a matching perform reference.
 func assetHasBehavior(ua *components.UnitAsset) bool {
 	for _, c := range ua.GetCervices() {
 		if c.Mode == "get" || c.Mode == "set" {

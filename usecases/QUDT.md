@@ -11,7 +11,7 @@ change of mind is visible:
 
 - **No new signal form.** Section 9 argued for `SignalA_v1b` because putting an
   IRI in `Unit` changes the meaning of a field. In the end the IRI went into
-  `SignalA_v1a.Unit` and normalisation was made inert wherever either side is not
+  `SignalA_v1a.Unit` and normalization was made inert wherever either side is not
   a QUDT unit, so a pre-QUDT deployment is untouched and no form had to be
   versioned. The compatibility the version bump was meant to buy is bought by the
   conversion being conditional.
@@ -162,7 +162,7 @@ Whether a *particular reading* is an absolute point or an interval.
 `quantitykind:ThermodynamicTemperature` describes the quantity; it does not know
 that `getError()` returns a difference. Applying the offset is correct for the
 setpoint and the measurement; it is **wrong** for `thermostat/thing.go:210-217` —
-5 °C of error is 9 °F, not 41 °F. Both are labelled `"Celsius"` today.
+5 °C of error is 9 °F, not 41 °F. Both are labeled `"Celsius"` today.
 
 This flag is per-*service*, not per-unit-asset: the thermostat's `temperature`
 and `setpoint` are absolute while `error` is a delta on the same unit. Cheapest
@@ -255,7 +255,7 @@ Across all systems today:
   refused, and would replace the hand-written dimension vectors and quantity
   kinds with the release's own.
 - **The remaining systems.** `emulator`, `modboss` and the other weather systems
-  still declare pre-QUDT unit strings. They work — normalisation is inert for
+  still declare pre-QUDT unit strings. They work — normalization is inert for
   them — but they cannot be paired across units.
 - **The units QUDT does not cover here.** `meteorologue` still states `ppm`,
   `km/h`, `mm/h` and `mm` as plain symbols, because `units` in `qudt.go` has no
@@ -271,7 +271,7 @@ Across all systems today:
 
 - `mbaigo/usecases/qudt_units_gen.go` — generated table (new)
 - `mbaigo/usecases/qudt.go` — `UnitDef`, `Convert`, IRI lookup (new)
-- `mbaigo/usecases/consumption.go:85` — normalise after `Unpack`
+- `mbaigo/usecases/consumption.go:85` — normalize after `Unpack`
 - `mbaigo/forms/signal_forms.go` — `SignalA_v1b`
 - `mbaigo/usecases/kgraphing.go:57,265-272` — prefixes and the `Unit` predicate
 - `systems/orchestrator/thing.go` — relax quest to `QuantityKind`

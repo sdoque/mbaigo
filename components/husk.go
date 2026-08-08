@@ -46,7 +46,7 @@ type Husk struct {
 	Messengers    map[string]int      `json:"-"` // list of messenger systems
 
 	// CertReady is closed once a valid certificate is in Certificate and TLS
-	// has been configured on http.DefaultClient. Lazily initialised by
+	// has been configured on http.DefaultClient. Lazily initialized by
 	// usecases.RequestCertificate / SetoutServers so existing system mains
 	// do not need to construct it; consumers waiting for the cert (e.g. the
 	// HTTPS server bind) read from it via select with sys.Ctx.Done().
@@ -68,7 +68,7 @@ type Husk struct {
 	AuthorizerKey atomic.Pointer[ecdsa.PublicKey] `json:"-"`
 
 	// Bound is what this system is actually serving, which is not what
-	// ProtoPort names: an HTTPS endpoint binds only after enrolment. Services
+	// ProtoPort names: an HTTPS endpoint binds only after enrollment. Services
 	// are registered with what is bound, so a consumer is never handed a port
 	// nothing is listening on.
 	Bound BoundPorts `json:"-"`

@@ -144,12 +144,12 @@ A subscription is a continuous form of `read`. The authorizer's existing
 `read` action gates it; no new verb is required at the policy layer.
 
 What does need deliberate handling is **token TTL versus subscription
-lifetime**. A subscription may run for hours; an authorisation token is
+lifetime**. A subscription may run for hours; an authorization token is
 valid for minutes. Two acceptable resolutions, to be settled in the
 authorizer's specification (see `security/authorizer/POLICY.md`):
 
 - **Strict**: when the token expires, the publisher disconnects the
-  subscriber. The subscriber must re-authorise and reconnect.
+  subscriber. The subscriber must re-authorize and reconnect.
   Revocation latency stays bounded by the token TTL.
 - **Lenient**: the publisher checks the token only at the
   `/subscribe` request; the subscription continues until the
@@ -168,7 +168,7 @@ goroutine).
   expressed as a query parameter (`?threshold=0.1`). Defer to v2 unless
   a use case forces it earlier.
 - **`subscribe` as its own action verb in POLICY.md.** Currently treated
-  as `read`. If the authorizer ever needs to authorise *one-shot reads*
+  as `read`. If the authorizer ever needs to authorize *one-shot reads*
   differently from *continuous subscriptions* (e.g. policies that say
   "this consumer may poll but not subscribe"), a separate verb is the
   cleanest extension. Not needed today.

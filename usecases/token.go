@@ -50,7 +50,7 @@ var encoding = base64.RawURLEncoding
 // the wire form: the base64url-encoded claims, a dot, and the base64url-encoded
 // ECDSA signature over them.
 //
-// The claims are signed as the exact bytes that travel, not as a re-serialisation
+// The claims are signed as the exact bytes that travel, not as a re-serialization
 // of the parsed struct. Verifying a re-encoding would let two different payloads
 // share one signature whenever field order or whitespace differed.
 func MintToken(key *ecdsa.PrivateKey, claims forms.AccessToken_v1) (string, error) {

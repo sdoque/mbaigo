@@ -175,7 +175,7 @@ func startHTTPSServer(sys *components.System, httpsPort int) error {
 		return fmt.Errorf("binding the HTTPS port: %w", err)
 	}
 	// Recorded only now. Everything before this point — the certificate
-	// request, the enrolment, the wait on CertReady — can take minutes, and for
+	// request, the enrollment, the wait on CertReady — can take minutes, and for
 	// all of it this port refuses connections. Registering it as though it were
 	// serving is what sent consumers to a dead endpoint while the HTTP one
 	// beside it worked.

@@ -272,12 +272,12 @@ func TestAuthorizeRequestAcceptsOnlyTheMatchingToken(t *testing.T) {
 	// The same token used to write rather than read: a read permission must not
 	// become a write one by changing the verb.
 	if status, _ := AuthorizeRequest(sys, request("PUT", good), "sensor_Id", serv); status != http.StatusForbidden {
-		t.Errorf("a read token authorised a write (status %d)", status)
+		t.Errorf("a read token authorized a write (status %d)", status)
 	}
 
 	// The same token presented for another asset on the same provider.
 	if status, _ := AuthorizeRequest(sys, request("GET", good), "sensor_2", serv); status != http.StatusForbidden {
-		t.Errorf("a token for one asset authorised another (status %d)", status)
+		t.Errorf("a token for one asset authorized another (status %d)", status)
 	}
 }
 
@@ -286,7 +286,7 @@ func TestActionForMethod(t *testing.T) {
 		http.MethodGet: "read", http.MethodHead: "read",
 		http.MethodPut: "write", http.MethodPatch: "write",
 		http.MethodPost: "invoke",
-		// A method nobody classified is one nobody authorised: the empty action
+		// A method nobody classified is one nobody authorized: the empty action
 		// matches no claim.
 		http.MethodDelete: "", http.MethodOptions: "",
 	}

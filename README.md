@@ -2,8 +2,8 @@
 
 A Go realisation of the Arrowhead framework's local-cloud architecture, opinionated
 toward operational simplicity. mbaigo provides the small set of types and
-behaviours every Arrowhead system needs — bootstrap, configuration, certificate
-enrolment, registration, discovery, and request handling — so that a working
+behaviors every Arrowhead system needs — bootstrap, configuration, certificate
+enrollment, registration, discovery, and request handling — so that a working
 system is a few hundred lines of application code plus this module.
 
 The design target: **a technician deploys a system of systems in half a day; an
@@ -39,15 +39,15 @@ The static structure of an mbaigo system.
 - **`Service`** describes a service this system *provides*; **`Cervice`** (the
   deliberate spelling difference) describes a service this system *consumes*.
   The asymmetry is load-bearing: the producer/consumer roles drive registration,
-  discovery, and the per-asset behavioural model the framework emits.
+  discovery, and the per-asset behavioral model the framework emits.
 
-### `usecases` — the behaviour the framework gives you for free
+### `usecases` — the behavior the framework gives you for free
 
 You import the use cases you need; everything else stays out.
 
 - `Configure` reads `systemconfig.json` (generating one from a template if it's
   missing) and returns the unit-asset configurations.
-- `RequestCertificate` enrols with the CA non-blocking; the HTTPS server binds
+- `RequestCertificate` enrolls with the CA non-blocking; the HTTPS server binds
   when the cert lands, the HTTP control plane is up immediately.
 - `RegisterServices` advertises the system's services to the Service Registrar
   on the configured registration period.
@@ -106,11 +106,11 @@ func main() {
 
 Application logic lives in a sibling `thing.go` that defines the unit asset's
 traits and serves its services. The framework owns the boilerplate; the
-application owns the behaviour.
+application owns the behavior.
 
 ## What's distinctive
 
-- **Universal mTLS, attested at startup.** Every system enrols with the CA via
+- **Universal mTLS, attested at startup.** Every system enrolls with the CA via
   executable-hash attestation performed by a host-local sentinel (`maitreD`).
   The CA signs a CSR only after `maitreD` confirms the requesting process's
   binary hash is on a cloud-wide whitelist. Application keys are memory-only —

@@ -86,7 +86,7 @@ func (t *mockTrans) setBodyError() {
 	t.errBody = errMockTrans
 }
 
-// RoundTrip method is required to fulfil the RoundTripper interface (as required by the DefaultClient).
+// RoundTrip method is required to fulfill the RoundTripper interface (as required by the DefaultClient).
 // It prevents the request from being sent over the network.
 func (t *mockTrans) RoundTrip(req *http.Request) (*http.Response, error) {
 	if t.err != nil {

@@ -126,7 +126,7 @@ type NodeInfo struct {
 	// a POST needs one of each — which a single token string could not hold.
 	//
 	// An entry with an empty value is meaningful: it records that this action was
-	// discovered and the cloud issued no token, which is what an unauthorised
+	// discovered and the cloud issued no token, which is what an unauthorized
 	// cloud does. Without it a consumer would re-orchestrate before every call.
 	//
 	// A token outlives none of the requests it is presented on: when it expires
@@ -137,7 +137,7 @@ type NodeInfo struct {
 
 // TokenFor returns the token minted for one action, and whether this node has
 // been discovered for that action at all. The two are distinct: a discovered
-// action with no token is an unauthorised cloud, not a missing discovery.
+// action with no token is an unauthorized cloud, not a missing discovery.
 func (ni NodeInfo) TokenFor(action string) (token string, discovered bool) {
 	if ni.Tokens == nil {
 		return "", false

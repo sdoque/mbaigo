@@ -59,7 +59,7 @@ func RegisterServices(sys *components.System) {
 	// and an absent mission has no safe reading: a permissive default is a hole
 	// and a restrictive one gets worked around. Failing here — after the unit
 	// assets are built, before anything is advertised — is what keeps the field
-	// trustworthy enough to authorise against.
+	// trustworthy enough to authorize against.
 	if err := ValidateMissions(sys); err != nil {
 		log.Fatalf("mission configuration error: %v\n", err)
 	}
@@ -245,10 +245,10 @@ func serviceRegistrationForm(sys *components.System, ua *components.UnitAsset, s
 		sr.ServiceNode = sys.Husk.Host.Name + "_" + sys.Name + "_" + resName + "_" + serv.Definition
 		sr.IPAddresses = sys.Husk.Host.IPAddresses
 		// What this system is serving, not what its configuration names. An
-		// HTTPS port binds only after enrolment, and a consumer is handed the
+		// HTTPS port binds only after enrollment, and a consumer is handed the
 		// HTTPS endpoint in preference to the HTTP one — so advertising it early
 		// sent every consumer to a port nothing was listening on, for as long as
-		// enrolment took, while the HTTP port beside it worked the whole time.
+		// enrollment took, while the HTTP port beside it worked the whole time.
 		sr.ProtoPort = sys.Husk.Bound.Serving()
 		// The mission travels on the record because the authorizer evaluates
 		// policy along it and reads from the registrar, not from each system's
@@ -256,7 +256,7 @@ func serviceRegistrationForm(sys *components.System, ua *components.UnitAsset, s
 		// so without this line the mission never leaves the providing system.
 		// It is the service's effective mission, not the asset's: an asset that
 		// fronts a device — a PLC, a broker, a gateway — is too coarse to
-		// authorise against.
+		// authorize against.
 		sr.Mission = components.EffectiveMission(ua, serv)
 		sr.Details = deepCopyMap((*ua).GetDetails())
 		for key, valueSlice := range serv.Details {

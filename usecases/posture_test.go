@@ -28,7 +28,7 @@ import (
 )
 
 // postureSystem builds a system with the named core systems configured and the
-// given enrolment state, without touching the network.
+// given enrollment state, without touching the network.
 func postureSystem(cores []string, cert, caCert string, key *ecdsa.PublicKey, ports map[string]int) *components.System {
 	sys := &components.System{
 		Name:  "test",
@@ -91,7 +91,7 @@ func TestPostureReportsWhatIsActuallyInForce(t *testing.T) {
 			want: PostureIdentified,
 		},
 		{
-			// The 503 state: it means to authorise and cannot. This must not
+			// The 503 state: it means to authorize and cannot. This must not
 			// read as "authorized".
 			name:  "authorizer named, key not held",
 			sys:   postureSystem([]string{"ca", "authorizer"}, "cert", "cacert", nil, both),

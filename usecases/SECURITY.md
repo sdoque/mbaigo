@@ -17,7 +17,7 @@ means.
 
 | Level | Meaning |
 |---|---|
-| `open` | No certificate authority is configured. Nothing is identified, nothing is authorised, everything is in the clear. |
+| `open` | No certificate authority is configured. Nothing is identified, nothing is authorized, everything is in the clear. |
 | `enrolling` | A CA is configured; this system has no certificate yet. Its HTTPS endpoint is not bound. |
 | `identified` | This system holds a certificate from the cloud's CA. Callers over TLS are named and verified. What they may do is not restricted. |
 | `authorized` | As `identified`, and every incoming request must also carry a token minted for that caller, that service and that action. |
@@ -40,8 +40,8 @@ was given. That is what makes them worth querying:
 Two combinations carry more than their parts:
 
 - **`namesAuthorizer` true with `verifiesTokens` false** is a system that intends
-  to authorise and currently cannot. It is refusing every request with 503 rather
-  than serving them unauthorised. Without the pair, that state is only visible as
+  to authorize and currently cannot. It is refusing every request with 503 rather
+  than serving them unauthorized. Without the pair, that state is only visible as
   a log line on one machine.
 - **`acceptsPlaintext` true above `open`** means the system can be reached
   without any of the protection its level names. Reporting the level alone would
@@ -61,7 +61,7 @@ Two combinations carry more than their parts:
 `AuthorizeRequest` permits immediately when the serving system's `coreSystems`
 list has no `authorizer` entry, so authorization is adopted per system rather
 than per cloud. Once one is declared, a provider that cannot yet verify refuses
-with 503 rather than serving unauthorised.
+with 503 rather than serving unauthorized.
 
 The authorizer's own `authorize` service has exactly one legitimate caller, the
 orchestrator, and checks the peer's common name when the connection carries one.

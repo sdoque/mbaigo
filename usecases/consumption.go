@@ -216,7 +216,7 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 	// The whole NodeInfo, not just its URL. The token is what proves to the
 	// provider that the authorizer permitted this call, and flattening the nodes
 	// to a list of strings threw it away — every request from this path went out
-	// unauthorised while the single-provider path above sent one.
+	// unauthorized while the single-provider path above sent one.
 	var providers []components.NodeInfo
 	for _, nodes := range cer.Nodes {
 		providers = append(providers, nodes...)

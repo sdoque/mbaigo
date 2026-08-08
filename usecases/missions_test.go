@@ -44,7 +44,7 @@ func TestValidateMissionsAcceptsAssetLevelMission(t *testing.T) {
 	}
 }
 
-// A PLC or broker front end is too coarse to authorise against: the mission
+// A PLC or broker front end is too coarse to authorize against: the mission
 // belongs to what is behind each service.
 func TestValidateMissionsAcceptsServiceLevelOverride(t *testing.T) {
 	plc := assetWith("PLC with Modbus slave", components.MissionMeasurement, map[string]string{

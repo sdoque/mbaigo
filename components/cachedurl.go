@@ -44,7 +44,7 @@ type CachedURL struct {
 // which costs one redundant lookup; holding the lock across it would put every
 // concurrent request behind a network round trip instead. For the registrar that
 // round trip is real — GetRunningCoreSystemURL status-checks it — and a core
-// system that serialises its whole request path behind one lookup is worse than
+// system that serializes its whole request path behind one lookup is worse than
 // one that occasionally looks twice.
 //
 // The returned string is a copy, so the caller keeps a stable value for the rest

@@ -41,7 +41,7 @@ import (
 	"time"
 )
 
-// benchKey mirrors the in-memory key a system generates when it enrols.
+// benchKey mirrors the in-memory key a system generates when it enrolls.
 func benchKey(b *testing.B) *ecdsa.PrivateKey {
 	b.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

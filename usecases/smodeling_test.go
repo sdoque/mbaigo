@@ -112,7 +112,7 @@ func TestAssetHasBehavior(t *testing.T) {
 	sys := newKGTestSystem()
 	ua := addTestAsset(sys)
 
-	// Default cervice Mode is empty ⇒ no behaviour.
+	// Default cervice Mode is empty ⇒ no behavior.
 	if assetHasBehavior(ua) {
 		t.Error("expected false for default (empty Mode)")
 	}
@@ -127,7 +127,7 @@ func TestAssetHasBehavior(t *testing.T) {
 		t.Error("expected true for Mode=set")
 	}
 
-	// Modes other than get/set do not trigger behaviour generation.
+	// Modes other than get/set do not trigger behavior generation.
 	ua.CervicesMap["humidity"].Mode = "other"
 	if assetHasBehavior(ua) {
 		t.Error("expected false for Mode=other")
@@ -214,7 +214,7 @@ func TestSysmlBlockDefsSkipsZeroPort(t *testing.T) {
 
 func TestSysmlBlockDefsPerformAction(t *testing.T) {
 	// An asset with a get/set cervice gains a `perform action` stanza that
-	// references its behaviour action def.
+	// references its behavior action def.
 	sys := newKGTestSystem()
 	ua := addTestAsset(sys)
 	ua.CervicesMap["humidity"].Mode = "get"

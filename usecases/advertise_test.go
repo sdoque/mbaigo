@@ -29,13 +29,13 @@ import (
 // on a live cloud: a system registered every configured port, including the
 // HTTPS one, while its HTTPS listener was still waiting for a certificate.
 // ConvertToServicePoint prefers HTTPS, so every consumer was handed a port
-// nothing was listening on — for the eight minutes enrolment took — while the
+// nothing was listening on — for the eight minutes enrollment took — while the
 // system's HTTP port served correctly the whole time.
 func TestOnlyBoundPortsAreAdvertised(t *testing.T) {
 	sys := createTestSystem(false)
 	sys.Husk.ProtoPort = map[string]int{"http": 20150, "https": 30150}
 
-	// The state between startup and enrolment: configured for both, serving one.
+	// The state between startup and enrollment: configured for both, serving one.
 	sys.Husk.Bound.Bind("http", 20150)
 
 	var ua *components.UnitAsset
@@ -79,7 +79,7 @@ func TestOnlyBoundPortsAreAdvertised(t *testing.T) {
 		t.Errorf("a consumer is sent to %q, which nothing is listening on", sp.ServLocation)
 	}
 
-	// Enrolment completes and the listener binds. The next registration says so.
+	// Enrollment completes and the listener binds. The next registration says so.
 	sys.Husk.Bound.Bind("https", 30150)
 	sr = record()
 	if sr.ProtoPort["https"] != 30150 {

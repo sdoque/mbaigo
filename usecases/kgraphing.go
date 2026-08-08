@@ -180,7 +180,7 @@ func modelSystem(sys *components.System) (systemModel string) {
 //
 // Every property is a fact, not a setting. afo:namesAuthorizer says an
 // authorizer is configured; afo:verifiesTokens says its key was obtained. A
-// system where those disagree intends to authorise and currently cannot — it is
+// system where those disagree intends to authorize and currently cannot — it is
 // refusing every request with 503 — and that is precisely the state worth being
 // able to query for.
 func modelSecurity(sys *components.System) string {

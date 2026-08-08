@@ -25,7 +25,7 @@ import (
 //
 // It is deliberately narrow. Every claim names one specific thing the bearer may
 // do — this subject, to this provider's asset, through this service, with this
-// action — so a token stolen from one consumer authorises nothing else. A token
+// action — so a token stolen from one consumer authorizes nothing else. A token
 // that said only "the thermostat is allowed" would be a password.
 //
 // The signature travels outside the payload, in the encoded form produced by

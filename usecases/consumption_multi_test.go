@@ -88,7 +88,7 @@ func multiProviderCervice(nodes []components.NodeInfo, details map[string][]stri
 // TestGetStatesSendsEachProvidersToken is the defect this test was written for:
 // stateHandlers flattened the nodes to a list of URLs, discarding the token each
 // NodeInfo carries, and then called sendHTTPReq. Every request from the
-// multi-provider path went out unauthorised, so in a cloud with an authorizer
+// multi-provider path went out unauthorized, so in a cloud with an authorizer
 // this whole path was refused while the single-provider path worked.
 func TestGetStatesSendsEachProvidersToken(t *testing.T) {
 	rt := mockProviders(map[string]string{
@@ -121,11 +121,11 @@ func TestGetStatesSendsEachProvidersToken(t *testing.T) {
 	}
 }
 
-// TestGetStatesNormalisesEveryProvidersUnit is the second half of the defect:
+// TestGetStatesNormalizesEveryProvidersUnit is the second half of the defect:
 // the unpacked form was appended as it arrived. A consumer polling a °C sensor
 // and a °F sensor got 20 and 68 in one slice with nothing to say which was
 // which, and averaging them gave 44 of nothing.
-func TestGetStatesNormalisesEveryProvidersUnit(t *testing.T) {
+func TestGetStatesNormalizesEveryProvidersUnit(t *testing.T) {
 	mockProviders(map[string]string{
 		"http://celsius/temperature":    signalBody(20, "<http://qudt.org/vocab/unit/DEG_C>"),
 		"http://fahrenheit/temperature": signalBody(68, "<http://qudt.org/vocab/unit/DEG_F>"),
@@ -151,7 +151,7 @@ func TestGetStatesNormalisesEveryProvidersUnit(t *testing.T) {
 	}
 
 	// 68 °F is 20 °C: both providers report the same temperature, so after
-	// normalisation both readings must be 20.
+	// normalization both readings must be 20.
 	for i, f := range got {
 		sig, ok := f.(*forms.SignalA_v1a)
 		if !ok {

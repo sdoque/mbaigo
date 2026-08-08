@@ -64,7 +64,7 @@ func EnsureAuthorizerReady(sys *components.System) chan struct{} {
 // AcquireAuthorizerKey obtains the authorizer's public key at startup, retrying
 // until it succeeds or the system shuts down.
 //
-// It is non-blocking, like certificate enrolment, because the authorizer may
+// It is non-blocking, like certificate enrollment, because the authorizer may
 // still be starting: a provider comes up, says plainly that it cannot verify
 // tokens yet, and refuses token-bearing requests until it can. That is a
 // different thing from serving them unverified.
@@ -76,14 +76,14 @@ func AcquireAuthorizerKey(sys *components.System) {
 	ready := EnsureAuthorizerReady(sys)
 
 	if _, err := components.GetRunningCoreSystemURL(sys, AuthorizerName); err != nil {
-		log.Printf("%s: no authorizer in this local cloud — incoming requests are not authorised\n", sys.Name)
+		log.Printf("%s: no authorizer in this local cloud — incoming requests are not authorized\n", sys.Name)
 		return
 	}
 
 	go func() {
 		// Wait for this system's own certificate before the first attempt.
 		// fetchAuthorizerKey validates the authorizer's certificate against
-		// CA_cert, which installTLSConfig writes at the end of enrolment — so at
+		// CA_cert, which installTLSConfig writes at the end of enrollment — so at
 		// SetoutServers time it is essentially always empty. The first fetch
 		// failed on that, the loop slept a full minute, and AuthorizeRequest
 		// answered 503 to everything for the whole of it: every provider
@@ -178,7 +178,7 @@ func fetchAuthorizerKey(sys *components.System) error {
 		return fmt.Errorf("reading the authorizer's certificate: %w", err)
 	}
 
-	// Read under the lock: the enrolment goroutine writes CA_cert from
+	// Read under the lock: the enrollment goroutine writes CA_cert from
 	// installTLSConfig, and there is no ordering between that and this.
 	sys.Mutex.Lock()
 	caCert := sys.Husk.CA_cert
@@ -255,8 +255,8 @@ func systemRootURL(coreURL, systemName string) (string, error) {
 // ActionForMethod maps an HTTP method to the action a policy reasons about,
 // mirroring the table in POLICY.md.
 //
-// An unrecognised method yields the empty string, which no token claim can match:
-// a method nobody classified is one nobody authorised.
+// An unrecognized method yields the empty string, which no token claim can match:
+// a method nobody classified is one nobody authorized.
 func ActionForMethod(method string) string {
 	switch method {
 	case http.MethodGet, http.MethodHead:

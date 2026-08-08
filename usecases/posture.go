@@ -35,7 +35,7 @@ import (
 // from each system's configuration file.
 const (
 	// PostureOpen: no certificate authority is configured. Nothing is
-	// identified, nothing is authorised, and everything is in the clear.
+	// identified, nothing is authorized, and everything is in the clear.
 	PostureOpen = "open"
 	// PostureEnrolling: a CA is configured but this system has no certificate
 	// yet. Its HTTPS endpoint is not bound and it is reachable only in the
@@ -56,7 +56,7 @@ const (
 // Every field is a fact the system observes about itself, not a setting it was
 // asked for: NamesAuthorizer says an authorizer is configured, VerifiesTokens
 // says its key was actually obtained. A cloud where those two disagree is one
-// that intends to authorise and currently cannot, which is worth seeing.
+// that intends to authorize and currently cannot, which is worth seeing.
 type SecurityPosture struct {
 	Level string
 
@@ -79,7 +79,7 @@ func Posture(sys *components.System) SecurityPosture {
 	_, authErr := components.GetRunningCoreSystemURL(sys, AuthorizerName)
 	p.NamesAuthorizer = authErr == nil
 
-	// The enrolment goroutine writes these while requests are being served, so
+	// The enrollment goroutine writes these while requests are being served, so
 	// they are read under the system's lock. A system assembled without
 	// NewSystem has no lock to take, and nothing concurrent to guard against
 	// either — reporting its posture should not panic.
@@ -123,7 +123,7 @@ func (p SecurityPosture) String() string {
 		notes = append(notes, "callers over TLS are identified")
 		if p.NamesAuthorizer {
 			// The 503 state: an authorizer is named and its key is not in hand,
-			// so every request is refused rather than served unauthorised.
+			// so every request is refused rather than served unauthorized.
 			notes = append(notes, "an authorizer is configured but its key is not held yet, so requests are refused until it is")
 		} else {
 			notes = append(notes, "no authorizer configured: any identified system may use any service")

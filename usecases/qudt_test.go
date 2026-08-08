@@ -230,7 +230,7 @@ func TestNormalizeUnitsConvertsToWhatTheConsumerAsked(t *testing.T) {
 		t.Fatalf("got %T; want a signal form", got)
 	}
 	closeTo(t, sig.Value, 21.11111111111)
-	// Labelled as the consumer wrote it: the value lies unless the label follows,
+	// Labeled as the consumer wrote it: the value lies unless the label follows,
 	// and answering in a different notation would leave one unit spelled two
 	// ways depending on whether a conversion happened.
 	if sig.Unit != "<"+degC+">" {

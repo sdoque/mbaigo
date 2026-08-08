@@ -117,7 +117,7 @@ func ValidMission(m string) bool {
 	return false
 }
 
-// EffectiveMission returns the mission a service is authorised under: the
+// EffectiveMission returns the mission a service is authorized under: the
 // service's own when it declares one, otherwise the unit asset's.
 //
 // An asset's mission is the right granularity when the asset is a thing — a
@@ -136,7 +136,7 @@ func EffectiveMission(ua *UnitAsset, serv *Service) string {
 	return ua.Mission
 }
 
-// ValidateMission rejects an absent or unrecognised mission, naming the asset and
+// ValidateMission rejects an absent or unrecognized mission, naming the asset and
 // listing the permitted values.
 //
 // An asset declares exactly one mission, and declaring none is not allowed. Any
@@ -144,7 +144,7 @@ func EffectiveMission(ua *UnitAsset, serv *Service) string {
 // be worked around, and an optional field is one a commissioning technician can
 // leave blank — which is how information models end up carrying no usable
 // metadata. Refusing to start is what keeps the mission trustworthy enough to
-// authorise against.
+// authorize against.
 func ValidateMission(assetName, m string) error {
 	if m == "" {
 		return fmt.Errorf("unit asset %q declares no mission: expected one of %s",

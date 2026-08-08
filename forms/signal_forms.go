@@ -82,7 +82,7 @@ func init() {
 
 // UnitBearer is a form carrying a single value whose unit travels with it.
 //
-// Unit normalisation in the consumption path works through this interface rather
+// Unit normalization in the consumption path works through this interface rather
 // than on a concrete form, so the framework converts what it can understand and
 // leaves everything else untouched. A form that does not declare a unit is not a
 // form whose value can be converted.
