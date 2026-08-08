@@ -30,6 +30,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/sdoque/mbaigo/forms"
 )
@@ -208,11 +209,36 @@ func sendHTTPReqWithToken(method string, url string, token string, data []byte) 
 		// open leaked a connection on every refusal, which a control loop
 		// polling against a standing 403 does once per tick.
 		reason, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if detail := strings.TrimSpace(string(reason)); detail != "" {
 			return nil, fmt.Errorf("%s: %s", resp.Status, detail)
 		}
 		return nil, fmt.Errorf("bad response: %s", resp.Status)
 	}
 	return resp, nil
+}
+
+// ForLog makes a caller-supplied string safe to write into a log line.
+//
+// A request path and a certificate common name both reach the log, and both are
+// chosen by whoever is calling. A newline in either lets that caller write log
+// entries of their own: a forged "first request from peer X" line is
+// indistinguishable from a real one once it is in the file, and the log is what
+// an operator reads to work out what happened. Control characters go too — a
+// terminal displaying a log should not be driven by the traffic it describes.
+//
+// Bounded as well, because a caller choosing the length of a log line is a
+// smaller problem of the same kind.
+func ForLog(s string) string {
+	const most = 256
+	cleaned := strings.Map(func(r rune) rune {
+		if r == utf8.RuneError || unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+	if len(cleaned) > most {
+		return cleaned[:most] + "…(truncated)"
+	}
+	return cleaned
 }

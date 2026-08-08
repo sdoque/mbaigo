@@ -130,7 +130,7 @@ func TestAuthorizerPublicKeyRejectsUnusableInput(t *testing.T) {
 	}{
 		{"not PEM at all", "hello", ca.pem, "not PEM"},
 		{"no CA to check against", certPEM, "", "no CA certificate"},
-		{"an unparseable CA", certPEM, "-----BEGIN CERTIFICATE-----\nnope\n-----END CERTIFICATE-----", "could not be parsed"},
+		{"an unparsable CA", certPEM, "-----BEGIN CERTIFICATE-----\nnope\n-----END CERTIFICATE-----", "could not be parsed"},
 	}
 
 	for _, tc := range tests {

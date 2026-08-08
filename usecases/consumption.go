@@ -90,7 +90,7 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 	}
 	// The provider answers in its own unit; the consumer reads in the one it
 	// asked for. Neither has to know about the other.
-	return NormaliseUnits(cer, f)
+	return NormalizeUnits(cer, f)
 }
 
 // pickNode returns the first node discovered for one action, and whether any
@@ -310,5 +310,5 @@ func askOneProvider(httpMethod string, ni components.NodeInfo, cer *components.C
 	// Each provider answers in its own unit. Without this the caller received a
 	// mixture — °C from one sensor and °F from the next — with nothing in the
 	// slice to say which was which.
-	return NormaliseUnits(cer, formValue)
+	return NormalizeUnits(cer, formValue)
 }

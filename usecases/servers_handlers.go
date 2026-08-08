@@ -363,7 +363,7 @@ func permitted(sys *components.System, w http.ResponseWriter, r *http.Request, a
 	if status == 0 {
 		return true
 	}
-	log.Printf("%s: refusing %s %s: %v\n", sys.Name, r.Method, r.URL.Path, err)
+	log.Printf("%s: refusing %s %s: %v\n", sys.Name, r.Method, ForLog(r.URL.Path), err)
 	http.Error(w, err.Error(), status)
 	return false
 }

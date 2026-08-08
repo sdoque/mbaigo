@@ -92,16 +92,16 @@ func TestPostureReportsWhatIsActuallyInForce(t *testing.T) {
 		},
 		{
 			// The 503 state: it means to authorise and cannot. This must not
-			// read as "authorised".
+			// read as "authorized".
 			name:  "authorizer named, key not held",
 			sys:   postureSystem([]string{"ca", "authorizer"}, "cert", "cacert", nil, both),
 			want:  PostureIdentified,
 			notes: []string{"key is not held"},
 		},
 		{
-			name: "authorised",
+			name: "authorized",
 			sys:  postureSystem([]string{"ca", "authorizer"}, "cert", "cacert", &key.PublicKey, tlsOnly),
-			want: PostureAuthorised,
+			want: PostureAuthorized,
 		},
 	}
 
@@ -118,7 +118,7 @@ func TestPostureReportsWhatIsActuallyInForce(t *testing.T) {
 	}
 }
 
-// TestPostureSaysWhenPlaintextIsStillOpen: a system at "authorised" that still
+// TestPostureSaysWhenPlaintextIsStillOpen: a system at "authorized" that still
 // listens on its HTTP port can be reached without any of the protection the
 // level names. Reporting the level alone would overstate it.
 func TestPostureSaysWhenPlaintextIsStillOpen(t *testing.T) {

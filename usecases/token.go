@@ -35,7 +35,12 @@ import (
 )
 
 // TokenHeader is the HTTP header a consumer presents its token in.
-const TokenHeader = "X-Arrowhead-Token"
+//
+// gosec's G101 rule flags any constant whose name contains "Token", on the
+// assumption that it holds one. This holds the name of the header a token
+// travels in, which is public by construction — it is written into every
+// request and read by every provider.
+const TokenHeader = "X-Arrowhead-Token" //#nosec G101 -- a header name, not a credential
 
 // encoding is URL-safe and unpadded so a token survives a header, a query string
 // and a log line unchanged.

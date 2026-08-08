@@ -20,7 +20,7 @@ means.
 | `open` | No certificate authority is configured. Nothing is identified, nothing is authorised, everything is in the clear. |
 | `enrolling` | A CA is configured; this system has no certificate yet. Its HTTPS endpoint is not bound. |
 | `identified` | This system holds a certificate from the cloud's CA. Callers over TLS are named and verified. What they may do is not restricted. |
-| `authorised` | As `identified`, and every incoming request must also carry a token minted for that caller, that service and that action. |
+| `authorized` | As `identified`, and every incoming request must also carry a token minted for that caller, that service and that action. |
 
 ## The properties
 

@@ -218,11 +218,11 @@ func reading(value float64, unit string) *forms.SignalA_v1a {
 
 // The case this exists for: a Fahrenheit sensor serving a Celsius consumer,
 // with neither knowing about the other.
-func TestNormaliseUnitsConvertsToWhatTheConsumerAsked(t *testing.T) {
+func TestNormalizeUnitsConvertsToWhatTheConsumerAsked(t *testing.T) {
 	c := cervice(map[string][]string{"Unit": {"<" + degC + ">"}})
-	got, err := NormaliseUnits(c, reading(70, degF))
+	got, err := NormalizeUnits(c, reading(70, degF))
 	if err != nil {
-		t.Fatalf("NormaliseUnits: %v", err)
+		t.Fatalf("NormalizeUnits: %v", err)
 	}
 
 	sig, ok := got.(*forms.SignalA_v1a)
@@ -239,28 +239,28 @@ func TestNormaliseUnitsConvertsToWhatTheConsumerAsked(t *testing.T) {
 }
 
 // A control error is a difference, so the offset must not be applied to it.
-func TestNormaliseUnitsHonoursIntervals(t *testing.T) {
+func TestNormalizeUnitsHonoursIntervals(t *testing.T) {
 	point := cervice(map[string][]string{"Unit": {degC}})
 	interval := cervice(map[string][]string{"Unit": {degC}, "Measure": {"interval"}})
 
-	asPoint, err := NormaliseUnits(point, reading(41, degF))
+	asPoint, err := NormalizeUnits(point, reading(41, degF))
 	if err != nil {
-		t.Fatalf("NormaliseUnits: %v", err)
+		t.Fatalf("NormalizeUnits: %v", err)
 	}
 	closeTo(t, asPoint.(*forms.SignalA_v1a).Value, 5)
 
-	asInterval, err := NormaliseUnits(interval, reading(9, degF))
+	asInterval, err := NormalizeUnits(interval, reading(9, degF))
 	if err != nil {
-		t.Fatalf("NormaliseUnits: %v", err)
+		t.Fatalf("NormalizeUnits: %v", err)
 	}
 	closeTo(t, asInterval.(*forms.SignalA_v1a).Value, 5)
 }
 
 // A cloud that has not adopted QUDT identifiers must keep working exactly as it
 // did: matching on the unit string was all the assurance there ever was.
-func TestNormaliseUnitsLeavesPreQudtDeploymentsAlone(t *testing.T) {
+func TestNormalizeUnitsLeavesPreQudtDeploymentsAlone(t *testing.T) {
 	c := cervice(map[string][]string{"Unit": {"Celsius"}})
-	got, err := NormaliseUnits(c, reading(21.5, "Celsius"))
+	got, err := NormalizeUnits(c, reading(21.5, "Celsius"))
 	if err != nil {
 		t.Fatalf("a pre-QUDT pairing was refused: %v", err)
 	}
@@ -269,37 +269,37 @@ func TestNormaliseUnitsLeavesPreQudtDeploymentsAlone(t *testing.T) {
 
 // But a mismatch it cannot reason about is reported rather than passed on. A
 // control loop must never receive a number in a unit it did not expect.
-func TestNormaliseUnitsRefusesWhatItCannotConvert(t *testing.T) {
+func TestNormalizeUnitsRefusesWhatItCannotConvert(t *testing.T) {
 	// Two names the table has no entry for, so there is nothing to reason with.
 	c := cervice(map[string][]string{"Unit": {"SEK/kWh"}})
-	if _, err := NormaliseUnits(c, reading(70, "ppm")); err == nil {
+	if _, err := NormalizeUnits(c, reading(70, "ppm")); err == nil {
 		t.Error("an unconvertible mismatch was passed through as though it were correct")
 	}
 
 	// A QUDT consumer meeting a provider that sent nothing at all.
 	c = cervice(map[string][]string{"Unit": {degC}})
-	if _, err := NormaliseUnits(c, reading(70, "")); err == nil {
+	if _, err := NormalizeUnits(c, reading(70, "")); err == nil {
 		t.Error("a reading with no unit was accepted by a consumer that named one")
 	}
 }
 
 // Forms without a unit, and consumers without a preference, are untouched.
-func TestNormaliseUnitsIsInertWhereItHasNothingToSay(t *testing.T) {
+func TestNormalizeUnitsIsInertWhereItHasNothingToSay(t *testing.T) {
 	silent := cervice(map[string][]string{"Forms": {"SignalA_v1a"}})
-	got, err := NormaliseUnits(silent, reading(21.5, degF))
+	got, err := NormalizeUnits(silent, reading(21.5, degF))
 	if err != nil {
-		t.Fatalf("NormaliseUnits: %v", err)
+		t.Fatalf("NormalizeUnits: %v", err)
 	}
 	closeTo(t, got.(*forms.SignalA_v1a).Value, 21.5)
 
 	var binary forms.SignalB_v1a
 	binary.NewForm()
 	binary.Value = true
-	if _, err := NormaliseUnits(cervice(map[string][]string{"Unit": {degC}}), &binary); err != nil {
+	if _, err := NormalizeUnits(cervice(map[string][]string{"Unit": {degC}}), &binary); err != nil {
 		t.Errorf("a form carrying no unit was refused: %v", err)
 	}
 
-	if _, err := NormaliseUnits(nil, reading(21.5, degC)); err != nil {
+	if _, err := NormalizeUnits(nil, reading(21.5, degC)); err != nil {
 		t.Errorf("a nil cervice was refused: %v", err)
 	}
 }
@@ -458,16 +458,16 @@ func TestTwoUnresolvedUnitsDoNotConvert(t *testing.T) {
 	}
 }
 
-// TestNormaliseUnitsWithholdsAFormItCouldNotConvert is review finding #19:
+// TestNormalizeUnitsWithholdsAFormItCouldNotConvert is review finding #19:
 // returning the unconverted form alongside the error handed a caller that logs
 // and continues a valid-looking reading in the wrong unit.
-func TestNormaliseUnitsWithholdsAFormItCouldNotConvert(t *testing.T) {
+func TestNormalizeUnitsWithholdsAFormItCouldNotConvert(t *testing.T) {
 	var f forms.SignalA_v1a
 	f.NewForm()
 	f.Value = 50
 	f.Unit = qudtUnit + "PERCENT"
 
-	got, err := NormaliseUnits(cervice(map[string][]string{"Unit": {qudtUnit + "DEG_C"}}), &f)
+	got, err := NormalizeUnits(cervice(map[string][]string{"Unit": {qudtUnit + "DEG_C"}}), &f)
 	if err == nil {
 		t.Fatal("a percentage was accepted as a temperature")
 	}
@@ -495,7 +495,7 @@ func TestLegacyUnitNamesStillConvert(t *testing.T) {
 	// A pre-QUDT consumer meeting a pre-QUDT provider in another unit. This used
 	// to be an error; there is nothing unreasonable about it.
 	c := cervice(map[string][]string{"Unit": {"Celsius"}})
-	got, err := NormaliseUnits(c, reading(68, "Fahrenheit"))
+	got, err := NormalizeUnits(c, reading(68, "Fahrenheit"))
 	if err != nil {
 		t.Fatalf("a legacy pairing was refused: %v", err)
 	}
@@ -503,7 +503,7 @@ func TestLegacyUnitNamesStillConvert(t *testing.T) {
 
 	// A pre-QUDT provider meeting a QUDT consumer.
 	c = cervice(map[string][]string{"Unit": {degC}})
-	got, err = NormaliseUnits(c, reading(68, "Fahrenheit"))
+	got, err = NormalizeUnits(c, reading(68, "Fahrenheit"))
 	if err != nil {
 		t.Fatalf("a legacy provider was refused by a QUDT consumer: %v", err)
 	}

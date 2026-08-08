@@ -130,7 +130,7 @@ func init() {
 	FormTypeMap["AuthorizationGrantList_v1"] = reflect.TypeOf(AuthorizationGrantList_v1{})
 }
 
-// Lifetime parses a grant's TTL. A grant whose TTL is missing or unparseable is
+// Lifetime parses a grant's TTL. A grant whose TTL is missing or unparsable is
 // treated as already expired rather than as long-lived: a token nobody can date
 // is one nobody should trust.
 func (g AuthorizationGrant_v1) Lifetime() time.Duration {

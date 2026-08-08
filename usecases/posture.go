@@ -45,10 +45,10 @@ const (
 	// callers over TLS are named and verified. What they may do is not
 	// restricted.
 	PostureIdentified = "identified"
-	// PostureAuthorised: as identified, and an authorizer's key is held, so
+	// PostureAuthorized: as identified, and an authorizer's key is held, so
 	// every incoming request must also carry a token minted for that caller,
 	// that service and that action.
-	PostureAuthorised = "authorised"
+	PostureAuthorized = "authorized"
 )
 
 // SecurityPosture is what a system can truthfully say about how it is protected.
@@ -100,7 +100,7 @@ func Posture(sys *components.System) SecurityPosture {
 	case !p.Identified:
 		p.Level = PostureEnrolling
 	case p.NamesAuthorizer && p.VerifiesTokens:
-		p.Level = PostureAuthorised
+		p.Level = PostureAuthorized
 	default:
 		p.Level = PostureIdentified
 	}
@@ -128,7 +128,7 @@ func (p SecurityPosture) String() string {
 		} else {
 			notes = append(notes, "no authorizer configured: any identified system may use any service")
 		}
-	case PostureAuthorised:
+	case PostureAuthorized:
 		notes = append(notes, "callers are identified and every request must carry a token for that service and action")
 	}
 

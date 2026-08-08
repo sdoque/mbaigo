@@ -72,7 +72,7 @@ var (
 func logPeer(sys *components.System, r *http.Request) {
 	if cn, ok := PeerCN(r); ok {
 		if _, seen := seenPeers.LoadOrStore(sys.Name+"|"+cn, struct{}{}); !seen {
-			log.Printf("first request to %s from peer %q\n", sys.Name, cn)
+			log.Printf("first request to %s from peer %q\n", sys.Name, ForLog(cn))
 		}
 		return
 	}

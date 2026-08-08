@@ -353,7 +353,7 @@ func describe(u UnitDef) string {
 	return "an unnamed unit"
 }
 
-// NormaliseUnits converts a returned value into the unit the consumer asked for.
+// NormalizeUnits converts a returned value into the unit the consumer asked for.
 //
 // This is the only place in the framework that can do it: the cervice states
 // what the consumer wants and the payload states what the provider sent, and
@@ -367,7 +367,7 @@ func describe(u UnitDef) string {
 // Once both sides are QUDT units, a conversion that cannot be made is an error
 // rather than a raw number, because a control loop must never receive a value in
 // a unit it did not expect.
-func NormaliseUnits(cer *components.Cervice, f forms.Form) (forms.Form, error) {
+func NormalizeUnits(cer *components.Cervice, f forms.Form) (forms.Form, error) {
 	if cer == nil {
 		return f, nil
 	}
@@ -392,7 +392,7 @@ func NormaliseUnits(cer *components.Cervice, f forms.Form) (forms.Form, error) {
 
 // AdoptUnit converts a value into the unit the caller works in, in place.
 //
-// It is the same judgement NormaliseUnits applies to a reading coming back from
+// It is the same judgement NormalizeUnits applies to a reading coming back from
 // a provider, exposed for the other direction: a setpoint arriving in a PUT is a
 // number in someone else's unit, and writing it into a control loop without
 // asking is how a Fahrenheit target becomes a Celsius one.
