@@ -11,7 +11,7 @@ systems register interest in a provider's service and receive notifications
 when the service's value changes meaningfully — *plus* a periodic heartbeat
 so the consumer can distinguish "value is unchanged" from "publisher is
 gone." The intended use case is the small, slow-changing measurement
-streams that dominate OT plants: a `ds18b20` temperature sensor consumed by
+streams that dominate operational technology (OT) plants: a `ds18b20` temperature sensor consumed by
 a `Thermostat`, an `eThermostat`, and a `Collector` system simultaneously.
 
 The mechanism is *subscription* in semantics (registration-based
@@ -90,7 +90,8 @@ subscription endpoint at `GET /system/asset/service/subscribe` automatically.
 
 ## Wire format — Server-Sent Events
 
-A subscriber opens the subscription endpoint with an SSE-style request:
+A subscriber opens the subscription endpoint with a request in the
+server-sent events (SSE) style:
 
 ```
 GET /<system>/<asset>/<service>/subscribe HTTP/1.1
@@ -143,7 +144,7 @@ channel.
 A subscription is a continuous form of `read`. The authorizer's existing
 `read` action gates it; no new verb is required at the policy layer.
 
-What does need deliberate handling is **token TTL versus subscription
+What does need deliberate handling is **token time to live (TTL) versus subscription
 lifetime**. A subscription may run for hours; an authorization token is
 valid for minutes. Two acceptable resolutions, to be settled in the
 authorizer's specification (see `security/authorizer/POLICY.md`):
