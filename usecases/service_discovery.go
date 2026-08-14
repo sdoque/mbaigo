@@ -240,11 +240,39 @@ func Search4MultipleServicesAs(cer *components.Cervice, sys *components.System, 
 	if !ok {
 		return fmt.Errorf("unable to unpack discovery request form")
 	}
+	registered := make(map[string]bool, len(srList.List))
 	for _, values := range srList.List {
 		sp := ConvertToServicePoint(values)
 		recordNode(cer, sp.ServNode, sp.ServLocation, sp.Details, action, sp.Token)
+		registered[sp.ServLocation] = true
 	}
+	// A discovery for several providers returns everything currently registered
+	// under this definition, so anything cached and not returned is gone. Adding
+	// without ever removing left a sensor in the list after the registrar had
+	// stopped listing it — retried every round, paying its own timeout, for as
+	// long as the consumer ran.
+	//
+	// Only here. Search4ServicesAs asks the orchestrator for one provider, so
+	// what it does not return says nothing about the others.
+	pruneNodes(cer, registered)
 	return nil
+}
+
+// pruneNodes drops the providers a discovery did not return.
+func pruneNodes(cer *components.Cervice, registered map[string]bool) {
+	for node, nodes := range cer.Nodes {
+		kept := nodes[:0]
+		for _, ni := range nodes {
+			if registered[ni.URL] {
+				kept = append(kept, ni)
+			}
+		}
+		if len(kept) == 0 {
+			delete(cer.Nodes, node)
+			continue
+		}
+		cer.Nodes[node] = kept
+	}
 }
 
 // ConvertToServicePoint turns a registration record into the service point handed

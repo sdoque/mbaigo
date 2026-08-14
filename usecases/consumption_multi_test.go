@@ -224,7 +224,7 @@ func TestGetStatesKeepsWorkingProvidersWhenOneFails(t *testing.T) {
 }
 
 // TestGetStatesForgetsProvidersWhenNoneAnswer is the other side of it: when
-// nothing answered, the list is worth discarding so the next call rediscovers.
+// nothing answered, nothing may be used again without rediscovering it.
 func TestGetStatesForgetsProvidersWhenNoneAnswer(t *testing.T) {
 	mockProviders(map[string]string{})
 
@@ -237,8 +237,95 @@ func TestGetStatesForgetsProvidersWhenNoneAnswer(t *testing.T) {
 	if _, errs := GetStates(cer, &sys); len(errs) != 2 {
 		t.Fatalf("expected 2 errors, got %v", errs)
 	}
-	if len(cer.Nodes) != 0 {
-		t.Error("no provider answered, but the stale list was kept")
+	for _, nodes := range cer.Nodes {
+		for _, ni := range nodes {
+			if _, discovered := ni.TokenFor("read"); discovered {
+				t.Errorf("%s answered nothing but is still usable without rediscovery", ni.URL)
+			}
+		}
+	}
+}
+
+// TestADeadProviderIsForgottenWhileTheLiveOneIsKept is follow-up finding N10.
+//
+// The list was cleared only when every provider had failed, and discovery added
+// without ever removing. So a cervice holding a powered-off sensor and a working
+// one never reset: the failure count never reached the total, the dead node kept
+// its token so nothing triggered a rediscovery, and it was retried every round
+// at the cost of its own timeout — for as long as the consumer ran, and long
+// after the registrar had stopped listing it.
+func TestADeadProviderIsForgottenWhileTheLiveOneIsKept(t *testing.T) {
+	mockProviders(map[string]string{
+		"http://alive/temperature": signalBody(20, ""),
+		// nothing mocked at http://dead/temperature
+	})
+
+	cer := multiProviderCervice([]components.NodeInfo{
+		{URL: "http://alive/temperature", Tokens: map[string]string{"read": "tok-alive"}},
+		{URL: "http://dead/temperature", Tokens: map[string]string{"read": "tok-dead"}},
+	}, map[string][]string{"Forms": {"SignalA_v1a"}})
+
+	sys := createTestSystem(false)
+	if _, errs := GetStates(cer, &sys); len(errs) != 2 {
+		t.Fatalf("expected one answer and one failure, got %v", errs)
+	}
+
+	var aliveKept, deadForgotten bool
+	for _, nodes := range cer.Nodes {
+		for _, ni := range nodes {
+			_, discovered := ni.TokenFor("read")
+			switch ni.URL {
+			case "http://alive/temperature":
+				aliveKept = discovered
+			case "http://dead/temperature":
+				deadForgotten = !discovered
+			}
+		}
+	}
+	if !deadForgotten {
+		t.Error("the provider that did not answer kept its token, so it will be retried forever without rediscovery")
+	}
+	if !aliveKept {
+		t.Error("the provider that answered lost its token, so one failure still costs a rediscovery of everything")
+	}
+}
+
+// A discovery for several providers returns everything registered under the
+// definition, so what it does not return has been deregistered and must go.
+// Adding without removing is what left a departed sensor in the list.
+func TestDiscoveryDropsAProviderTheRegistrarNoLongerLists(t *testing.T) {
+	// The registrar now lists only the survivor.
+	http.DefaultClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		body := `{"version":"ServiceRecordList_v1","list":[{"registryID":1,"definition":"temperature",` +
+			`"systemName":"survivor","serviceNode":"n","ipAddresses":["survivor"],` +
+			`"protoPort":{"http":80},"subpath":"temperature","version":"ServiceRecord_v1"}]}`
+		return &http.Response{
+			Status: "200 OK", StatusCode: 200,
+			Header:  http.Header{"Content-Type": []string{"application/json"}},
+			Body:    io.NopCloser(strings.NewReader(body)),
+			Request: req,
+		}, nil
+	})
+
+	cer := multiProviderCervice([]components.NodeInfo{
+		{URL: "http://survivor:80/temperature", Tokens: map[string]string{"read": "old"}},
+		{URL: "http://departed/temperature", Tokens: map[string]string{"read": "old"}},
+	}, map[string][]string{"Forms": {"SignalA_v1a"}})
+
+	sys := createTestSystem(false)
+	if err := Search4MultipleServicesAs(cer, &sys, "read"); err != nil {
+		t.Fatalf("discovery: %v", err)
+	}
+
+	for _, nodes := range cer.Nodes {
+		for _, ni := range nodes {
+			if ni.URL == "http://departed/temperature" {
+				t.Error("a provider the registrar no longer lists is still cached")
+			}
+		}
+	}
+	if _, _, ok := pickNode(cer, "read"); !ok {
+		t.Error("the surviving provider was dropped too")
 	}
 }
 

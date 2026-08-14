@@ -245,6 +245,15 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 		formValue, currentErr := askOneProvider(httpMethod, ni, cer, action, bodyBytes)
 		if currentErr != nil {
 			failures++
+			// Forget this one provider's token, not the whole set. Clearing
+			// everything on one failure threw away the providers that had just
+			// answered; clearing nothing until they had all failed left a
+			// powered-off sensor in the list forever, retried every round at the
+			// cost of its own timeout, and still there long after the registrar
+			// had stopped listing it. Without a token for this action the node
+			// is rediscovered on the next call, which either finds it again or
+			// does not.
+			forgetToken(cer, ni.URL, action)
 			f = append(f, nil)
 			err = append(err, currentErr)
 			continue
@@ -253,14 +262,27 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 		err = append(err, nil)
 	}
 
-	// Only when nothing answered. Discarding every provider because one of them
-	// failed threw away the ones that had just worked, and forced a rediscovery
-	// on the next call for no reason.
-	if failures > 0 && failures == len(f) {
-		cer.Nodes = make(map[string][]components.NodeInfo)
-	}
+	_ = failures // every failure has already forgotten its own provider
 
 	return f, err
+}
+
+// forgetToken drops one provider's token for one action, so the next call
+// rediscovers that provider rather than presenting a token to something that
+// did not answer.
+//
+// The node itself is left in place. It carries the tokens for the other actions
+// this cervice may also use, and discovery reconciles the set: a provider the
+// registrar no longer lists is removed there, where the whole list is known.
+func forgetToken(cer *components.Cervice, url, action string) {
+	for node, nodes := range cer.Nodes {
+		for i, ni := range nodes {
+			if ni.URL == url && ni.Tokens != nil {
+				delete(ni.Tokens, action)
+				cer.Nodes[node][i] = ni
+			}
+		}
+	}
 }
 
 // needsDiscovery reports whether any provider lacks a token for this action, and
