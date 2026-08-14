@@ -21,6 +21,7 @@ package usecases
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -35,6 +36,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sdoque/mbaigo/components"
@@ -146,7 +148,14 @@ func acquireCertificate(sys *components.System, certReady chan struct{}) {
 		}
 	}
 
+	// Under the lock the readers take. Posture and fetchAuthorizerKey read this
+	// while the HTTP server — bound before enrollment finishes — is already
+	// answering, so a GET /<system>/kgraph lands here mid-write. The earlier fix
+	// added the mutex on the reading side only, which synchronized with nothing.
+	sys.Mutex.Lock()
 	sys.Husk.Certificate = response
+	sys.Mutex.Unlock()
+
 	installTLSConfig(sys)
 	close(certReady)
 }
@@ -160,7 +169,9 @@ func installTLSConfig(sys *components.System) {
 		log.Printf("failed to obtain CA's certificate: %v\n", err)
 		return
 	}
+	sys.Mutex.Lock()
 	sys.Husk.CA_cert = caCert
+	sys.Mutex.Unlock()
 
 	// Load CA certificate
 	caCertPool := x509.NewCertPool()
@@ -180,17 +191,16 @@ func installTLSConfig(sys *components.System) {
 		RootCAs:      caCertPool,
 		MinVersion:   tls.VersionTLS12,
 	}
+	sys.Mutex.Lock()
 	sys.Husk.TlsConfig = tlsConfig
+	sys.Mutex.Unlock()
 
-	// Install the TLS config on the default HTTP client so that all subsequent
-	// outbound calls (registration, orchestration, service invocation) present
-	// the client certificate when connecting over HTTPS.
-	http.DefaultClient = &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-	}
+	// Published for the client installed at package load to pick up on its next
+	// TLS dial. The client itself is never replaced: it used to be, here, and
+	// http.DefaultClient is a package-level variable that three dozen call sites
+	// read — including the registration loop, which by this point has been
+	// running for as long as enrollment took.
+	clientTLS.Store(tlsConfig)
 
 	// Output the certificate details
 	fmt.Printf("System %s's parsed Certificate:\n", sys.Name)
@@ -251,6 +261,36 @@ func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+// clientTLS is the client-side TLS configuration, published once enrollment
+// completes and read on every outbound TLS dial.
+//
+// A pointer swapped atomically rather than a client replaced in place. The
+// framework's HTTP client is installed once, below, and never changes after
+// that; what changes is what it finds here when it dials.
+var clientTLS atomic.Pointer[tls.Config]
+
+func init() {
+	// Installed at package load, so it is in place before any goroutine in any
+	// system can read it. Replacing http.DefaultClient when enrollment finished
+	// — minutes into the run, with registration already calling through it — was
+	// a write to a package-level variable that everything else reads.
+	http.DefaultClient = &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				cfg := clientTLS.Load()
+				if cfg == nil {
+					// Before enrollment there is no client certificate to
+					// present, so an mTLS peer would refuse the handshake
+					// anyway. Saying so is more use than a TLS error.
+					return nil, fmt.Errorf("cannot reach %s over TLS: this system has not enrolled yet", addr)
+				}
+				return (&tls.Dialer{Config: cfg}).DialContext(ctx, network, addr)
+			},
+		},
+	}
 }
 
 // getCACertificate gets the CA's certificate necessary for the dual server-client authentication in the TLS setup
