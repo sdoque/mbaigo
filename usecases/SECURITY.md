@@ -65,7 +65,16 @@ with 503 rather than serving unauthorized.
 
 The authorizer's own `authorize` service has exactly one legitimate caller, the
 orchestrator, and checks the peer's common name when the connection carries one.
-Over plain HTTP there is nothing to check, and it reports that rather than
-refusing — refusing would break every deployment using the default `http://` core
-URLs, to close a gap that only exists in clouds which have not adopted TLS
-anyway.
+Over plain HTTP there is nothing to check, and what it does about that depends
+on whether it is serving TLS at all. Once its own HTTPS endpoint is bound, a
+quest that did not arrive over it is refused, and the refusal names the URL to
+use instead. Before then — during enrollment, or in a cloud with no HTTPS port —
+the quest is answered and the situation reported.
+
+The reasoning that first stood here was wrong and is worth recording as such: it
+argued that refusing "would break every deployment using the default `http://`
+core URLs, to close a gap that only exists in clouds which have not adopted TLS
+anyway". `SetoutServers` binds the HTTP port unconditionally and never withdraws
+it, so a fully enrolled cloud still answers on it. The gap was therefore open in
+exactly the deployments that believed they were protected, and behind it sat an
+unauthenticated signing endpoint.

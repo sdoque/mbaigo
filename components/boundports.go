@@ -67,6 +67,17 @@ func (b *BoundPorts) Serving() map[string]int {
 	return maps.Clone(b.ports)
 }
 
+// Port returns the port a protocol is being served on, or zero if it is not.
+//
+// Zero means "not listening", not "not configured": a system whose HTTPS port
+// is set but whose certificate has not arrived reports zero here, which is the
+// question worth asking before deciding that a caller could have used TLS.
+func (b *BoundPorts) Port(protocol string) int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.ports[protocol]
+}
+
 // Any reports whether anything is being served.
 func (b *BoundPorts) Any() bool {
 	b.mu.RLock()
