@@ -304,8 +304,26 @@ func handleFiveParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 	// to precede the transfer: TransferFile writes headers and body, and a
 	// refusal issued afterwards is a superfluous WriteHeader against a response
 	// that has already gone out.
-	if servicePath == "files" {
-		if !permitted(sys, w, r, resourceName, uAsset.GetServices(), servicePath) {
+	//
+	// The guard needs something to call this request, and no unit asset
+	// registers a service whose subpath is "files" — the three systems that
+	// serve files handle the word inside their own dispatch. Guarding it against
+	// whatever findServiceByPath returned meant guarding it against a service
+	// with no definition, and a token can never name one of those: mismatch
+	// requires claimed == actual and claimed != "". So every file request in an
+	// authorized cloud was refused, permanently, by a check that was meant to
+	// let the authorized ones through.
+	//
+	// FileService is what such a request is called now. A policy can name it, a
+	// consumer can be granted it, and an asset that registers a service by that
+	// subpath — which makes it discoverable — is judged by its own record
+	// instead.
+	if servicePath == FileService {
+		serv := findServiceByPath(uAsset.GetServices(), servicePath)
+		if serv == nil {
+			serv = &components.Service{Definition: FileService, SubPath: FileService}
+		}
+		if !permittedAs(sys, w, r, resourceName, serv) {
 			return
 		}
 		forms.TransferFile(w, r)
@@ -354,11 +372,24 @@ func handleFiveParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 func permitted(sys *components.System, w http.ResponseWriter, r *http.Request, assetName string, services map[string]*components.Service, servicePath string) bool {
 	serv := findServiceByPath(services, servicePath)
 	if serv == nil {
-		// Nothing to classify the request as. Harmless where no authorizer is
-		// configured, and refused where one is.
-		serv = &components.Service{}
+		// Nothing to classify the request as. Refusing here rather than passing
+		// on a service with no definition: an empty one cannot satisfy mismatch,
+		// so it would be refused anyway — but with a message about a token claim
+		// rather than about the path being unknown, which sends the reader to
+		// the policy file for a problem that is not in it.
+		if _, err := components.GetRunningCoreSystemURL(sys, AuthorizerName); err == nil {
+			log.Printf("%s: refusing %s %s: no service is registered at that path\n",
+				sys.Name, r.Method, ForLog(r.URL.Path)) //#nosec G706 -- sanitized by ForLog
+			http.Error(w, "no service is registered at that path", http.StatusNotFound)
+			return false
+		}
+		return true // no authorizer in this local cloud
 	}
+	return permittedAs(sys, w, r, assetName, serv)
+}
 
+// permittedAs is permitted for a request whose service is already resolved.
+func permittedAs(sys *components.System, w http.ResponseWriter, r *http.Request, assetName string, serv *components.Service) bool {
 	status, err := AuthorizeRequest(sys, r, assetName, serv)
 	if status == 0 {
 		return true

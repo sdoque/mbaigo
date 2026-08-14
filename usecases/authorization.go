@@ -37,6 +37,14 @@ import (
 	"github.com/sdoque/mbaigo/components"
 )
 
+// FileService is what a request for a stored file is called when the asset
+// serving it registers no service of its own by that name.
+//
+// A policy names it like any other service, and an asset that does register a
+// "files" service — which makes it discoverable, so a consumer can be granted a
+// token for it — is judged by that record instead.
+const FileService = "files"
+
 // AuthorizerName is the core-system name a provider pins its trust to.
 const AuthorizerName = "authorizer"
 

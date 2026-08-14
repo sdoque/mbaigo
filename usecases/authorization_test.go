@@ -308,3 +308,114 @@ func systemUnderTest(t *testing.T, authorizer *components.CoreSystem) *component
 	}
 	return &sys
 }
+
+// TestAFileRequestCanBeAuthorized is the regression the previous fix
+// introduced, and it goes through handleFiveParts rather than calling
+// AuthorizeRequest directly — the defect was never in the check, it was in what
+// the file path handed to it.
+//
+// No unit asset registers a service whose subpath is "files": photographer,
+// recognizer and kgrapher handle the word inside their own dispatch. So
+// findServiceByPath returned nil, an empty Service was substituted, and
+// mismatch requires claimed == actual && claimed != "". Nothing can satisfy
+// that, so every file request in an authorized cloud was refused for good — a
+// working feature disabled by the check meant to protect it.
+func TestAFileRequestCanBeAuthorized(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("key: %v", err)
+	}
+	sys := createTestSystem(false)
+	sys.Husk.CoreS = append(sys.Husk.CoreS, &components.CoreSystem{
+		Name: AuthorizerName, Url: "http://localhost:20104/authorizer/authorization",
+	})
+	sys.Husk.AuthorizerKey.Store(&key.PublicKey)
+
+	now := time.Now()
+	token, err := MintToken(key, forms.AccessToken_v1{
+		Subject: "clerk", Provider: sys.Name, Asset: "testUnitAsset",
+		Service: FileService, Action: "read",
+		IssuedAt: now, Expires: now.Add(5 * time.Minute), Issuer: "authorizer",
+	})
+	if err != nil {
+		t.Fatalf("MintToken: %v", err)
+	}
+
+	fileRequest := func(tok string) *http.Request {
+		r := httptest.NewRequest("GET",
+			"/"+sys.Name+"/testUnitAsset/files/image_20240325-211555.jpg", nil)
+		r.TLS = tlsStateWithCN("clerk")
+		r.Header.Set(TokenHeader, tok)
+		return r
+	}
+
+	// With a token naming the file service, the guard lets it through. The
+	// transfer then fails on a file that is not there, which is a 404 or a 500
+	// from TransferFile — anything but the 403 the guard used to return
+	// unconditionally.
+	w := httptest.NewRecorder()
+	ResourceHandler(&sys, w, fileRequest(token))
+	if w.Code == http.StatusForbidden {
+		t.Errorf("a file request carrying a token for it was refused: %s",
+			strings.TrimSpace(w.Body.String()))
+	}
+
+	// The guard still guards: a token for a different service does not open the
+	// files.
+	other, err := MintToken(key, forms.AccessToken_v1{
+		Subject: "clerk", Provider: sys.Name, Asset: "testUnitAsset",
+		Service: "testServ", Action: "read",
+		IssuedAt: now, Expires: now.Add(5 * time.Minute), Issuer: "authorizer",
+	})
+	if err != nil {
+		t.Fatalf("MintToken: %v", err)
+	}
+	w = httptest.NewRecorder()
+	ResourceHandler(&sys, w, fileRequest(other))
+	if w.Code != http.StatusForbidden {
+		t.Errorf("a token for another service opened the files (status %d)", w.Code)
+	}
+
+	// And no token at all is still refused.
+	r := httptest.NewRequest("GET", "/"+sys.Name+"/testUnitAsset/files/image.jpg", nil)
+	r.TLS = tlsStateWithCN("clerk")
+	w = httptest.NewRecorder()
+	ResourceHandler(&sys, w, r)
+	if w.Code != http.StatusUnauthorized && w.Code != http.StatusForbidden {
+		t.Errorf("an untokened file request was served (status %d)", w.Code)
+	}
+}
+
+// An empty service definition can satisfy no token, so passing one to
+// AuthorizeRequest is always a refusal — which is why permitted must not
+// manufacture one when it cannot resolve the path.
+func TestAnUnnamedServiceCanNeverBeAuthorized(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("key: %v", err)
+	}
+	sys := systemUnderTest(t, &components.CoreSystem{
+		Name: AuthorizerName, Url: "http://localhost:20104/authorizer/authorization",
+	})
+	sys.Husk.AuthorizerKey.Store(&key.PublicKey)
+
+	now := time.Now()
+	token, err := MintToken(key, forms.AccessToken_v1{
+		Subject: "clerk", Provider: "ds18b20", Asset: "picam",
+		Service: "", Action: "read",
+		IssuedAt: now, Expires: now.Add(5 * time.Minute), Issuer: "authorizer",
+	})
+	if err != nil {
+		t.Fatalf("MintToken: %v", err)
+	}
+
+	r := httptest.NewRequest("GET", "/photographer/picam/anything", nil)
+	r.TLS = tlsStateWithCN("clerk")
+	r.Header.Set(TokenHeader, token)
+
+	// Even a token minted with an empty service — which the orchestrator would
+	// never produce — cannot match one.
+	if status, _ := AuthorizeRequest(sys, r, "picam", &components.Service{}); status == 0 {
+		t.Error("a service with no definition was authorized; nothing should satisfy it")
+	}
+}
