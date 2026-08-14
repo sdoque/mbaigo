@@ -232,13 +232,22 @@ func sendHTTPReqWithToken(method string, url string, token string, data []byte) 
 func ForLog(s string) string {
 	const most = 256
 	cleaned := strings.Map(func(r rune) rune {
-		if r == utf8.RuneError || unicode.IsControl(r) {
+		// Control characters, and the three other categories a log viewer or a
+		// terminal gives meaning to: the line and paragraph separators some
+		// honour as newlines, and the format characters, which include the
+		// bidirectional overrides that can reverse how a line reads.
+		if r == utf8.RuneError || unicode.IsControl(r) ||
+			unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
 			return -1
 		}
 		return r
 	}, s)
-	if len(cleaned) > most {
-		return cleaned[:most] + "…(truncated)"
+
+	// Cut on a rune boundary. Slicing bytes puts back exactly what the map above
+	// exists to remove: half of a multi-byte character is invalid UTF-8.
+	runes := []rune(cleaned)
+	if len(runes) > most {
+		return string(runes[:most]) + "…(truncated)"
 	}
 	return cleaned
 }

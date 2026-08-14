@@ -48,6 +48,12 @@ const FileService = "files"
 // AuthorizerName is the core-system name a provider pins its trust to.
 const AuthorizerName = "authorizer"
 
+// OrchestratorName is the core-system name of the orchestrator, and so the
+// common name its certificate carries. Named here beside AuthorizerName because
+// the authorizer has to recognize it: the orchestrator is the only system that
+// may ask for an authorization decision.
+const OrchestratorName = "orchestrator"
+
 // reacquireInterval bounds how often a signature failure may trigger a fresh
 // fetch of the authorizer's certificate, so a flood of bad tokens cannot be
 // turned into a flood of requests to the authorizer.
