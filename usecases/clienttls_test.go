@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -62,31 +63,72 @@ func TestTheFrameworkClientVerifiesAPeerSignedByTheCA(t *testing.T) {
 	}
 }
 
-// Before enrollment there is no configuration to dial with, and the failure has
-// to say so rather than surface as a certificate error.
-func TestTheFrameworkClientSaysWhenItHasNotEnrolled(t *testing.T) {
+// TestAnUnenrolledSystemStillReachesThePublicInternet is the case that broke a
+// live cloud twice over.
+//
+// Systems talk to more than each other. A weather station's API, an electricity
+// spot price, a message broker — all public hosts, all over TLS, and often at
+// startup, before the CA has issued anything. The dial used to refuse those
+// outright with "this system has not enrolled yet", which is both a failure they
+// should not have had and an explanation that does not fit the call being made.
+//
+// Verified against a host the test's own CA did not sign, so reaching it at all
+// means the host's trusted authorities were consulted rather than the cloud's.
+func TestAnUnenrolledSystemStillReachesThePublicInternet(t *testing.T) {
 	previous := clientTLS.Load()
 	clientTLS.Store(nil)
 	defer clientTLS.Store(previous)
 
+	stranger := httptest.NewTLSServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("reached")) }))
+	defer stranger.Close()
+
 	client := &http.Client{Transport: http.DefaultClient.Transport}
-	_, err := client.Get("https://192.0.2.1:30100/ca/kgraph")
+	_, err := client.Get(stranger.URL)
 	if err == nil {
-		t.Fatal("an unenrolled system reached a TLS peer")
+		t.Fatal("a server signed by nobody this host trusts was accepted")
 	}
-	if !contains(err.Error(), "has not enrolled yet") {
-		t.Errorf("the failure reads %q, which does not say the system is unenrolled", err)
+	// The point is which failure. Ordinary verification means the dial went
+	// through to a handshake; an enrollment message means it never tried.
+	if !strings.Contains(err.Error(), "certificate") {
+		t.Errorf("the failure reads %q, which is not a verification failure — the "+
+			"dial refused the call rather than attempting it", err)
+	}
+	if strings.Contains(err.Error(), "not enrolled") {
+		t.Errorf("a call to a public host was refused for want of enrollment: %v", err)
 	}
 }
 
-func contains(s, sub string) bool { return len(s) >= len(sub) && (s == sub || indexOf(s, sub) >= 0) }
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
+// TestTheCloudsCAIsAddedToWhatTheHostTrusts covers the other half of the same
+// failure, and one that predates the dial.
+//
+// The pool was built from the cloud's CA alone, so from enrollment onward every
+// public host failed with "certificate signed by unknown authority" — a system
+// that worked for the first few minutes and then stopped. Peers inside the cloud
+// are verified by the same CA whether or not the host's own authorities are in
+// the pool beside it.
+func TestTheCloudsCAIsAddedToWhatTheHostTrusts(t *testing.T) {
+	ca := newSigningCA(t)
+
+	pool, err := trustPool(ca.pem)
+	if err != nil {
+		t.Fatalf("the cloud's CA could not be trusted: %v", err)
 	}
-	return -1
+
+	host, err := x509.SystemCertPool()
+	if err != nil {
+		t.Skip("this host exposes no trusted certificates, so there is nothing to add to")
+	}
+	if pool.Equal(host) {
+		t.Error("the cloud's CA is not in the pool, so no peer in the cloud can be verified")
+	}
+	if !host.AppendCertsFromPEM([]byte(ca.pem)) {
+		t.Fatal("the test CA is not readable as PEM")
+	}
+	if !pool.Equal(host) {
+		t.Error("the pool is not the host's authorities plus the cloud's CA, so a " +
+			"system reaching a public API verifies against the wrong set")
+	}
 }
 
 // TestTheFrameworkClientDialsThroughTheTLSHook is the guard on the two mistakes

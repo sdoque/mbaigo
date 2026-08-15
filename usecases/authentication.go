@@ -173,9 +173,8 @@ func installTLSConfig(sys *components.System) {
 	sys.Husk.CA_cert = caCert
 	sys.Mutex.Unlock()
 
-	// Load CA certificate
-	caCertPool := x509.NewCertPool()
-	if ok := caCertPool.AppendCertsFromPEM([]byte(caCert)); !ok {
+	caCertPool, err := trustPool(caCert)
+	if err != nil {
 		log.Fatalf("Failed to append CA certificate to pool\n")
 	}
 
@@ -276,14 +275,50 @@ var clientTLS atomic.Pointer[tls.Config]
 // published by installTLSConfig rather than holding one, so the client that
 // calls it never has to be replaced.
 func dialTLS(ctx context.Context, network, addr string) (net.Conn, error) {
-	cfg := clientTLS.Load()
-	if cfg == nil {
-		// Before enrollment there is no client certificate to present, so an
-		// mTLS peer would refuse the handshake anyway. Saying so is more use
-		// than a TLS error.
-		return nil, fmt.Errorf("cannot reach %s over TLS: this system has not enrolled yet", addr)
-	}
+	// Before enrollment, ordinary TLS against the host's trusted authorities.
+	//
+	// Refusing here instead was a mistake worth naming: it read every outbound
+	// HTTPS call as a call to another system in the cloud. Most are, but a
+	// system that fetches a weather station's readings or an electricity price
+	// does so over the public internet, often at startup and long before a
+	// certificate has been issued. Those calls have nothing to do with
+	// enrollment, and telling them the system has not enrolled is both a
+	// failure they should not have and an explanation that does not fit.
+	//
+	// A cloud peer still refuses the handshake for want of a client
+	// certificate. That is the peer's answer to give, not this dial's to
+	// predict.
+	cfg := clientTLS.Load() // nil until enrollment: tls.Dialer then uses the defaults
 	return (&tls.Dialer{Config: cfg}).DialContext(ctx, network, addr)
+}
+
+// trustPool is what this system verifies a TLS peer against: the cloud's CA in
+// addition to the authorities the host already trusts, not instead of them.
+//
+// A pool holding only the cloud's CA is right for reaching other systems and
+// wrong for everything else, and systems do reach everything else: a weather
+// station's API, an electricity spot price, a message broker. Those are signed
+// by public authorities, and against a pool of one they fail with "certificate
+// signed by unknown authority" — from enrollment onwards, which is minutes
+// after the system started working, so the system appears to work and then
+// stops.
+//
+// Adding to the host's pool is not a widening of what the cloud trusts. A peer
+// inside the cloud is verified by the same CA either way, and the authorizer
+// binds its claims to a name from that certificate besides.
+func trustPool(caCertPEM string) (*x509.CertPool, error) {
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		// No host pool to be had. The cloud is still reachable; the public
+		// internet is not, which is the situation this used to create everywhere.
+		log.Printf("could not read this host's trusted certificates (%v): only "+
+			"the local cloud will be reachable over TLS\n", err)
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM([]byte(caCertPEM)) {
+		return nil, fmt.Errorf("the CA certificate could not be read as PEM")
+	}
+	return pool, nil
 }
 
 // getCACertificate gets the CA's certificate necessary for the dual server-client authentication in the TLS setup
