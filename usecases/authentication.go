@@ -267,30 +267,23 @@ func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
 // completes and read on every outbound TLS dial.
 //
 // A pointer swapped atomically rather than a client replaced in place. The
-// framework's HTTP client is installed once, below, and never changes after
-// that; what changes is what it finds here when it dials.
+// framework's HTTP client is installed once — see the init in utilities.go,
+// which is the single place that does it — and never changes after that; what
+// changes is what it finds here when it dials.
 var clientTLS atomic.Pointer[tls.Config]
 
-func init() {
-	// Installed at package load, so it is in place before any goroutine in any
-	// system can read it. Replacing http.DefaultClient when enrollment finished
-	// — minutes into the run, with registration already calling through it — was
-	// a write to a package-level variable that everything else reads.
-	http.DefaultClient = &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				cfg := clientTLS.Load()
-				if cfg == nil {
-					// Before enrollment there is no client certificate to
-					// present, so an mTLS peer would refuse the handshake
-					// anyway. Saying so is more use than a TLS error.
-					return nil, fmt.Errorf("cannot reach %s over TLS: this system has not enrolled yet", addr)
-				}
-				return (&tls.Dialer{Config: cfg}).DialContext(ctx, network, addr)
-			},
-		},
+// dialTLS is the framework client's TLS dial. It reads the configuration
+// published by installTLSConfig rather than holding one, so the client that
+// calls it never has to be replaced.
+func dialTLS(ctx context.Context, network, addr string) (net.Conn, error) {
+	cfg := clientTLS.Load()
+	if cfg == nil {
+		// Before enrollment there is no client certificate to present, so an
+		// mTLS peer would refuse the handshake anyway. Saying so is more use
+		// than a TLS error.
+		return nil, fmt.Errorf("cannot reach %s over TLS: this system has not enrolled yet", addr)
 	}
+	return (&tls.Dialer{Config: cfg}).DialContext(ctx, network, addr)
 }
 
 // getCACertificate gets the CA's certificate necessary for the dual server-client authentication in the TLS setup

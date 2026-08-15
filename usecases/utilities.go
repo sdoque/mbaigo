@@ -169,12 +169,29 @@ func IsCamelCase(s string) bool {
 
 // ------- HTTP Client Tools -------
 
+// The one place the framework's HTTP client is installed.
+//
+// There were two: this one, and another in authentication.go that added the TLS
+// dial. Go runs a package's files in name order, so this one ran second and
+// replaced the other — leaving a client with no transport, which means no CA
+// pool and no client certificate. Every system-to-system call over HTTPS then
+// failed with "certificate signed by unknown authority", because the client had
+// nothing to verify against.
+//
+// Installed here, once, at package load, so it is in place before any goroutine
+// in any system can read it. The TLS configuration it dials with arrives later,
+// when enrollment completes, and is published through clientTLS rather than by
+// replacing the client — http.DefaultClient is a package-level variable that
+// three dozen call sites read.
+//
+// The tests depend on this client too, and sometimes replace its transport with
+// a mock.
 func init() {
-	// Sets up a new global client with better defaults
-	// (the tests depends on this client too, and sometimes
-	// replaces it with a mock).
 	http.DefaultClient = &http.Client{
 		Timeout: time.Second * 30,
+		Transport: &http.Transport{
+			DialTLSContext: dialTLS,
+		},
 	}
 }
 
