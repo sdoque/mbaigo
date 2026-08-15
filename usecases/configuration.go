@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/sdoque/mbaigo/components"
@@ -176,6 +177,19 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 		}
 	}
 
+	// A configuration written before its system declared missions has assets
+	// without one, and the framework refuses to start a system whose assets do
+	// not classify themselves. Left alone, adding a mission to a system would
+	// stop every deployment of it that already exists: the template is written
+	// only when there is no systemconfig.json and is never merged into one that
+	// is already there, so the file cannot correct itself.
+	//
+	// The value comes from the system author's own template, which is what the
+	// file would have been seeded with had it been written today. That is a
+	// different thing from defaulting a blank field: nothing is guessed, and an
+	// asset the template does not know about is still refused.
+	rawResources = fillMissionsFromTemplates(sys, rawResources)
+
 	sys.Name = configurationIn.CName
 	// Restore IP addresses from config, allowing operators to limit which address is used.
 	if len(configurationIn.IPAddresses) > 0 {
@@ -195,6 +209,53 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 	}
 
 	return rawResources, nil
+}
+
+// fillMissionsFromTemplates supplies a mission to a configured asset that has
+// none, taking it from the template asset of the same name.
+//
+// The templates are in sys.UAssets: a system puts them there before it calls
+// Configure, which is what lets this be done once here rather than in each of
+// the systems.
+//
+// Announced rather than silent. The operator's file is not rewritten — the next
+// release could declare something different — so saying which asset was filled
+// in, and with what, is what lets them put it in the file themselves.
+func fillMissionsFromTemplates(sys *components.System, raws []json.RawMessage) []json.RawMessage {
+	for i, raw := range raws {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			continue // not an object; leave it for the system to reject
+		}
+		var name, mission string
+		_ = json.Unmarshal(fields["name"], &name)
+		_ = json.Unmarshal(fields["mission"], &mission)
+		if mission != "" {
+			continue
+		}
+		template, known := sys.UAssets[name]
+		if !known || template == nil {
+			continue // no template to speak for it; ValidateMission will refuse it
+		}
+		from := template.Mission
+		if from == "" {
+			continue
+		}
+		filled, err := json.Marshal(from)
+		if err != nil {
+			continue
+		}
+		fields["mission"] = filled
+		patched, err := json.Marshal(fields)
+		if err != nil {
+			continue
+		}
+		raws[i] = patched
+		log.Printf("%s: unit asset %q has no mission in systemconfig.json; using %q "+
+			"from this system's template. Add \"mission\": %q to the asset to "+
+			"declare it yourself.\n", sys.Name, name, from, from)
+	}
+	return raws
 }
 
 // getServicesList() returns the original list of services
