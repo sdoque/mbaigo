@@ -245,7 +245,7 @@ func TestModelHost(t *testing.T) {
 	if !strings.Contains(out, `afo:hasName "testhost"`) {
 		t.Error("modelHost: missing hasName")
 	}
-	if !strings.Contains(out, `afo:hasIPaddress "192.0.2.1"`) {
+	if !strings.Contains(out, `afo:hasIPAddress "192.0.2.1"`) {
 		t.Error("modelHost: missing IP address")
 	}
 	if !strings.HasSuffix(out, ".\n\n") {

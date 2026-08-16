@@ -248,7 +248,7 @@ func modelHost(sys *components.System) string {
 	ipaLen := len(sys.Husk.Host.IPAddresses)
 	ipaCount := 0
 	for _, ipa := range sys.Husk.Host.IPAddresses {
-		hostModel += fmt.Sprintf("    afo:hasIPaddress \"%s\"", ipa)
+		hostModel += fmt.Sprintf("    afo:hasIPAddress \"%s\"", ipa)
 		ipaCount++
 		if ipaCount < ipaLen {
 			hostModel += " ;\n"
@@ -418,7 +418,7 @@ func modelServices(sName string, ua *components.UnitAsset, sys *components.Syste
 			}
 		}
 
-		serviceModel += fmt.Sprintf("    afo:isSubscribAble \"%t\"^^xsd:boolean ;\n", service.SubscribeAble)
+		serviceModel += fmt.Sprintf("    afo:isSubscribable \"%t\"^^xsd:boolean ;\n", service.SubscribeAble)
 		if service.CFootprint != 0 {
 			serviceModel += fmt.Sprintf("    afo:hasCarbonFootprint \"%.6f\"^^xsd:decimal ;\n", service.CFootprint)
 		}
