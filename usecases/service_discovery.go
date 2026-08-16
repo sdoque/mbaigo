@@ -173,6 +173,9 @@ func Search4ServicesAs(cer *components.Cervice, sys *components.System, action s
 // the same provider — the caller would then poll it twice per round and, worse,
 // might pick the copy carrying the wrong token.
 func recordNode(cer *components.Cervice, node, url string, details map[string][]string, action, token string) {
+	cer.Mutex.Lock()
+	defer cer.Mutex.Unlock()
+
 	for i, ni := range cer.Nodes[node] {
 		if ni.URL != url {
 			continue
@@ -244,6 +247,13 @@ func Search4MultipleServicesAs(cer *components.Cervice, sys *components.System, 
 	}
 	registered := make(map[string]bool, len(points))
 	for _, sp := range points {
+		if sp.ServLocation == "" {
+			// Nothing to call, so nothing to record. Recording it would put a
+			// node with an empty URL in the list, which the consuming round then
+			// skips on every poll and which pruning would keep alive because it
+			// was "returned".
+			continue
+		}
 		recordNode(cer, sp.ServNode, sp.ServLocation, sp.Details, action, sp.Token)
 		registered[sp.ServLocation] = true
 	}
@@ -255,7 +265,7 @@ func Search4MultipleServicesAs(cer *components.Cervice, sys *components.System, 
 	//
 	// Only here. Search4ServicesAs asks the orchestrator for one provider, so
 	// what it does not return says nothing about the others.
-	pruneNodes(cer, registered)
+	pruneNodes(cer, registered, action)
 	return nil
 }
 
@@ -293,14 +303,39 @@ func servicePoints(f forms.Form) ([]forms.ServicePoint_v1, error) {
 // discovery, which for a polling consumer is every few seconds.
 var olderOrchestrator sync.Once
 
-// pruneNodes drops the providers a discovery did not return.
-func pruneNodes(cer *components.Cervice, registered map[string]bool) {
+// pruneNodes drops what a discovery did not return, for the action it was made
+// under.
+//
+// The quest carries an action, so the orchestrator's answer is what this
+// consumer may do *for that action* — and a cervice used for both a GET and a
+// PUT is discovered twice, once per action. Deleting every provider absent from
+// one action's answer therefore threw away providers that were perfectly good
+// for the other: two temperature providers, one read-write and one read-only, a
+// later write discovery returning only the first, and the read-only one gone.
+// Every subsequent read then reached one sensor instead of two, with nothing to
+// say so.
+//
+// So a provider loses only this action's token here. It is removed outright
+// when it has none left for any action, because then nothing discovered it at
+// all and it is no longer a provider of anything.
+func pruneNodes(cer *components.Cervice, registered map[string]bool, action string) {
+	// Deleting during a range over the same map is what makes this the crash
+	// rather than the race: `fatal error: concurrent map iteration and map
+	// write` is not recoverable, and two polling goroutines of one unit asset
+	// share this cervice.
+	cer.Mutex.Lock()
+	defer cer.Mutex.Unlock()
+
 	for node, nodes := range cer.Nodes {
 		kept := nodes[:0]
 		for _, ni := range nodes {
-			if registered[ni.URL] {
-				kept = append(kept, ni)
+			if !registered[ni.URL] {
+				delete(ni.Tokens, action)
+				if len(ni.Tokens) == 0 {
+					continue // discovered for nothing: no longer a provider here
+				}
 			}
+			kept = append(kept, ni)
 		}
 		if len(kept) == 0 {
 			delete(cer.Nodes, node)
@@ -322,6 +357,17 @@ func ConvertToServicePoint(sr forms.ServiceRecord_v1) (sp forms.ServicePoint_v1)
 	sp.ServiceDefinition = rec.ServiceDefinition
 	sp.Details = rec.Details
 	proto, port := preferredProtoPort(rec.ProtoPort)
+	// A record with no address leaves nothing to build a URL from, and indexing
+	// it panicked the poll goroutine of every system consuming that definition.
+	// The address comes off the wire from the registrar, which copies whatever
+	// the provider registered, and a host whose interface enumeration found
+	// nothing registers an empty list. One such provider should cost its own
+	// discovery, not everyone else's.
+	if len(rec.IPAddresses) == 0 {
+		log.Printf("the registrar lists %s of %s with no address, so there is nothing to call\n",
+			rec.ServiceDefinition, rec.SystemName)
+		return sp
+	}
 	sp.ServLocation = proto + "://" + rec.IPAddresses[0] + ":" + strconv.Itoa(port) + "/" + rec.SystemName + "/" + rec.SubPath
 	sp.ServNode = rec.ServiceNode
 	return

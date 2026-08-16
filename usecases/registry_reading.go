@@ -132,11 +132,9 @@ func RegistryToken(cer *components.Cervice, sys *components.System) (string, boo
 	if err := Search4ServicesAs(cer, sys, action); err != nil {
 		return "", false
 	}
-	for _, nodes := range cer.Nodes {
-		for _, ni := range nodes {
-			if token, discovered := ni.TokenFor(action); discovered && token != "" {
-				return token, true
-			}
+	for _, ni := range cer.Providers() {
+		if token, discovered := ni.TokenFor(action); discovered && token != "" {
+			return token, true
 		}
 	}
 	return "", false

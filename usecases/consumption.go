@@ -67,7 +67,11 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 
 	resp, err := sendHTTPReqWithToken(httpMethod, serviceUrl, token, bodyBytes)
 	if err != nil {
-		cer.Nodes = make(map[string][]components.NodeInfo) // Failed to get the resource at that location: reset the providers list, which will trigger a new service search
+		// Failed to reach the provider: forget everything discovered, so the next
+		// call searches again.
+		cer.Mutex.Lock()
+		cer.Nodes = make(map[string][]components.NodeInfo)
+		cer.Mutex.Unlock()
 		return f, err
 	}
 	defer resp.Body.Close()
@@ -98,6 +102,9 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 // one node per provider, but a provider that answered only one of the two
 // discoveries is present without a token for the other.
 func pickNode(cer *components.Cervice, action string) (url, token string, ok bool) {
+	cer.Mutex.RLock()
+	defer cer.Mutex.RUnlock()
+
 	for _, nodes := range cer.Nodes {
 		for _, ni := range nodes {
 			if tok, discovered := ni.TokenFor(action); discovered {
@@ -205,7 +212,7 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 	// Cervice.Mode says it might.
 	action := ActionForMethod(httpMethod)
 
-	if len(cer.Nodes) == 0 {
+	if cer.ProviderCount() == 0 {
 		if currentErr := Search4MultipleServicesAs(cer, sys, action); currentErr != nil {
 			f = append(f, nil)
 			err = append(err, currentErr)
@@ -217,10 +224,12 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 	// provider that the authorizer permitted this call, and flattening the nodes
 	// to a list of strings threw it away — every request from this path went out
 	// unauthorized while the single-provider path above sent one.
-	var providers []components.NodeInfo
-	for _, nodes := range cer.Nodes {
-		providers = append(providers, nodes...)
-	}
+	// A snapshot, and the requests below are made from it rather than from the
+	// map. Ranging over cer.Nodes while a discovery on another goroutine deletes
+	// from it is `fatal error: concurrent map iteration and map write`; holding
+	// the lock across the requests instead would block every other user of this
+	// cervice for as long as the slowest provider takes to time out.
+	providers := cer.Providers()
 
 	// Discovered for a different action than this call performs. One round for
 	// the whole cervice rather than one per provider: they were all discovered
@@ -231,10 +240,18 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 			err = append(err, currentErr)
 			return f, err
 		}
-		providers = providers[:0]
-		for _, nodes := range cer.Nodes {
-			providers = append(providers, nodes...)
-		}
+		providers = cer.Providers()
+	}
+
+	// No providers is an answer, and it has to be given as one. Returning empty
+	// slices left the caller's range running zero times and its error check
+	// finding nothing wrong — a control loop reads that as "no readings changed"
+	// rather than "there are no sensors", and holds its last output. The
+	// registrar restarting, or a detail that stopped matching, is enough to
+	// produce it.
+	if len(providers) == 0 {
+		return []forms.Form{nil}, []error{
+			fmt.Errorf("no provider of %q is available for %s", cer.Definition, action)}
 	}
 
 	failures := 0
@@ -275,6 +292,9 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 // this cervice may also use, and discovery reconciles the set: a provider the
 // registrar no longer lists is removed there, where the whole list is known.
 func forgetToken(cer *components.Cervice, url, action string) {
+	cer.Mutex.Lock()
+	defer cer.Mutex.Unlock()
+
 	for node, nodes := range cer.Nodes {
 		for i, ni := range nodes {
 			if ni.URL == url && ni.Tokens != nil {

@@ -22,6 +22,8 @@
 
 package components
 
+import "sync"
+
 // An Arrowhead Service has specific properties that exposes a unit asset's functionality
 type Service struct {
 	ID            int                 `json:"-"`                  // Id assigned by the Service Registrar
@@ -154,6 +156,50 @@ type Cervice struct {
 	Nodes       map[string][]NodeInfo
 	Protos      []string
 	Mode        string // "get" for GetState, "set" for SetState, "" for unspecified
+
+	// Mutex guards Nodes and the tokens inside it.
+	//
+	// Discovery replaces entries and now deletes them, consumption reads them to
+	// dispatch and writes back to forget a token, and a unit asset with more
+	// than one goroutine polls the same cervice from each. A map written during
+	// a range over it is not a race that corrupts a value — it is `fatal error:
+	// concurrent map iteration and map write`, which no recover reaches and
+	// which takes the system down.
+	//
+	// Exported like System.Mutex, because some systems reach into Nodes
+	// themselves. Hold it for the map work only: the point of the snapshots in
+	// the consumption path is that a request to an unresponsive provider must
+	// not be made while holding a lock every other goroutine wants.
+	Mutex sync.RWMutex
+}
+
+// Providers returns the discovered providers as a snapshot.
+//
+// A copy, so the caller can make its requests without holding the lock. A
+// consuming round asks every provider in turn, each request bounded only by its
+// own timeout, and a discovery on another goroutine must not have to wait for
+// an unresponsive sensor before it can record what it found.
+func (c *Cervice) Providers() []NodeInfo {
+	c.Mutex.RLock()
+	defer c.Mutex.RUnlock()
+
+	var providers []NodeInfo
+	for _, nodes := range c.Nodes {
+		providers = append(providers, nodes...)
+	}
+	return providers
+}
+
+// ProviderCount reports how many providers have been discovered.
+func (c *Cervice) ProviderCount() int {
+	c.Mutex.RLock()
+	defer c.Mutex.RUnlock()
+
+	n := 0
+	for _, nodes := range c.Nodes {
+		n += len(nodes)
+	}
+	return n
 }
 
 // Cervises is a collection of "Cervice" structs

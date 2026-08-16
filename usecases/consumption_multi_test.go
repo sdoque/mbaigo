@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sdoque/mbaigo/components"
@@ -563,5 +564,145 @@ func TestAnOlderOrchestratorStillDiscovers(t *testing.T) {
 	}
 	if _, _, ok := pickNode(cer, "read"); !ok {
 		t.Error("no provider was discovered, so an upgrade of one end stops the other")
+	}
+}
+
+// TestOneCerviceSurvivesTwoPollingGoroutines is the crash, not a race.
+//
+// A unit asset with more than one feedback loop polls the same cervice from
+// each, and discovery now deletes from Nodes as well as writing to it. A map
+// written during a range over the same map is `fatal error: concurrent map
+// iteration and map write` — it is not a corrupted reading, it is the process
+// gone, and no recover reaches it.
+//
+// Run with -race this reports the race; run without it, against the unlocked
+// code, it panics outright often enough to matter. Either way it fails, which
+// is what a test of this can honestly claim.
+func TestOneCerviceSurvivesTwoPollingGoroutines(t *testing.T) {
+	http.DefaultClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		// Alternating answers, so pruneNodes has something to delete on some
+		// rounds and something to keep on others.
+		body := `{"version":"ServicePointList_v1","list":[` +
+			`{"providerName":"a","definition":"temperature","serviceURL":"http://a/temperature",` +
+			`"serviceNode":"a","token":"ta","version":"ServicePoint_v1"}]}`
+		return &http.Response{
+			Status: "200 OK", StatusCode: 200,
+			Header:  http.Header{"Content-Type": []string{"application/json"}},
+			Body:    io.NopCloser(strings.NewReader(body)),
+			Request: req,
+		}, nil
+	})
+
+	cer := multiProviderCervice([]components.NodeInfo{
+		{URL: "http://a/temperature", Tokens: map[string]string{"read": "old"}},
+		{URL: "http://b/temperature", Tokens: map[string]string{"read": "old"}},
+	}, map[string][]string{"Forms": {"SignalA_v1a"}})
+	sys := createTestSystem(false)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for n := 0; n < 50; n++ {
+				// One goroutine discovering while the others read what was
+				// discovered, which is the shape of a multi-asset system.
+				if err := Search4MultipleServicesAs(cer, &sys, "read"); err != nil {
+					t.Errorf("discovery: %v", err)
+					return
+				}
+				_, _, _ = pickNode(cer, "read")
+				_ = cer.Providers()
+				forgetToken(cer, "http://a/temperature", "read")
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+// TestAWriteDiscoveryKeepsTheReadOnlyProviders is what action-scoped pruning is
+// for.
+//
+// A quest carries an action, so the orchestrator's answer says what this
+// consumer may do for *that* action, and a cervice used for both a GET and a PUT
+// is discovered twice, once per action. Deleting every provider absent from one
+// answer therefore threw away providers that were fine for the other: a
+// read-write sensor and a read-only one, a later write discovery returning only
+// the first, and the read-only one gone. Every read after that reached one
+// sensor where there had been two, and nothing said so.
+func TestAWriteDiscoveryKeepsTheReadOnlyProviders(t *testing.T) {
+	// The write discovery: only the read-write provider may be written to.
+	http.DefaultClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		body := `{"version":"ServicePointList_v1","list":[` +
+			`{"providerName":"rw","definition":"temperature","serviceURL":"http://rw/temperature",` +
+			`"serviceNode":"rw","token":"write-token","version":"ServicePoint_v1"}]}`
+		return &http.Response{
+			Status: "200 OK", StatusCode: 200,
+			Header:  http.Header{"Content-Type": []string{"application/json"}},
+			Body:    io.NopCloser(strings.NewReader(body)),
+			Request: req,
+		}, nil
+	})
+
+	// Both were discovered earlier, for reading.
+	cer := multiProviderCervice([]components.NodeInfo{
+		{URL: "http://rw/temperature", Tokens: map[string]string{"read": "read-token"}},
+		{URL: "http://ro/temperature", Tokens: map[string]string{"read": "read-token"}},
+	}, map[string][]string{"Forms": {"SignalA_v1a"}})
+
+	sys := createTestSystem(false)
+	if err := Search4MultipleServicesAs(cer, &sys, "write"); err != nil {
+		t.Fatalf("discovery: %v", err)
+	}
+
+	var readable, writable int
+	for _, ni := range cer.Providers() {
+		if _, ok := ni.TokenFor("read"); ok {
+			readable++
+		}
+		if _, ok := ni.TokenFor("write"); ok {
+			writable++
+		}
+	}
+	if readable != 2 {
+		t.Errorf("%d providers can still be read; a write discovery must not remove "+
+			"a sensor that was only ever readable", readable)
+	}
+	if writable != 1 {
+		t.Errorf("%d providers carry a write token; only one was permitted", writable)
+	}
+}
+
+// A round with no providers has to say so. Empty slices left the caller's range
+// running zero times and its error check finding nothing wrong, which a control
+// loop reads as "nothing changed" rather than "there are no sensors" — and it
+// then holds its last output against a cloud that has none.
+func TestAnEmptyRoundIsAnError(t *testing.T) {
+	http.DefaultClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		body := `{"version":"ServicePointList_v1","list":[]}`
+		return &http.Response{
+			Status: "200 OK", StatusCode: 200,
+			Header:  http.Header{"Content-Type": []string{"application/json"}},
+			Body:    io.NopCloser(strings.NewReader(body)),
+			Request: req,
+		}, nil
+	})
+
+	cer := multiProviderCervice(nil, map[string][]string{"Forms": {"SignalA_v1a"}})
+	sys := createTestSystem(false)
+
+	forms, errs := stateHandlers(http.MethodGet, cer, &sys, nil)
+	if len(errs) == 0 {
+		t.Fatal("a round with no providers reported no error at all")
+	}
+	var reported bool
+	for _, e := range errs {
+		if e != nil {
+			reported = true
+		}
+	}
+	if !reported {
+		t.Errorf("a round with no providers returned %d forms and no error; a control "+
+			"loop cannot tell that from a quiet cloud", len(forms))
 	}
 }
