@@ -1,8 +1,34 @@
 # Service Subscription
 
-**Status:** Working specification. Pre-implementation. The corresponding Go
-implementation will live in this directory (`subscribe.go`); this document
-defines the contract.
+**Status:** Working specification for *service value* subscription.
+Pre-implementation. The corresponding Go implementation will live in this
+directory (`subscribe.go`); this document defines the contract.
+
+**What exists today is a different thing, and this document does not describe
+it.** The Service Registrar carries a *registry* subscription: `GET /syslist`
+with `Accept: text/event-stream` returns a snapshot of the registered systems
+followed by one event per registration and deregistration, so a consumer such as
+the KGrapher learns when the cloud's shape changes. It has no thresholds, no
+baselines and no per-service values, because it is not about a service's value —
+there are no `/subscribe` endpoints on services, and looking for them is the
+mistake this note exists to prevent.
+
+Two properties of the registry stream are worth stating where a reader of this
+document will look for them:
+
+- **It heartbeats.** The registrar writes an SSE comment line every 20 seconds
+  on an idle stream, and a subscriber treats silence past three intervals as a
+  dead connection rather than a quiet cloud. The reasoning is the one given
+  below for service values: a stream that is idle by design cannot otherwise be
+  told from one that has stopped existing.
+- **Its authorization is checked once, at connect.** The access token is
+  verified when the stream opens and not again, so a subscription outlives the
+  token that opened it and revoking a policy takes effect only when the
+  connection next drops. This is the lenient of the two models named below, and
+  it is a deliberate choice for a stream whose content is the registry's public
+  shape rather than a plant's measurements. A service value subscription should
+  take the strict model instead: keep the claims, and close the stream when they
+  expire, letting the reconnection re-authorize.
 
 ## Purpose
 

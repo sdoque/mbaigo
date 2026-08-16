@@ -25,6 +25,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"reflect"
 	"strings"
@@ -187,11 +188,34 @@ func IsCamelCase(s string) bool {
 // The tests depend on this client too, and sometimes replace its transport with
 // a mock.
 func init() {
+	// Go's own transport with the TLS dial added, not a bare one.
+	//
+	// A bare &http.Transport{} keeps none of what http.DefaultTransport sets:
+	// Proxy is nil where it had ProxyFromEnvironment, so a system behind an
+	// HTTPS_PROXY dials the address directly and waits for a timeout instead of
+	// reaching anything; the idle connection pool and its timeout are gone, so
+	// every call opens a fresh connection; and the handshake and expect-continue
+	// timeouts are gone with them.
+	//
+	// Cloned rather than mutated, because http.DefaultTransport is shared with
+	// anything else in the process that uses it, and the TLS dial belongs to
+	// this cloud's client alone.
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		// Not reachable with the standard library, and not worth guessing at:
+		// a transport of some other type is one whose settings cannot be
+		// carried over, so say so rather than silently drop them.
+		log.Printf("http.DefaultTransport is a %T, so the framework's client is built "+
+			"without its proxy and connection-pool settings\n", http.DefaultTransport)
+		transport = &http.Transport{}
+	} else {
+		transport = transport.Clone()
+	}
+	transport.DialTLSContext = dialTLS
+
 	http.DefaultClient = &http.Client{
-		Timeout: time.Second * 30,
-		Transport: &http.Transport{
-			DialTLSContext: dialTLS,
-		},
+		Timeout:   time.Second * 30,
+		Transport: transport,
 	}
 }
 

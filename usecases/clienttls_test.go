@@ -155,4 +155,18 @@ func TestTheFrameworkClientDialsThroughTheTLSHook(t *testing.T) {
 		t.Fatal("the framework client has no TLS dial, so it cannot present this " +
 			"system's certificate or verify a peer against the cloud's CA")
 	}
+
+	// Built from Go's own transport rather than from nothing. A bare
+	// &http.Transport{} has a nil Proxy where http.DefaultTransport has
+	// ProxyFromEnvironment, so a system behind an HTTPS_PROXY dials the address
+	// directly and waits out a timeout — and it loses the idle connection pool
+	// and the handshake timeouts with it.
+	if transport.Proxy == nil {
+		t.Error("the framework client ignores the environment's proxy settings, so a " +
+			"system behind a proxy reaches nothing outside its own network")
+	}
+	if transport.IdleConnTimeout == 0 {
+		t.Error("the framework client keeps idle connections forever, so it does not " +
+			"pool them the way every other Go client does")
+	}
 }
