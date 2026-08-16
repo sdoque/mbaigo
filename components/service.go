@@ -27,7 +27,7 @@ type Service struct {
 	ID            int                 `json:"-"`                  // Id assigned by the Service Registrar
 	Definition    string              `json:"definition"`         // Service definition or purpose
 	SubPath       string              `json:"subpath"`            // The URL subpath after the resource's
-	Mission       string              `json:"mission,omitempty"`  // Overrides the unit asset's mission, where the asset's is too coarse (see EffectiveMission)
+	Mission       Mission             `json:"mission,omitempty"`  // Overrides the unit asset's mission, where the asset's is too coarse (see EffectiveMission)
 	Details       map[string][]string `json:"details"`            // Metadata or details about the service
 	RegPeriod     int                 `json:"registrationPeriod"` // The period until the registrar is expecting a sign of life
 	RegTimestamp  string              `json:"-"`                  // the creation date in the Service Registry to ensure that reRegistration is with the same record

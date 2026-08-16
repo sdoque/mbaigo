@@ -184,7 +184,7 @@ func TestSysmlBlockDefs(t *testing.T) {
 		"attribute httpPort : Integer",
 		"part 'sensor1' : 'mysys_sensor1UnitAsset'",
 		"part def 'mysys_sensor1UnitAsset' :> UnitAsset",
-		`attribute redefines mission : String = "measure_things"`,
+		`attribute redefines mission : String = "measurement"`,
 		"out port 'temperature' : 'Temperature'",
 		"in port 'humidity' : 'Humidity'",
 	} {

@@ -34,8 +34,12 @@ import (
 // configurableAsset is a struct that contains the name of the asset and its
 // configurable details and services
 type ConfigurableAsset struct {
-	Name     string               `json:"name"`
-	Mission  string               `json:"mission,omitempty"`
+	Name string `json:"name"`
+	// The validated type, not the text. A configuration naming a mission that
+	// does not exist is refused as the file is read, where the message can name
+	// the file and the field, rather than carried inward to be refused later as
+	// an authorization question.
+	Mission  components.Mission   `json:"mission,omitempty"`
 	Details  map[string][]string  `json:"details"`
 	Services []components.Service `json:"services"`
 	Traits   []json.RawMessage    `json:"traits"`
@@ -211,6 +215,18 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 	return rawResources, nil
 }
 
+// soleTemplate returns the system's only template asset, or nil if it has more
+// than one and so cannot speak for an asset it does not name.
+func soleTemplate(sys *components.System) *components.UnitAsset {
+	if len(sys.UAssets) != 1 {
+		return nil
+	}
+	for _, ua := range sys.UAssets {
+		return ua
+	}
+	return nil
+}
+
 // fillMissionsFromTemplates supplies a mission to a configured asset that has
 // none, taking it from the template asset of the same name.
 //
@@ -234,11 +250,29 @@ func fillMissionsFromTemplates(sys *components.System, raws []json.RawMessage) [
 			continue
 		}
 		template, known := sys.UAssets[name]
-		if !known || template == nil {
-			continue // no template to speak for it; ValidateMission will refuse it
+		if !known {
+			// Named for the instance rather than the template, which is the
+			// documented commissioning step for whole families of systems: a
+			// ds18b20 asset is named after its 1-wire identifier, a telegrapher
+			// asset after its MQTT topic. Keying on the name alone therefore
+			// missed exactly the deployments this exists for, and they are the
+			// ones that fail on upgrade.
+			//
+			// A system with one template has only one thing an asset could be,
+			// so the mission is not in doubt. A system with several does not get
+			// a guess: which template a renamed asset came from is not knowable
+			// from here, and inventing a mission is worse than refusing to
+			// start, because it is what the authorizer classifies the asset by.
+			template = soleTemplate(sys)
+			if template == nil {
+				continue
+			}
+		}
+		if template == nil {
+			continue
 		}
 		from := template.Mission
-		if from == "" {
+		if from.IsZero() {
 			continue
 		}
 		filled, err := json.Marshal(from)

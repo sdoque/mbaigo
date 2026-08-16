@@ -296,7 +296,7 @@ func modelUAsset(sys *components.System) string {
 
 		assetModel += fmt.Sprintf("alc:%s_%s a afo:UnitAsset ;\n", sName, assetName)
 		assetModel += fmt.Sprintf("    afo:hasName \"%s\" ;\n", assetName)
-		if (*asset).Mission != "" {
+		if !(*asset).Mission.IsZero() {
 			assetModel += fmt.Sprintf("    afo:hasMission \"%s\" ;\n", (*asset).Mission)
 		}
 

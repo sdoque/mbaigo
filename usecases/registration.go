@@ -257,7 +257,7 @@ func serviceRegistrationForm(sys *components.System, ua *components.UnitAsset, s
 		// It is the service's effective mission, not the asset's: an asset that
 		// fronts a device — a PLC, a broker, a gateway — is too coarse to
 		// authorize against.
-		sr.Mission = components.EffectiveMission(ua, serv)
+		sr.Mission = components.EffectiveMission(ua, serv).String()
 		sr.Details = deepCopyMap((*ua).GetDetails())
 		for key, valueSlice := range serv.Details {
 			sr.Details[key] = append(sr.Details[key], valueSlice...)

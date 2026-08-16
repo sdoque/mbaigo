@@ -23,6 +23,7 @@
 package components
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -33,7 +34,7 @@ import (
 // dispatch logic is wired in via ServingFunc at construction time.
 type UnitAsset struct {
 	Name        string                                           `json:"name"`
-	Mission     string                                           `json:"mission,omitempty"`
+	Mission     Mission                                          `json:"mission,omitempty"`
 	Owner       *System                                          `json:"-"`
 	Details     map[string][]string                              `json:"details"`
 	ServicesMap Services                                         `json:"-"`
@@ -64,38 +65,112 @@ func (ua *UnitAsset) Serving(w http.ResponseWriter, r *http.Request, servicePath
 	}
 }
 
-// A unit asset's Mission is a coarse classification of what the asset is *for*.
+// Mission is a coarse classification of what a unit asset or service is *for*.
 // It is the axis along which the authorizer evaluates policy, so the vocabulary
 // is closed: a mission outside this set is a configuration error rather than a
 // free-text label. The taxonomy is specified in systems/authorizer/MISSIONS.md,
 // which is the normative document; this file is its encoding.
-const (
+//
+// A struct with an unexported field rather than a named string type, because
+// only this rejects a mission nobody defined at compile time. Go assigns an
+// untyped string constant to a named string type without complaint, so
+// `Mission: "web_dashboard"` would still have built — and it did build, in four
+// systems, each declaring something that reads like a mission and is not one.
+// Three of them could not start at all and one seeded a configuration file the
+// framework refuses; all four passed every test, every vet and every build.
+//
+// The cost is that a mission cannot be written as a literal. That is the point:
+// the values below are the vocabulary, and anything arriving from outside the
+// program — a configuration file, a registration record — comes through
+// MissionFromString, where an unknown one is an error at the boundary it
+// entered by rather than a string carried into the authorizer's reasoning.
+type Mission struct {
+	// name is unexported so that Mission{"anything"} cannot be written outside
+	// this package, and the zero value means "none declared".
+	name string
+}
+
+// String returns the mission as it appears in configuration files, registration
+// records and the knowledge graph.
+func (m Mission) String() string { return m.name }
+
+// IsZero reports whether no mission has been declared. The zero value is not a
+// mission: an asset that declares none is a configuration error, not a default.
+func (m Mission) IsZero() bool { return m.name == "" }
+
+// MarshalJSON writes the mission as the plain string the wire has always
+// carried, so a Mission field and the string field it replaced are
+// indistinguishable to anything reading the JSON.
+func (m Mission) MarshalJSON() ([]byte, error) {
+	return json.Marshal(m.name)
+}
+
+// UnmarshalJSON reads a mission from JSON, rejecting one outside the taxonomy.
+//
+// The boundary is the right place for this. A value that arrives here comes
+// from a configuration file an operator wrote or a record another system
+// registered, and refusing it at the point it enters names the file and the
+// field; carrying it inward turns a typo into an authorization question much
+// later, where the message is about policy.
+//
+// An absent mission is not rejected here — a missing field and a wrong one are
+// different mistakes, and ValidateMission is where the first is reported, with
+// the asset's name to hand.
+func (m *Mission) UnmarshalJSON(data []byte) error {
+	var name string
+	if err := json.Unmarshal(data, &name); err != nil {
+		return err
+	}
+	if name == "" {
+		m.name = ""
+		return nil
+	}
+	parsed, err := MissionFromString(name)
+	if err != nil {
+		return err
+	}
+	*m = parsed
+	return nil
+}
+
+// MissionFromString turns a mission that arrived as text into one the rest of
+// the program can hold, or reports that no such mission exists.
+func MissionFromString(name string) (Mission, error) {
+	for _, known := range Missions {
+		if known.name == name {
+			return known, nil
+		}
+	}
+	return Mission{}, fmt.Errorf("unknown mission %q: expected one of %s", name, MissionNames())
+}
+
+var (
 	// MissionMeasurement observes physical or digital state without changing it.
-	MissionMeasurement = "measurement"
+	MissionMeasurement = Mission{"measurement"}
 	// MissionActuation changes physical or digital state.
-	MissionActuation = "actuation"
+	MissionActuation = Mission{"actuation"}
 	// MissionState is the internal mode, schedule or configuration of a system.
-	MissionState = "state"
+	MissionState = Mission{"state"}
 	// MissionEvent is an ephemeral notification, alarm or transition.
-	MissionEvent = "event"
+	MissionEvent = Mission{"event"}
 	// MissionAggregation is a value derived or computed from other assets' output.
-	MissionAggregation = "aggregation"
+	MissionAggregation = Mission{"aggregation"}
 	// MissionLogging is a write-mostly sink for audit trails or data.
-	MissionLogging = "logging"
+	MissionLogging = Mission{"logging"}
 	// MissionControl is a bidirectional loop that both observes and acts.
-	MissionControl = "control"
+	MissionControl = Mission{"control"}
 	// MissionTransaction is a business record or exchange: an order, a
 	// maintenance notification, a confirmation.
-	MissionTransaction = "transaction"
+	MissionTransaction = Mission{"transaction"}
 	// MissionCore is framework infrastructure: registrar, orchestrator, CA,
 	// authorizer, maitreD.
-	MissionCore = "core"
+	MissionCore = Mission{"core"}
 )
 
 // Missions is the taxonomy in the order it is documented. Used to render the
 // permitted values in configuration errors, so an operator does not have to find
 // the specification to fix a typo.
-var Missions = []string{
+var Missions = []Mission{
 	MissionMeasurement,
 	MissionActuation,
 	MissionState,
@@ -107,14 +182,20 @@ var Missions = []string{
 	MissionCore,
 }
 
-// ValidMission reports whether m belongs to the taxonomy.
-func ValidMission(m string) bool {
-	for _, known := range Missions {
-		if m == known {
-			return true
-		}
+// MissionNames lists the taxonomy as text, for the messages an operator reads.
+func MissionNames() string {
+	names := make([]string, 0, len(Missions))
+	for _, m := range Missions {
+		names = append(names, m.name)
 	}
-	return false
+	return strings.Join(names, ", ")
+}
+
+// ValidMission reports whether m is a mission from the taxonomy rather than the
+// zero value. A Mission cannot be anything else, so this is now a question about
+// whether one was declared at all.
+func ValidMission(m Mission) bool {
+	return !m.IsZero()
 }
 
 // EffectiveMission returns the mission a service is authorized under: the
@@ -126,12 +207,12 @@ func ValidMission(m string) bool {
 // gateway. There the mission belongs to what is behind each service — a
 // read-only register observes, a writable one acts — and an MQTT topic path
 // discloses neither, so it has to be declared.
-func EffectiveMission(ua *UnitAsset, serv *Service) string {
-	if serv != nil && serv.Mission != "" {
+func EffectiveMission(ua *UnitAsset, serv *Service) Mission {
+	if serv != nil && !serv.Mission.IsZero() {
 		return serv.Mission
 	}
 	if ua == nil {
-		return ""
+		return Mission{}
 	}
 	return ua.Mission
 }
@@ -145,14 +226,13 @@ func EffectiveMission(ua *UnitAsset, serv *Service) string {
 // leave blank — which is how information models end up carrying no usable
 // metadata. Refusing to start is what keeps the mission trustworthy enough to
 // authorize against.
-func ValidateMission(assetName, m string) error {
-	if m == "" {
+// A Mission can no longer hold a value outside the taxonomy, so what is left to
+// check is whether one was declared at all. An unknown one is refused earlier,
+// where the text came in.
+func ValidateMission(assetName string, m Mission) error {
+	if m.IsZero() {
 		return fmt.Errorf("unit asset %q declares no mission: expected one of %s",
-			assetName, strings.Join(Missions, ", "))
-	}
-	if !ValidMission(m) {
-		return fmt.Errorf("unit asset %q declares an unknown mission %q: expected one of %s",
-			assetName, m, strings.Join(Missions, ", "))
+			assetName, MissionNames())
 	}
 	return nil
 }

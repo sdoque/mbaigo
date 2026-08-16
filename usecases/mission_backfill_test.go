@@ -44,31 +44,53 @@ func TestAConfigurationWrittenBeforeMissionsStillStarts(t *testing.T) {
 	}
 }
 
-// TestAnAssetTheTemplateDoesNotKnowIsLeftToBeRefused is the limit of the above.
+// TestARenamedAssetStillGetsItsMission is the deployment the backfill was
+// written for and originally missed.
 //
-// Filling a blank from a template the author wrote is not the same as defaulting
-// the field, and the difference matters: a mission is what the authorizer and
-// the knowledge graph classify an asset by, so one nobody declared is worth
-// refusing. An asset with no template to speak for it keeps its blank and is
-// refused at startup as before.
-func TestAnAssetTheTemplateDoesNotKnowIsLeftToBeRefused(t *testing.T) {
-	sys := components.NewSystem("flattener", context.Background())
-	sys.UAssets["ComfortController"] = &components.UnitAsset{
-		Name:    "ComfortController",
-		Mission: components.MissionControl,
+// Renaming the asset is the documented commissioning step for whole families of
+// systems — a ds18b20 asset is named after its 1-wire identifier, a telegrapher
+// asset after its MQTT topic — and the templates are keyed by the template's
+// name. So matching on name alone skipped precisely the configurations that
+// predate missions and are renamed, which is most of the ones in the field, and
+// they fail on upgrade with a fatal rather than a warning.
+func TestARenamedAssetStillGetsItsMission(t *testing.T) {
+	sys := components.NewSystem("ds18b20", context.Background())
+	sys.UAssets["sensor_Id"] = &components.UnitAsset{
+		Name:    "sensor_Id",
+		Mission: components.MissionMeasurement,
 	}
 
+	// As the commissioned file has it: the sensor's own identifier.
 	after := fillMissionsFromTemplates(&sys,
-		[]json.RawMessage{json.RawMessage(`{"name":"SomethingElse"}`)})
+		[]json.RawMessage{json.RawMessage(`{"name":"28-0516d0bfd5ff"}`)})
+
+	var got ConfigurableAsset
+	if err := json.Unmarshal(after[0], &got); err != nil {
+		t.Fatalf("the patched asset is not readable: %v", err)
+	}
+	if got.Mission != components.MissionMeasurement {
+		t.Errorf("the renamed asset declares %q, so the system refuses to start "+
+			"until someone hand-edits the file", got.Mission)
+	}
+}
+
+// A system with more than one template gets no guess. Which template a renamed
+// asset came from is not knowable from the name, and a mission is what the
+// authorizer classifies an asset by — so refusing to start is better than
+// inventing one.
+func TestARenamedAssetGetsNoGuessWhenTemplatesDiffer(t *testing.T) {
+	sys := components.NewSystem("mixed", context.Background())
+	sys.UAssets["reader"] = &components.UnitAsset{Name: "reader", Mission: components.MissionMeasurement}
+	sys.UAssets["driver"] = &components.UnitAsset{Name: "driver", Mission: components.MissionActuation}
+
+	after := fillMissionsFromTemplates(&sys,
+		[]json.RawMessage{json.RawMessage(`{"name":"something_renamed"}`)})
 
 	var got ConfigurableAsset
 	if err := json.Unmarshal(after[0], &got); err != nil {
 		t.Fatalf("the asset is not readable: %v", err)
 	}
-	if got.Mission != "" {
-		t.Errorf("an asset no template describes was given the mission %q", got.Mission)
-	}
-	if err := components.ValidateMission(got.Name, got.Mission); err == nil {
-		t.Error("an asset with no declared mission was accepted")
+	if !got.Mission.IsZero() {
+		t.Errorf("an asset was given the mission %q, which no template named it for", got.Mission)
 	}
 }

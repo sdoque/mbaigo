@@ -63,7 +63,7 @@ func addTestAsset(sys *components.System) *components.UnitAsset {
 	}
 	ua := &components.UnitAsset{
 		Name:        "sensor1",
-		Mission:     "measure_things",
+		Mission:     components.MissionMeasurement,
 		Details:     map[string][]string{},
 		ServicesMap: components.Services{"temp": svc},
 		CervicesMap: components.Cervices{"humidity": cerv},
