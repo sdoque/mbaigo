@@ -23,8 +23,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
@@ -32,7 +34,7 @@ import (
 
 // ServRegForms returns the list of forms that the service registration handles
 func ServQuestForms() []string {
-	return []string{"ServiceQuest_v1", "ServicePoint_v1"}
+	return []string{"ServiceQuest_v1", "ServicePoint_v1", "ServicePointList_v1"}
 }
 
 // FillQuestForm described the sought service (e.g., RemoteSignal)
@@ -236,13 +238,12 @@ func Search4MultipleServicesAs(cer *components.Cervice, sys *components.System, 
 	if err != nil {
 		return err
 	}
-	srList, ok := discoveryForm.(*forms.ServiceRecordList_v1)
-	if !ok {
-		return fmt.Errorf("unable to unpack discovery request form")
+	points, err := servicePoints(discoveryForm)
+	if err != nil {
+		return err
 	}
-	registered := make(map[string]bool, len(srList.List))
-	for _, values := range srList.List {
-		sp := ConvertToServicePoint(values)
+	registered := make(map[string]bool, len(points))
+	for _, sp := range points {
 		recordNode(cer, sp.ServNode, sp.ServLocation, sp.Details, action, sp.Token)
 		registered[sp.ServLocation] = true
 	}
@@ -257,6 +258,40 @@ func Search4MultipleServicesAs(cer *components.Cervice, sys *components.System, 
 	pruneNodes(cer, registered)
 	return nil
 }
+
+// servicePoints reads the orchestrator's answer to a multi-provider quest.
+//
+// Two forms are accepted because the two ends are upgraded separately. A
+// ServicePointList_v1 carries a token per provider; a ServiceRecordList_v1 is
+// what an orchestrator that predates this answers with, and has nowhere to put
+// one — so a consumer talking to an older orchestrator still discovers its
+// providers, and is refused by them in an authorized cloud exactly as it was
+// before. Refusing to parse it instead would take the cloud down on an upgrade
+// rather than at the moment the tokens start being needed.
+func servicePoints(f forms.Form) ([]forms.ServicePoint_v1, error) {
+	switch list := f.(type) {
+	case *forms.ServicePointList_v1:
+		return list.List, nil
+	case *forms.ServiceRecordList_v1:
+		olderOrchestrator.Do(func() {
+			log.Printf("the orchestrator answers multi-provider discovery with %s, "+
+				"which carries no access token: requests to those providers will be "+
+				"refused in an authorized cloud until it is upgraded\n",
+				list.FormVersion())
+		})
+		points := make([]forms.ServicePoint_v1, 0, len(list.List))
+		for _, rec := range list.List {
+			points = append(points, ConvertToServicePoint(rec))
+		}
+		return points, nil
+	default:
+		return nil, fmt.Errorf("unable to unpack discovery request form: got %T", f)
+	}
+}
+
+// olderOrchestrator reports the tokenless answer once rather than on every
+// discovery, which for a polling consumer is every few seconds.
+var olderOrchestrator sync.Once
 
 // pruneNodes drops the providers a discovery did not return.
 func pruneNodes(cer *components.Cervice, registered map[string]bool) {

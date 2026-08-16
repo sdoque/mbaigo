@@ -480,3 +480,88 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// TestMultiProviderDiscoveryCarriesTheToken is the property the multi-provider
+// path never had.
+//
+// The consumer side was right — askOneProvider reads the token and sets the
+// header — but the token was empty every time, because the orchestrator
+// answered with a ServiceRecordList_v1, which has nowhere to put one. So every
+// request from GetStates went out unauthorized, each provider refused it, and
+// the round repeated on the next poll. The comment claiming this was fixed was
+// written in the past tense while it was still true.
+func TestMultiProviderDiscoveryCarriesTheToken(t *testing.T) {
+	http.DefaultClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		body := `{"version":"ServicePointList_v1","list":[` +
+			`{"providerName":"kitchen","definition":"temperature","serviceURL":"http://kitchen/temperature",` +
+			`"serviceNode":"kitchen_n","token":"token-for-kitchen","version":"ServicePoint_v1"},` +
+			`{"providerName":"bathroom","definition":"temperature","serviceURL":"http://bathroom/temperature",` +
+			`"serviceNode":"bathroom_n","token":"token-for-bathroom","version":"ServicePoint_v1"}]}`
+		return &http.Response{
+			Status: "200 OK", StatusCode: 200,
+			Header:  http.Header{"Content-Type": []string{"application/json"}},
+			Body:    io.NopCloser(strings.NewReader(body)),
+			Request: req,
+		}, nil
+	})
+
+	cer := multiProviderCervice(nil, map[string][]string{"Forms": {"SignalA_v1a"}})
+	sys := createTestSystem(false)
+	if err := Search4MultipleServicesAs(cer, &sys, "read"); err != nil {
+		t.Fatalf("discovery: %v", err)
+	}
+
+	want := map[string]string{
+		"http://kitchen/temperature":  "token-for-kitchen",
+		"http://bathroom/temperature": "token-for-bathroom",
+	}
+	found := 0
+	for _, nodes := range cer.Nodes {
+		for _, ni := range nodes {
+			expected, known := want[ni.URL]
+			if !known {
+				continue
+			}
+			found++
+			token, discovered := ni.TokenFor("read")
+			if !discovered || token == "" {
+				t.Errorf("%s was discovered with no token, so every request to it "+
+					"is refused in an authorized cloud", ni.URL)
+				continue
+			}
+			if token != expected {
+				t.Errorf("%s carries %q, want %q — the token belongs to the provider "+
+					"it was minted for", ni.URL, token, expected)
+			}
+		}
+	}
+	if found != len(want) {
+		t.Errorf("%d of %d providers were recorded", found, len(want))
+	}
+}
+
+// An orchestrator that predates the token-carrying answer still has its
+// providers discovered rather than the cloud stopping on an upgrade. They
+// carry no token, which is what they carried before.
+func TestAnOlderOrchestratorStillDiscovers(t *testing.T) {
+	http.DefaultClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		body := `{"version":"ServiceRecordList_v1","list":[{"registryID":1,"definition":"temperature",` +
+			`"systemName":"kitchen","serviceNode":"n","ipAddresses":["kitchen"],` +
+			`"protoPort":{"http":80},"subpath":"temperature","version":"ServiceRecord_v1"}]}`
+		return &http.Response{
+			Status: "200 OK", StatusCode: 200,
+			Header:  http.Header{"Content-Type": []string{"application/json"}},
+			Body:    io.NopCloser(strings.NewReader(body)),
+			Request: req,
+		}, nil
+	})
+
+	cer := multiProviderCervice(nil, map[string][]string{"Forms": {"SignalA_v1a"}})
+	sys := createTestSystem(false)
+	if err := Search4MultipleServicesAs(cer, &sys, "read"); err != nil {
+		t.Fatalf("an older orchestrator's answer was refused: %v", err)
+	}
+	if _, _, ok := pickNode(cer, "read"); !ok {
+		t.Error("no provider was discovered, so an upgrade of one end stops the other")
+	}
+}
