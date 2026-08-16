@@ -37,6 +37,15 @@ import (
 type BoundPorts struct {
 	mu    sync.RWMutex
 	ports map[string]int
+	// ever records the port a protocol was last bound on and is never cleared.
+	//
+	// ports answers "what is being served now", which is the right question for
+	// registration and the wrong one for a security decision. A system that
+	// refuses plaintext while TLS is bound would start accepting it again the
+	// moment the TLS server returned — a cert rotation, a stolen port, a
+	// cancelled context — because Release drops the entry and the check reads
+	// zero. A permission that can come back on its own is not a permission.
+	ever map[string]int
 }
 
 // Bind records that a protocol is being served on a port. Call it after the
@@ -48,7 +57,22 @@ func (b *BoundPorts) Bind(protocol string, port int) {
 	if b.ports == nil {
 		b.ports = make(map[string]int, 2)
 	}
+	if b.ever == nil {
+		b.ever = make(map[string]int, 2)
+	}
 	b.ports[protocol] = port
+	b.ever[protocol] = port
+}
+
+// EverBound reports the port a protocol was last served on, and whether it has
+// ever been served at all. Unlike Port it does not go back to zero when the
+// server stops, so a decision taken on the strength of TLS having been bound
+// stays taken.
+func (b *BoundPorts) EverBound(protocol string) (int, bool) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	port, ok := b.ever[protocol]
+	return port, ok
 }
 
 // Release records that a protocol is no longer being served.
