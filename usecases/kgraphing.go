@@ -86,6 +86,77 @@ func rdfObject(value string) string {
 	return `"` + escaped + `"`
 }
 
+// afoDefined names the predicates the Arrowhead Framework Ontology defines.
+//
+// It exists so that afo: means what it says. Everything this file writes with
+// that prefix is a term someone declared in the ontology, with a domain, a range
+// and a comment; everything else goes to alc:, the local cloud's own namespace,
+// which is ours to mint in.
+//
+// The distinction is not pedantry. Writing afo:hasCost invents vocabulary in a
+// namespace this project does not own: no reasoner can interpret it, the
+// ontology's SHACL shapes cannot validate it, and a consumer that dereferences
+// the prefix to find out what it means finds nothing. Worse, the husk detail
+// loop below turns any configuration key into a predicate, so an operator could
+// mint afo: terms by editing a JSON file.
+//
+// This list is also the agenda. A term under alc: that ought to be shared
+// vocabulary is one to propose for the next ontology release, and moving it is
+// one line here once it lands. hasFunctionalLocation went the other way: it was
+// always written as afo: because the AFO-IDO, DEXPI and STEP alignment
+// ontologies bridge it and the authorizer matches policy on it, so the ontology
+// is where it belongs and version 1.2.0 is where it is being proposed.
+//
+// Kept in sync with ontology version 1.2.0.
+var afoDefined = map[string]bool{
+	// Object properties
+	"communicatesOver": true, "consumes": true, "consumesService": true,
+	"consumingFromSystem": true, "contains": true, "endpointOfHusk": true,
+	"hasDeveloper": true, "hasHusk": true, "hasSecurityPosture": true,
+	"hasServer": true, "hasUnitAsset": true, "hostedOnEndpoint": true,
+	"hostingEndpoint": true, "isContainedIn": true, "isHostOf": true,
+	"isHuskOf": true, "isServerOf": true, "isUnitAssetOf": true,
+	"onHost": true, "providesService": true, "providingToSystem": true,
+	"runsOnHost": true, "serviceConsumedBy": true, "serviceProvidedBy": true,
+
+	// Datatype properties
+	"acceptsPlaintext": true, "canVerifyPeers": true, "hasIPAddress": true,
+	"hasMission": true, "hasName": true, "hasRegistrationPeriod": true,
+	"hasSecurityLevel": true, "hasServiceDefinition": true, "hasUrl": true,
+	"isIdentified": true, "isSubscribable": true, "namesAuthorizer": true,
+	"hasFunctionalLocation": true, "namesCertificateAuthority": true,
+	"offersTLS": true, "usesPort": true,
+	"usesProtocol": true, "verifiesTokens": true,
+}
+
+// predicate returns the prefixed name to write for a property, in the ontology's
+// namespace when the ontology defines it and in the local cloud's otherwise.
+func predicate(local string) string {
+	if afoDefined[local] {
+		return "afo:" + local
+	}
+	return "alc:" + local
+}
+
+// detailPredicate turns a configuration detail key into a predicate, and reports
+// whether it can be written at all.
+//
+// The key reaches the predicate position of a triple, where a value would have
+// been escaped or quoted by rdfObject. A key of "Functional Location" produced
+//
+//	afo:hasFunctional Location alc:Kitchen .
+//
+// which is not Turtle at all — so one detail key with a space in an operator's
+// systemconfig.json made the whole cloud's graph unparseable, and the triple
+// store rejected the lot rather than the line.
+func detailPredicate(key string) (string, bool) {
+	local := "has" + key
+	if !isValidPNLocal(local) {
+		return "", false
+	}
+	return predicate(local), true
+}
+
 // isValidPNLocal applies a conservative subset of Turtle's PN_LOCAL rule:
 // non-empty, does not start with a digit, and contains only ASCII letters,
 // digits, underscore, or hyphen. This excludes spaces, slashes, dots in
@@ -201,7 +272,7 @@ func modelSecurity(sys *components.System) string {
 		{"offersTLS", p.OffersTLS},
 		{"acceptsPlaintext", p.AcceptsPlaintext},
 	} {
-		m += fmt.Sprintf("    afo:%s \"%t\"^^xsd:boolean ;\n", f.predicate, f.value)
+		m += fmt.Sprintf("    %s \"%t\"^^xsd:boolean ;\n", predicate(f.predicate), f.value)
 	}
 
 	m = finalizeBlock(m)
@@ -231,8 +302,13 @@ func modelHusk(sys *components.System) string {
 		if key == "LocalCloud" {
 			continue
 		}
+		pred, ok := detailPredicate(key)
+		if !ok {
+			log.Printf("kgraph: the detail %q cannot be written as a predicate and is left out of the graph; use a name of letters, digits, underscores or hyphens\n", key)
+			continue
+		}
 		for _, value := range values {
-			huskModel += fmt.Sprintf("    afo:has%s %s ;\n", key, rdfObject(value))
+			huskModel += fmt.Sprintf("    %s %s ;\n", pred, rdfObject(value))
 		}
 	}
 
@@ -302,16 +378,19 @@ func modelUAsset(sys *components.System) string {
 
 		details := (*asset).GetDetails()
 		for key, values := range details {
-			// FunctionalLocation is emitted in the AFO namespace so the
-			// AFO-IDO/DEXPI/STEP alignment ontologies can bridge it to
-			// the upstream vocabularies. Other detail keys remain local
-			// (alc:has<Key>) until they too have an alignment target.
-			predicate := "alc:has" + key
-			if key == "FunctionalLocation" {
-				predicate = "afo:hasFunctionalLocation"
+			// FunctionalLocation lands in the AFO namespace because the
+			// AFO-IDO/DEXPI/STEP alignment ontologies bridge it to the
+			// upstream vocabularies; other detail keys stay local until
+			// they too have an alignment target. That decision lives in
+			// afoDefined now rather than in an exception here, and the key
+			// is checked before it reaches the predicate position.
+			pred, ok := detailPredicate(key)
+			if !ok {
+				log.Printf("kgraph: the detail %q cannot be written as a predicate and is left out of the graph; use a name of letters, digits, underscores or hyphens\n", key)
+				continue
 			}
 			for _, value := range values {
-				assetModel += fmt.Sprintf("    %s %s ;\n", predicate, rdfObject(value))
+				assetModel += fmt.Sprintf("    %s %s ;\n", pred, rdfObject(value))
 			}
 		}
 
@@ -355,7 +434,7 @@ func modelCervices(sName string, ua *components.UnitAsset) string {
 			sName, asset.GetName(), cervice.Definition)
 		cerviceModel += fmt.Sprintf("    afo:consumes \"%s\" ;\n", cervice.Definition)
 		if cervice.Mode != "" {
-			cerviceModel += fmt.Sprintf("    afo:hasMode \"%s\" ;\n", cervice.Mode)
+			cerviceModel += fmt.Sprintf("    "+predicate("hasMode")+" \"%s\" ;\n", cervice.Mode)
 		}
 
 		details := cervice.Details
@@ -368,7 +447,7 @@ func modelCervices(sName string, ua *components.UnitAsset) string {
 		for pName, nodes := range cervice.Nodes {
 			cerviceModel += fmt.Sprintf("    afo:consumes alc:%s ;\n", pName)
 			for _, ni := range nodes {
-				cerviceModel += fmt.Sprintf("    afo:fromUrl <%s> ;\n", ni.URL)
+				cerviceModel += fmt.Sprintf("    "+predicate("fromUrl")+" <%s> ;\n", ni.URL)
 			}
 		}
 
@@ -420,11 +499,11 @@ func modelServices(sName string, ua *components.UnitAsset, sys *components.Syste
 
 		serviceModel += fmt.Sprintf("    afo:isSubscribable \"%t\"^^xsd:boolean ;\n", service.SubscribeAble)
 		if service.CFootprint != 0 {
-			serviceModel += fmt.Sprintf("    afo:hasCarbonFootprint \"%.6f\"^^xsd:decimal ;\n", service.CFootprint)
+			serviceModel += fmt.Sprintf("    "+predicate("hasCarbonFootprint")+" \"%.6f\"^^xsd:decimal ;\n", service.CFootprint)
 		}
 		if service.CUnit != "" {
-			serviceModel += fmt.Sprintf("    afo:hasCost \"%.2f\"^^xsd:decimal ;\n", service.ACost)
-			serviceModel += fmt.Sprintf("    afo:hasCostUnit \"%s\"^^xsd:string ;\n", service.CUnit)
+			serviceModel += fmt.Sprintf("    "+predicate("hasCost")+" \"%.2f\"^^xsd:decimal ;\n", service.ACost)
+			serviceModel += fmt.Sprintf("    "+predicate("hasCostUnit")+" \"%s\"^^xsd:string ;\n", service.CUnit)
 		}
 		serviceModel += fmt.Sprintf("    afo:hasRegistrationPeriod %d ;\n", service.RegPeriod)
 
