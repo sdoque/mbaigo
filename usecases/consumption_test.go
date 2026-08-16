@@ -199,7 +199,7 @@ var testStateParams = []stateParams{
 
 func TestGetState(t *testing.T) {
 	for _, test := range testStateParams {
-		newMockTransport(test.body, test.mockTransportErr, test.errHTTP)
+		newMockTransport(t, test.body, test.mockTransportErr, test.errHTTP)
 		res, err := GetState(test.testCer, &test.testSys)
 
 		if test.expectedfForm != nil {
@@ -224,7 +224,7 @@ func TestGetState(t *testing.T) {
 
 func TestSetState(t *testing.T) {
 	for _, test := range testStateParams {
-		newMockTransport(test.body, test.mockTransportErr, test.errHTTP)
+		newMockTransport(t, test.body, test.mockTransportErr, test.errHTTP)
 
 		cer := test.testCer
 		if test.setCer != nil {
@@ -388,7 +388,7 @@ func TestGetStates(t *testing.T) {
 	for _, testCase := range getStatesTestParams {
 		testCer := newTestCerviceWithoutNodes()
 		testSys := createTestSystem(false)
-		newMockTransport(testCase.body, testCase.mockTransportErr, testCase.errHTTP)
+		newMockTransport(t, testCase.body, testCase.mockTransportErr, testCase.errHTTP)
 
 		res, err := GetStates(testCer, &testSys)
 
@@ -407,7 +407,7 @@ func TestGetStates(t *testing.T) {
 		Protos:      []string{"http"},
 	}
 	testSys := createTestSystem(false)
-	newMockTransport(createWorkingHttpResp(), 0, nil)
+	newMockTransport(t, createWorkingHttpResp(), 0, nil)
 
 	res, err := GetStates(&cerWithNodes, &testSys)
 	expectedForm := []forms.Form{form.NewForm(), form.NewForm(), form.NewForm()}
@@ -427,7 +427,7 @@ func TestGetStates(t *testing.T) {
 		Protos:      []string{"http"},
 	}
 	testSys = createTestSystem(false)
-	newMockTransport(createWorkingHttpResp(), 0, nil)
+	newMockTransport(t, createWorkingHttpResp(), 0, nil)
 
 	res, err = GetStates(&cerWithBrokenUrlNode, &testSys)
 	expectedForm = []forms.Form{form.NewForm(), nil, form.NewForm()}
@@ -446,7 +446,7 @@ type logTransportMock struct {
 
 func newLogTransportMock(t *testing.T) *logTransportMock {
 	lt := &logTransportMock{t, nil}
-	http.DefaultClient.Transport = lt
+	useTransport(t, lt)
 	return lt
 }
 

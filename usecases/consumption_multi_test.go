@@ -68,11 +68,11 @@ func signalBody(value float64, unit string) string {
 }
 
 // mockProviders installs a transport answering the given URL→body map and
-// returns it. The default client is already hijacked by the other tests in this
-// package, so replacing it here is in keeping.
-func mockProviders(readings map[string]string) *recordingTransport {
+// returns it, restoring the previous one when the test ends.
+func mockProviders(t *testing.T, readings map[string]string) *recordingTransport {
+	t.Helper()
 	rt := &recordingTransport{readings: readings}
-	http.DefaultClient.Transport = rt
+	useTransport(t, rt)
 	return rt
 }
 
@@ -92,7 +92,7 @@ func multiProviderCervice(nodes []components.NodeInfo, details map[string][]stri
 // multi-provider path went out unauthorized, so in a cloud with an authorizer
 // this whole path was refused while the single-provider path worked.
 func TestGetStatesSendsEachProvidersToken(t *testing.T) {
-	rt := mockProviders(map[string]string{
+	rt := mockProviders(t, map[string]string{
 		"http://north/temperature": signalBody(20, ""),
 		"http://south/temperature": signalBody(21, ""),
 	})
@@ -127,7 +127,7 @@ func TestGetStatesSendsEachProvidersToken(t *testing.T) {
 // and a °F sensor got 20 and 68 in one slice with nothing to say which was
 // which, and averaging them gave 44 of nothing.
 func TestGetStatesNormalizesEveryProvidersUnit(t *testing.T) {
-	mockProviders(map[string]string{
+	mockProviders(t, map[string]string{
 		"http://celsius/temperature":    signalBody(20, "<http://qudt.org/vocab/unit/DEG_C>"),
 		"http://fahrenheit/temperature": signalBody(68, "<http://qudt.org/vocab/unit/DEG_F>"),
 	})
@@ -170,7 +170,7 @@ func TestGetStatesNormalizesEveryProvidersUnit(t *testing.T) {
 // nothing showed. The moment this path carried a payload, the second provider
 // would have been sent the first one's answer as its request.
 func TestGetStatesDoesNotSendOneProvidersAnswerToTheNext(t *testing.T) {
-	rt := mockProviders(map[string]string{
+	rt := mockProviders(t, map[string]string{
 		"http://first/temperature":  signalBody(20, ""),
 		"http://second/temperature": signalBody(21, ""),
 	})
@@ -197,7 +197,7 @@ func TestGetStatesDoesNotSendOneProvidersAnswerToTheNext(t *testing.T) {
 // proportionate. One unreachable provider used to empty cer.Nodes, discarding
 // the ones that had just answered and forcing a rediscovery on the next call.
 func TestGetStatesKeepsWorkingProvidersWhenOneFails(t *testing.T) {
-	mockProviders(map[string]string{
+	mockProviders(t, map[string]string{
 		"http://alive/temperature": signalBody(20, ""),
 		// nothing at http://dead/temperature — the transport refuses it
 	})
@@ -227,7 +227,7 @@ func TestGetStatesKeepsWorkingProvidersWhenOneFails(t *testing.T) {
 // TestGetStatesForgetsProvidersWhenNoneAnswer is the other side of it: when
 // nothing answered, nothing may be used again without rediscovering it.
 func TestGetStatesForgetsProvidersWhenNoneAnswer(t *testing.T) {
-	mockProviders(map[string]string{})
+	mockProviders(t, map[string]string{})
 
 	cer := multiProviderCervice([]components.NodeInfo{
 		{URL: "http://dead1/temperature", Tokens: map[string]string{"read": ""}},
@@ -256,7 +256,7 @@ func TestGetStatesForgetsProvidersWhenNoneAnswer(t *testing.T) {
 // at the cost of its own timeout — for as long as the consumer ran, and long
 // after the registrar had stopped listing it.
 func TestADeadProviderIsForgottenWhileTheLiveOneIsKept(t *testing.T) {
-	mockProviders(map[string]string{
+	mockProviders(t, map[string]string{
 		"http://alive/temperature": signalBody(20, ""),
 		// nothing mocked at http://dead/temperature
 	})
@@ -296,7 +296,7 @@ func TestADeadProviderIsForgottenWhileTheLiveOneIsKept(t *testing.T) {
 // Adding without removing is what left a departed sensor in the list.
 func TestDiscoveryDropsAProviderTheRegistrarNoLongerLists(t *testing.T) {
 	// The registrar now lists only the survivor.
-	http.DefaultClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+	useTransport(t, roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		body := `{"version":"ServiceRecordList_v1","list":[{"registryID":1,"definition":"temperature",` +
 			`"systemName":"survivor","serviceNode":"n","ipAddresses":["survivor"],` +
 			`"protoPort":{"http":80},"subpath":"temperature","version":"ServiceRecord_v1"}]}`
@@ -306,7 +306,7 @@ func TestDiscoveryDropsAProviderTheRegistrarNoLongerLists(t *testing.T) {
 			Body:    io.NopCloser(strings.NewReader(body)),
 			Request: req,
 		}, nil
-	})
+	}))
 
 	cer := multiProviderCervice([]components.NodeInfo{
 		{URL: "http://survivor:80/temperature", Tokens: map[string]string{"read": "old"}},
@@ -371,7 +371,7 @@ func (t *actionRecordingTransport) RoundTrip(req *http.Request) (*http.Response,
 // the ethermostat's heaters never switched.
 func TestTheTokenIsMintedForTheActionPerformed(t *testing.T) {
 	rt := &actionRecordingTransport{serviceURL: "http://provider/OnOff"}
-	http.DefaultClient.Transport = rt
+	useTransport(t, rt)
 
 	// No Mode at all — the case that used to silently mean "read".
 	cer := &components.Cervice{
@@ -400,7 +400,7 @@ func TestTheTokenIsMintedForTheActionPerformed(t *testing.T) {
 // discovered first won, and the other was refused for the life of the process.
 func TestOneCerviceHoldsATokenPerAction(t *testing.T) {
 	rt := &actionRecordingTransport{serviceURL: "http://provider/order"}
-	http.DefaultClient.Transport = rt
+	useTransport(t, rt)
 
 	cer := &components.Cervice{
 		IReferentce: "test", Definition: "order",
@@ -443,14 +443,14 @@ func TestOneCerviceHoldsATokenPerAction(t *testing.T) {
 // body, and returning a bare status code left the operator with "403" for a
 // refusal that names its own cause.
 func TestARefusalCarriesItsReason(t *testing.T) {
-	http.DefaultClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+	useTransport(t, roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{
 			Status: "403 Forbidden", StatusCode: 403,
 			Header:  http.Header{"Content-Type": []string{"text/plain"}},
 			Body:    io.NopCloser(strings.NewReader("mismatch (action): read vs write")),
 			Request: req,
 		}, nil
-	})
+	}))
 
 	cer := multiProviderCervice([]components.NodeInfo{
 		{URL: "http://provider/OnOff", Tokens: map[string]string{"read": "stale"}},
@@ -492,7 +492,7 @@ func equalStrings(a, b []string) bool {
 // the round repeated on the next poll. The comment claiming this was fixed was
 // written in the past tense while it was still true.
 func TestMultiProviderDiscoveryCarriesTheToken(t *testing.T) {
-	http.DefaultClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+	useTransport(t, roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		body := `{"version":"ServicePointList_v1","list":[` +
 			`{"providerName":"kitchen","definition":"temperature","serviceURL":"http://kitchen/temperature",` +
 			`"serviceNode":"kitchen_n","token":"token-for-kitchen","version":"ServicePoint_v1"},` +
@@ -504,7 +504,7 @@ func TestMultiProviderDiscoveryCarriesTheToken(t *testing.T) {
 			Body:    io.NopCloser(strings.NewReader(body)),
 			Request: req,
 		}, nil
-	})
+	}))
 
 	cer := multiProviderCervice(nil, map[string][]string{"Forms": {"SignalA_v1a"}})
 	sys := createTestSystem(false)
@@ -545,7 +545,7 @@ func TestMultiProviderDiscoveryCarriesTheToken(t *testing.T) {
 // providers discovered rather than the cloud stopping on an upgrade. They
 // carry no token, which is what they carried before.
 func TestAnOlderOrchestratorStillDiscovers(t *testing.T) {
-	http.DefaultClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+	useTransport(t, roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		body := `{"version":"ServiceRecordList_v1","list":[{"registryID":1,"definition":"temperature",` +
 			`"systemName":"kitchen","serviceNode":"n","ipAddresses":["kitchen"],` +
 			`"protoPort":{"http":80},"subpath":"temperature","version":"ServiceRecord_v1"}]}`
@@ -555,7 +555,7 @@ func TestAnOlderOrchestratorStillDiscovers(t *testing.T) {
 			Body:    io.NopCloser(strings.NewReader(body)),
 			Request: req,
 		}, nil
-	})
+	}))
 
 	cer := multiProviderCervice(nil, map[string][]string{"Forms": {"SignalA_v1a"}})
 	sys := createTestSystem(false)
@@ -579,7 +579,7 @@ func TestAnOlderOrchestratorStillDiscovers(t *testing.T) {
 // code, it panics outright often enough to matter. Either way it fails, which
 // is what a test of this can honestly claim.
 func TestOneCerviceSurvivesTwoPollingGoroutines(t *testing.T) {
-	http.DefaultClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+	useTransport(t, roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		// Alternating answers, so pruneNodes has something to delete on some
 		// rounds and something to keep on others.
 		body := `{"version":"ServicePointList_v1","list":[` +
@@ -591,7 +591,7 @@ func TestOneCerviceSurvivesTwoPollingGoroutines(t *testing.T) {
 			Body:    io.NopCloser(strings.NewReader(body)),
 			Request: req,
 		}, nil
-	})
+	}))
 
 	cer := multiProviderCervice([]components.NodeInfo{
 		{URL: "http://a/temperature", Tokens: map[string]string{"read": "old"}},
@@ -632,7 +632,7 @@ func TestOneCerviceSurvivesTwoPollingGoroutines(t *testing.T) {
 // sensor where there had been two, and nothing said so.
 func TestAWriteDiscoveryKeepsTheReadOnlyProviders(t *testing.T) {
 	// The write discovery: only the read-write provider may be written to.
-	http.DefaultClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+	useTransport(t, roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		body := `{"version":"ServicePointList_v1","list":[` +
 			`{"providerName":"rw","definition":"temperature","serviceURL":"http://rw/temperature",` +
 			`"serviceNode":"rw","token":"write-token","version":"ServicePoint_v1"}]}`
@@ -642,7 +642,7 @@ func TestAWriteDiscoveryKeepsTheReadOnlyProviders(t *testing.T) {
 			Body:    io.NopCloser(strings.NewReader(body)),
 			Request: req,
 		}, nil
-	})
+	}))
 
 	// Both were discovered earlier, for reading.
 	cer := multiProviderCervice([]components.NodeInfo{
@@ -678,7 +678,7 @@ func TestAWriteDiscoveryKeepsTheReadOnlyProviders(t *testing.T) {
 // loop reads as "nothing changed" rather than "there are no sensors" — and it
 // then holds its last output against a cloud that has none.
 func TestAnEmptyRoundIsAnError(t *testing.T) {
-	http.DefaultClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+	useTransport(t, roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		body := `{"version":"ServicePointList_v1","list":[]}`
 		return &http.Response{
 			Status: "200 OK", StatusCode: 200,
@@ -686,7 +686,7 @@ func TestAnEmptyRoundIsAnError(t *testing.T) {
 			Body:    io.NopCloser(strings.NewReader(body)),
 			Request: req,
 		}, nil
-	})
+	}))
 
 	cer := multiProviderCervice(nil, map[string][]string{"Forms": {"SignalA_v1a"}})
 	sys := createTestSystem(false)
@@ -705,4 +705,83 @@ func TestAnEmptyRoundIsAnError(t *testing.T) {
 		t.Errorf("a round with no providers returned %d forms and no error; a control "+
 			"loop cannot tell that from a quiet cloud", len(forms))
 	}
+}
+
+// TestOnlyTheProviderItselfCostsItsToken separates a provider that is gone from
+// a provider that answered something this consumer could not read.
+//
+// forgetToken fired on every error class — an empty body, an unknown form
+// version, a unit that could not be converted. Those are the provider answering,
+// and it is still the provider it was discovered as; forgetting its token meant
+// one sensor speaking an unfamiliar dialect cost a full rediscovery of every
+// provider on every poll, for as long as it kept speaking it.
+func TestOnlyTheProviderItselfCostsItsToken(t *testing.T) {
+	// A provider that answers, in a form this consumer does not know.
+	useTransport(t, roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			Status: "200 OK", StatusCode: 200,
+			Header:  http.Header{"Content-Type": []string{"application/json"}},
+			Body:    io.NopCloser(strings.NewReader(`{"version":"SignalZ_v9","value":1}`)),
+			Request: req,
+		}, nil
+	}))
+
+	cer := multiProviderCervice([]components.NodeInfo{
+		{URL: "http://odd/temperature", Tokens: map[string]string{"read": "token"}},
+	}, map[string][]string{"Forms": {"SignalA_v1a"}})
+	sys := createTestSystem(false)
+
+	_, errs := stateHandlers(http.MethodGet, cer, &sys, nil)
+	if len(errs) == 0 || errs[0] == nil {
+		t.Fatal("an unreadable answer was not reported")
+	}
+
+	if _, _, ok := pickNode(cer, "read"); !ok {
+		t.Error("the provider lost its token for answering in a form this consumer " +
+			"does not know, so every poll now pays a rediscovery of everything")
+	}
+}
+
+// A provider that refuses the credential is a different matter: the token is
+// what was wrong, so it goes and the next call rediscovers.
+func TestARefusedCredentialCostsItsToken(t *testing.T) {
+	useTransport(t, roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			Status: "401 Unauthorized", StatusCode: 401,
+			Header:  http.Header{"Content-Type": []string{"text/plain"}},
+			Body:    io.NopCloser(strings.NewReader("no access token")),
+			Request: req,
+		}, nil
+	}))
+
+	cer := multiProviderCervice([]components.NodeInfo{
+		{URL: "http://strict/temperature", Tokens: map[string]string{"read": "stale"}},
+	}, map[string][]string{"Forms": {"SignalA_v1a"}})
+	sys := createTestSystem(false)
+
+	_, errs := stateHandlers(http.MethodGet, cer, &sys, nil)
+	if len(errs) == 0 || errs[0] == nil {
+		t.Fatal("a refusal was not reported")
+	}
+	if !strings.Contains(errs[0].Error(), "401") {
+		t.Errorf("the failure reads %q, which does not say the request was refused", errs[0])
+	}
+	if _, _, ok := pickNode(cer, "read"); ok {
+		t.Error("a token the provider refused was kept, so the next call presents it again")
+	}
+}
+
+// useTransport installs a round tripper on the framework's client for one test
+// and puts the previous one back afterwards.
+//
+// Every test here that mocked the transport used to leave it installed, so each
+// one handed its mock to whatever ran next — a package where one test answers
+// every request with a PEM certificate and another with a service list, and the
+// only thing keeping them apart is the order the files happen to be in. It held
+// together until a test was renamed.
+func useTransport(t *testing.T, rt http.RoundTripper) {
+	t.Helper()
+	previous := http.DefaultClient.Transport
+	http.DefaultClient.Transport = rt
+	t.Cleanup(func() { http.DefaultClient.Transport = previous })
 }

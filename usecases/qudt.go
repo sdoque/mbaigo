@@ -435,7 +435,25 @@ func AdoptUnit(bearer forms.UnitBearer, want string, interval bool) error {
 	source, sent := LookupUnit(got)
 	if !known || !sent {
 		if got != want {
-			return fmt.Errorf("the value is in %q but %q was expected, and neither is a QUDT unit that can be converted", got, want)
+			// Which side could not be resolved, because that is what an
+			// operator has to change. The reading is refused rather than passed
+			// through: a number relabelled with a unit nobody could convert
+			// into is a wrong number that looks entirely reasonable, and these
+			// drive heaters and valves.
+			switch {
+			case !known && !sent:
+				return fmt.Errorf("the value is in %q and %q was expected, and neither is a unit "+
+					"this framework can convert; write QUDT identifiers such as "+
+					"<http://qudt.org/vocab/unit/DEG_C> in both places", got, want)
+			case !sent:
+				return fmt.Errorf("the value is in %q, which is not a unit this framework can "+
+					"convert into %q; write a QUDT identifier such as "+
+					"<http://qudt.org/vocab/unit/DEG_C> in the providing service's details", got, want)
+			default:
+				return fmt.Errorf("%q was expected, which is not a unit this framework can convert "+
+					"the value's %q into; write a QUDT identifier such as "+
+					"<http://qudt.org/vocab/unit/DEG_C> where the unit is asked for", want, got)
+			}
 		}
 		return nil
 	}

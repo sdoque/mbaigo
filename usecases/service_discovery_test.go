@@ -133,7 +133,7 @@ func testSystemSetup() (resp func() *http.Response, data []byte, ctx context.Con
 
 func TestSendHttpReq(t *testing.T) {
 	resp, data, ctx, err := testSystemSetup()
-	newMockTransport(resp, 0, nil)
+	newMockTransport(t, resp, 0, nil)
 	if err != nil {
 		t.Errorf("Error occurred while starting test system: %e", err)
 	}
@@ -147,12 +147,12 @@ func TestSendHttpReq(t *testing.T) {
 	for _, c := range params {
 		// Make sure the the mockTransport doesn't return an error unless needed by the test
 		if (lastLoopErr == true) && (c.respError == false) {
-			newMockTransport(resp, 0, nil)
+			newMockTransport(t, resp, 0, nil)
 			lastLoopErr = false
 		}
 		// Make a new mockTransport with an error response if the test needs it
 		if (lastLoopErr == false) && (c.respError == true) {
-			newMockTransport(resp, 1, errHTTP)
+			newMockTransport(t, resp, 1, errHTTP)
 			lastLoopErr = true
 		}
 		// Run the test
@@ -211,25 +211,25 @@ func TestSearch4Service(t *testing.T) {
 		{
 			false,
 			createMultiHttpResp(200, false, 0),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(t, resp, 0, nil) },
 			"Best case",
 		},
 		{
 			true,
 			createMultiHttpResp(200, false, 0),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 1, errHTTP) },
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(t, resp, 1, errHTTP) },
 			"Bad case, error getting core system url",
 		},
 		{
 			true,
 			createMultiHttpResp(200, false, 0),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 1, errHTTP) },
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(t, resp, 1, errHTTP) },
 			"Bad case, error sending http request",
 		},
 		{
 			true,
 			createMultiHttpResp(200, true, 1),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(t, resp, 0, nil) },
 			"Bad case, error reading response body",
 		},
 	}
@@ -273,7 +273,7 @@ func TestSearch4Services(t *testing.T) {
 				return
 			},
 			createMultiHttpResp(200, false, 0),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(t, resp, 0, nil) },
 			"Best case, no errors",
 		},
 		{
@@ -284,7 +284,7 @@ func TestSearch4Services(t *testing.T) {
 				return
 			},
 			createMultiHttpResp(200, false, 0),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 1, errHTTP) },
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(t, resp, 1, errHTTP) },
 			"Bad case, GetRunningCoreSystemURL() returns error",
 		},
 		{
@@ -300,7 +300,7 @@ func TestSearch4Services(t *testing.T) {
 				return
 			},
 			createMultiHttpResp(200, false, 0),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(t, resp, 0, nil) },
 			"Bad case, Orchestrator url is empty",
 		},
 		{
@@ -311,7 +311,7 @@ func TestSearch4Services(t *testing.T) {
 				return
 			},
 			createMultiHttpResp(200, false, 0),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 1, errHTTP) },
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(t, resp, 1, errHTTP) },
 			"Bad case, sendHttpReq() returns an error",
 		},
 		{
@@ -322,7 +322,7 @@ func TestSearch4Services(t *testing.T) {
 				return
 			},
 			createMultiHttpResp(200, true, 1),
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(t, resp, 0, nil) },
 			"Bad case, error while reading body",
 		},
 		{
@@ -340,7 +340,7 @@ func TestSearch4Services(t *testing.T) {
 					Body:       io.NopCloser(strings.NewReader(string(""))),
 				}
 			},
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(t, resp, 0, nil) },
 			"Bad case, error during Unpack",
 		},
 		{
@@ -358,7 +358,7 @@ func TestSearch4Services(t *testing.T) {
 					Body:       io.NopCloser(strings.NewReader(string(`{"version":"SignalA_v1.0"}`))),
 				}
 			},
-			func(resp func() *http.Response) *mockTransport { return newMockTransport(resp, 0, nil) },
+			func(resp func() *http.Response) *mockTransport { return newMockTransport(t, resp, 0, nil) },
 			"Bad case, error during type conversion",
 		},
 	}
@@ -592,7 +592,7 @@ func TestSearch4MultipleServices(t *testing.T) {
 			}
 		}
 
-		newMockTransport(testCase.response, testCase.mockTransportErr, testCase.errHTTP)
+		newMockTransport(t, testCase.response, testCase.mockTransportErr, testCase.errHTTP)
 
 		// Test
 		err := Search4MultipleServices(testCer, &testSys)

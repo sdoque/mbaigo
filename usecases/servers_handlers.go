@@ -144,8 +144,17 @@ func startHTTPSServer(sys *components.System, httpsPort int) error {
 		return fmt.Errorf("parsing certificate/private key: %w", err)
 	}
 
+	// Peer certificates are verified against the cloud's CA alone — deliberately
+	// not the host's trusted authorities, which the client pool includes: a
+	// WebPKI certificate must never become a peer identity inside the cloud.
 	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM([]byte(sys.Husk.CA_cert))
+	if !caCertPool.AppendCertsFromPEM([]byte(sys.Husk.CA_cert)) {
+		// Binding anyway gives an HTTPS port that refuses every peer, with a TLS
+		// error at each caller and nothing here to say why. Refusing to bind
+		// leaves the system on HTTP, which the rest of the cloud already knows
+		// how to treat, and puts the reason in one place.
+		return fmt.Errorf("the CA certificate could not be read, so no peer could be verified")
+	}
 
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
@@ -380,6 +389,22 @@ func permitted(sys *components.System, w http.ResponseWriter, r *http.Request, a
 		if _, err := components.GetRunningCoreSystemURL(sys, AuthorizerName); err == nil {
 			log.Printf("%s: refusing %s %s: no service is registered at that path\n",
 				sys.Name, r.Method, ForLog(r.URL.Path)) //#nosec G706 -- sanitized by ForLog
+			// Which refusal depends on who is asking, because the two answers
+			// differ and the difference is information. A caller with no
+			// certificate that got 404 here and 401 on a real path could map
+			// this system's whole service surface without ever presenting a
+			// credential — one request per guess, and the status tells it which
+			// guesses were right.
+			//
+			// So an unidentified caller gets what it would have got for a
+			// service that does exist. A caller the connection can name gets the
+			// path problem stated plainly, which is what it is useful for: it
+			// sends the reader to the configuration rather than to the policy
+			// file.
+			if _, identified := PeerCN(r); !identified {
+				http.Error(w, "the caller presented no verified certificate", http.StatusUnauthorized)
+				return false
+			}
 			http.Error(w, "no service is registered at that path", http.StatusNotFound)
 			return false
 		}

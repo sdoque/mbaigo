@@ -251,7 +251,11 @@ func sendHTTPReqWithToken(method string, url string, token string, data []byte) 
 		// polling against a standing 403 does once per tick.
 		reason, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		_ = resp.Body.Close()
-		if detail := strings.TrimSpace(string(reason)); detail != "" {
+		// Sanitized like any other text from off this machine. It is written
+		// into a log line, and a remote peer that can put newlines in its own
+		// refusal can forge entries around it — the same reason paths and
+		// common names go through ForLog.
+		if detail := strings.TrimSpace(ForLog(string(reason))); detail != "" {
 			return nil, fmt.Errorf("%s: %s", resp.Status, detail)
 		}
 		return nil, fmt.Errorf("bad response: %s", resp.Status)

@@ -143,7 +143,7 @@ func (ca *signingCA) RoundTrip(req *http.Request) (*http.Response, error) {
 // concurrently writing.
 func TestEnrollmentAndPostureAreRaceFree(t *testing.T) {
 	ca := newSigningCA(t)
-	http.DefaultClient.Transport = ca
+	useTransport(t, ca)
 
 	sys := components.NewSystem("thermostat", context.Background())
 	sys.Husk = &components.Husk{

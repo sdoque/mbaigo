@@ -156,18 +156,32 @@ func acquireCertificate(sys *components.System, certReady chan struct{}) {
 	sys.Husk.Certificate = response
 	sys.Mutex.Unlock()
 
-	installTLSConfig(sys)
+	if !installTLSConfig(sys) {
+		// Not ready, so certReady stays open. Closing it regardless is what let
+		// startHTTPSServer bind a listener with RequireAndVerifyClientCert
+		// against a pool holding nothing: the system then advertised an HTTPS
+		// port that refused every peer, which looks like a cloud-wide mTLS
+		// problem rather than one system that never got the CA's certificate.
+		//
+		// The system keeps serving HTTP and keeps retrying nothing on its own —
+		// this returns, and the operator has the failure in the log above. That
+		// is the same position as a system whose enrollment has not finished,
+		// which is a state the rest of the cloud already handles.
+		log.Printf("%s: TLS is not configured, so the HTTPS endpoint will not be bound\n", sys.Name)
+		return
+	}
 	close(certReady)
 }
 
-// installTLSConfig fetches the CA certificate, builds the TLS configuration from the system's
-// certificate and private key, and installs it on http.DefaultClient.
-func installTLSConfig(sys *components.System) {
+// installTLSConfig fetches the CA certificate, builds the TLS configuration from
+// the system's certificate and private key, and installs it on
+// http.DefaultClient. It reports whether TLS is usable afterwards.
+func installTLSConfig(sys *components.System) bool {
 	// Get CA's certificate
 	caCert, err := getCACertificate(sys)
 	if err != nil {
 		log.Printf("failed to obtain CA's certificate: %v\n", err)
-		return
+		return false
 	}
 	sys.Mutex.Lock()
 	sys.Husk.CA_cert = caCert
@@ -205,8 +219,10 @@ func installTLSConfig(sys *components.System) {
 	fmt.Printf("System %s's parsed Certificate:\n", sys.Name)
 	cert, err := x509.ParseCertificate(clientCert.Certificate[0])
 	if err != nil {
+		// The configuration is installed and usable; only the summary printed
+		// for the operator is missing, so this is not a reason to withhold TLS.
 		log.Printf("failed to parse certificate: %v\n", err)
-		return
+		return true
 	}
 	fmt.Printf("  Subject: %s\n", cert.Subject)
 	fmt.Printf("  Issuer: %s\n", cert.Issuer)
@@ -215,6 +231,7 @@ func installTLSConfig(sys *components.System) {
 	fmt.Printf("  Not After: %s\n", cert.NotAfter)
 	fmt.Printf("  DNS Names: %v\n", cert.DNSNames)
 	fmt.Printf("  IP Addresses: %v\n", cert.IPAddresses)
+	return true
 }
 
 func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
@@ -245,7 +262,8 @@ func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
 		// not learn from its own output that the cause was a maitreD that was
 		// not running.
 		reason, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		if detail := strings.TrimSpace(string(reason)); detail != "" {
+		// Sanitized: this reaches a log line, and it came off the wire.
+		if detail := strings.TrimSpace(ForLog(string(reason))); detail != "" {
 			return "", fmt.Errorf("the CA refused to certify (%s): %s", resp.Status, detail)
 		}
 		return "", fmt.Errorf("the CA refused to certify: %s", resp.Status)

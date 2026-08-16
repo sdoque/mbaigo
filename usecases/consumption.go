@@ -20,9 +20,11 @@
 package usecases
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"testing"
 
 	"net/http"
@@ -270,7 +272,9 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 			// had stopped listing it. Without a token for this action the node
 			// is rediscovered on the next call, which either finds it again or
 			// does not.
-			forgetToken(cer, ni.URL, action)
+			if errors.As(currentErr, &staleProvider{}) {
+				forgetToken(cer, ni.URL, action)
+			}
 			f = append(f, nil)
 			err = append(err, currentErr)
 			continue
@@ -283,6 +287,20 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 
 	return f, err
 }
+
+// staleProvider marks a failure that says something about the *provider* rather
+// than about the answer it gave.
+//
+// Only these are worth forgetting a token over: it could not be reached, or it
+// refused the credential. An empty body, a form version this consumer does not
+// know, a unit it cannot convert — those are the provider answering, and it is
+// still the provider it was discovered as. Forgetting the token on those meant
+// one sensor answering in an unknown form cost a full rediscovery of every
+// provider on every poll thereafter, for as long as it kept answering.
+type staleProvider struct{ err error }
+
+func (s staleProvider) Error() string { return s.err.Error() }
+func (s staleProvider) Unwrap() error { return s.err }
 
 // forgetToken drops one provider's token for one action, so the next call
 // rediscovers that provider rather than presenting a token to something that
@@ -330,9 +348,19 @@ func askOneProvider(httpMethod string, ni components.NodeInfo, cer *components.C
 	token, _ := ni.TokenFor(action)
 	resp, err := sendHTTPReqWithToken(httpMethod, ni.URL, token, bodyBytes)
 	if err != nil {
-		return nil, err
+		// Unreachable: whatever was discovered is not there now.
+		return nil, staleProvider{err}
 	}
 	defer resp.Body.Close()
+
+	// Read before unpacking. A refusal carries a sentence, not a form, so
+	// unpacking it fails with a message about JSON — which is how a request
+	// refused for want of a token used to be reported as a malformed answer.
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		reason, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return nil, staleProvider{fmt.Errorf("%s refused the request: %s: %s",
+			ni.URL, resp.Status, strings.TrimSpace(ForLog(string(reason))))}
+	}
 
 	// A separate variable: assigning into bodyBytes made the previous provider's
 	// answer the request body sent to the next one.
