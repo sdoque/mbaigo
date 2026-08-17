@@ -439,8 +439,13 @@ func modelCervices(sName string, ua *components.UnitAsset) string {
 
 		details := cervice.Details
 		for key, values := range details {
+			pred, ok := detailPredicate(key)
+			if !ok {
+				log.Printf("kgraph: the detail %q cannot be written as a predicate and is left out of the graph; use a name of letters, digits, underscores or hyphens\n", key)
+				continue
+			}
 			for _, value := range values {
-				cerviceModel += fmt.Sprintf("    alc:has%s %s ;\n", key, rdfObject(value))
+				cerviceModel += fmt.Sprintf("    %s %s ;\n", pred, rdfObject(value))
 			}
 		}
 
@@ -492,8 +497,13 @@ func modelServices(sName string, ua *components.UnitAsset, sys *components.Syste
 		// Additional details
 		details := service.Details
 		for key, values := range details {
+			pred, ok := detailPredicate(key)
+			if !ok {
+				log.Printf("kgraph: the detail %q cannot be written as a predicate and is left out of the graph; use a name of letters, digits, underscores or hyphens\n", key)
+				continue
+			}
 			for _, value := range values {
-				serviceModel += fmt.Sprintf("    alc:has%s  %s ;\n", key, rdfObject(value))
+				serviceModel += fmt.Sprintf("    %s %s ;\n", pred, rdfObject(value))
 			}
 		}
 

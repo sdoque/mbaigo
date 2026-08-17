@@ -265,6 +265,25 @@ func TestModelHuskRefusesAnUnwritableDetailKey(t *testing.T) {
 		t.Errorf("a detail key with a space reached the predicate position, so the "+
 			"graph does not parse:\n%s", out)
 	}
+	// Four loops turn a detail key into a predicate — husk, asset, cervice and
+	// service. The first version of this fix corrected two of them, which is the
+	// failure this test is really guarding: one unchecked loop is enough to make
+	// the whole graph unparseable, so the check has to cover all four.
+	asset := addTestAsset(sys)
+	asset.Details["Functional Location"] = []string{"Kitchen"}
+	for _, svc := range asset.ServicesMap {
+		svc.Details["Odd Key"] = []string{"x"}
+	}
+	for _, cerv := range asset.CervicesMap {
+		cerv.Details["Another Key"] = []string{"y"}
+	}
+	sName := sys.Husk.Host.Name + "_" + sys.Name
+	whole := modelUAsset(sys) + modelCervices(sName, asset) + modelServices(sName, asset, sys)
+	for _, bad := range []string{"Functional Location", "Odd Key", "Another Key"} {
+		if strings.Contains(whole, bad) {
+			t.Errorf("the key %q reached a predicate position:\n%s", bad, whole)
+		}
+	}
 	// The rest of the block still has to be written: one unusable key costs its
 	// own triple, not the system's description.
 	if !strings.Contains(out, "alc:hasRole alc:producer") {
