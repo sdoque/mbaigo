@@ -147,7 +147,7 @@ func predicate(local string) string {
 //	afo:hasFunctional Location alc:Kitchen .
 //
 // which is not Turtle at all — so one detail key with a space in an operator's
-// systemconfig.json made the whole cloud's graph unparseable, and the triple
+// systemconfig.json made the whole cloud's graph unparsable, and the triple
 // store rejected the lot rather than the line.
 func detailPredicate(key string) (string, bool) {
 	local := "has" + key

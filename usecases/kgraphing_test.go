@@ -251,7 +251,7 @@ func TestModelHuskDetails(t *testing.T) {
 //	afo:hasFunctional Location alc:Kitchen .
 //
 // which is not Turtle, so one such key in one system's systemconfig.json made
-// the whole cloud's graph unparseable and the triple store rejected all of it —
+// the whole cloud's graph unparsable and the triple store rejected all of it —
 // not the line, the upload. The key is checked now, and a key that cannot be
 // written is left out with a line saying so.
 func TestModelHuskRefusesAnUnwritableDetailKey(t *testing.T) {
@@ -268,7 +268,7 @@ func TestModelHuskRefusesAnUnwritableDetailKey(t *testing.T) {
 	// Four loops turn a detail key into a predicate — husk, asset, cervice and
 	// service. The first version of this fix corrected two of them, which is the
 	// failure this test is really guarding: one unchecked loop is enough to make
-	// the whole graph unparseable, so the check has to cover all four.
+	// the whole graph unparsable, so the check has to cover all four.
 	asset := addTestAsset(sys)
 	asset.Details["Functional Location"] = []string{"Kitchen"}
 	for _, svc := range asset.ServicesMap {
