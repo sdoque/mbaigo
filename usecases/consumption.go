@@ -67,6 +67,30 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 		serviceUrl, token, _ = pickNode(cer, action)
 	}
 
+	// A value somebody is already keeping current, answered without asking for
+	// it. The caller's loop is unchanged and does not know: it asks on its own
+	// clock and gets a reading that is at most one publisher heartbeat old,
+	// where before every one of those calls was a request over the network.
+	//
+	// Only for a read. A PUT is an instruction to a provider and there is
+	// nothing cached about it.
+	if httpMethod == http.MethodGet {
+		Follow(cer, sys)
+		if payload, mediaType, fresh := cer.Recall(); fresh {
+			f, err = Unpack(payload, mediaType)
+			if err == nil {
+				// The same conversion a polled reading gets, by the same code:
+				// the provider publishes in its own unit and the consumer reads
+				// in the one it asked for, cached or not.
+				return NormalizeUnits(cer, f)
+			}
+			// Unreadable, so fall through and ask. Something changed at the
+			// other end that this consumer does not understand, and a request
+			// will fail loudly rather than quietly serving a stale reading.
+			cer.Forget()
+		}
+	}
+
 	resp, err := sendHTTPReqWithToken(httpMethod, serviceUrl, token, bodyBytes)
 	if err != nil {
 		// Failed to reach the provider: forget everything discovered, so the next

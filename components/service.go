@@ -25,6 +25,7 @@ package components
 import (
 	"net/http"
 	"sync"
+	"time"
 )
 
 // An Arrowhead Service has specific properties that exposes a unit asset's functionality
@@ -75,6 +76,65 @@ type Service struct {
 	ACost      float64 `json:"-"`        // activity cost to execute the service
 	CUnit      string  `json:"costUnit"` // cost unit
 	CFootprint float64 `json:"-"`        // carbon footprint in metric tonnes when executing the service
+}
+
+// Remember stores a value a subscription delivered, and the terms it arrived
+// under.
+func (c *Cervice) Remember(payload []byte, mediaType string, heartbeat time.Duration) {
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+	c.followed = payload
+	c.followedType = mediaType
+	c.followedAt = time.Now()
+	if heartbeat > 0 {
+		c.heartbeat = heartbeat
+	}
+}
+
+// Recall returns the value a subscription last delivered, if there is one and it
+// is recent enough to be believed.
+//
+// Recent enough means within three heartbeats. The publisher promised to say
+// something every heartbeat whether the value moved or not, so silence past a
+// few of those is the publisher being gone — and a controller fed the last
+// temperature of a sensor that died an hour ago is worse off than one told to go
+// and ask.
+func (c *Cervice) Recall() ([]byte, string, bool) {
+	c.Mutex.RLock()
+	defer c.Mutex.RUnlock()
+	if len(c.followed) == 0 {
+		return nil, "", false
+	}
+	stale := 3 * c.heartbeat
+	if c.heartbeat <= 0 {
+		stale = 90 * time.Second
+	}
+	if time.Since(c.followedAt) > stale {
+		return nil, "", false
+	}
+	return c.followed, c.followedType, true
+}
+
+// Forget drops a followed value, so the next read asks the provider instead.
+func (c *Cervice) Forget() {
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+	c.followed, c.followedType = nil, ""
+	c.following = false
+}
+
+// StartFollowing claims the right to keep this cervice's subscription up, and
+// reports whether the caller got it. Only one follower per cervice: a second
+// would open a second connection to the same provider and overwrite the same
+// value.
+func (c *Cervice) StartFollowing() bool {
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+	if c.following {
+		return false
+	}
+	c.following = true
+	return true
 }
 
 // ValueStream is a service's value as something to follow rather than to ask
@@ -172,6 +232,9 @@ func MergeDetails(map1, map2 map[string][]string) map[string][]string {
 type NodeInfo struct {
 	URL     string
 	Details map[string][]string
+	// SubscribeAble says this provider will let the value be followed rather
+	// than asked for repeatedly.
+	SubscribeAble bool
 	// Tokens are the access tokens the orchestrator obtained for this provider,
 	// keyed by the action each was minted for — "read", "write" or "invoke".
 	//
@@ -209,6 +272,25 @@ type Cervice struct {
 	Nodes       map[string][]NodeInfo
 	Protos      []string
 	Mode        string // "get" for GetState, "set" for SetState, "" for unspecified
+
+	// followed is the value a subscription last delivered, kept as the bytes that
+	// arrived rather than as a parsed form.
+	//
+	// The bytes, so that a value read from here and a value read over the network
+	// travel exactly the same path afterwards: unpacked by the same code and
+	// converted into the consumer's unit by the same code. A second path would be
+	// a second place for a unit to be got wrong, and a controller that is fed a
+	// number in the wrong unit does not fail, it does the wrong thing quietly.
+	followed     []byte
+	followedType string
+	followedAt   time.Time
+	// heartbeat is what the publisher agreed to, which is how long the value may
+	// be quiet before silence means the publisher is gone rather than the reading
+	// being steady.
+	heartbeat time.Duration
+	// following says a subscription is already being kept up, so a second
+	// discovery does not start a second one.
+	following bool
 
 	// Mutex guards Nodes and the tokens inside it.
 	//

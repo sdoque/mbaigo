@@ -162,7 +162,7 @@ func Search4ServicesAs(cer *components.Cervice, sys *components.System, action s
 	if !ok {
 		return fmt.Errorf("unable to unpack discovery request form")
 	}
-	recordNode(cer, df.ServNode, df.ServLocation, df.Details, action, df.Token)
+	recordNode(cer, df.ServNode, df.ServLocation, df.Details, action, df.Token, df.SubscribeAble)
 	return nil
 }
 
@@ -172,7 +172,7 @@ func Search4ServicesAs(cer *components.Cervice, sys *components.System, action s
 // discovered twice, once per action, and appending would leave two entries for
 // the same provider — the caller would then poll it twice per round and, worse,
 // might pick the copy carrying the wrong token.
-func recordNode(cer *components.Cervice, node, url string, details map[string][]string, action, token string) {
+func recordNode(cer *components.Cervice, node, url string, details map[string][]string, action, token string, subscribable bool) {
 	cer.Mutex.Lock()
 	defer cer.Mutex.Unlock()
 
@@ -189,9 +189,10 @@ func recordNode(cer *components.Cervice, node, url string, details map[string][]
 		return
 	}
 	cer.Nodes[node] = append(cer.Nodes[node], components.NodeInfo{
-		URL:     url,
-		Details: details,
-		Tokens:  map[string]string{action: token},
+		URL:           url,
+		Details:       details,
+		Tokens:        map[string]string{action: token},
+		SubscribeAble: subscribable,
 	})
 }
 
@@ -254,7 +255,7 @@ func Search4MultipleServicesAs(cer *components.Cervice, sys *components.System, 
 			// was "returned".
 			continue
 		}
-		recordNode(cer, sp.ServNode, sp.ServLocation, sp.Details, action, sp.Token)
+		recordNode(cer, sp.ServNode, sp.ServLocation, sp.Details, action, sp.Token, sp.SubscribeAble)
 		registered[sp.ServLocation] = true
 	}
 	// A discovery for several providers returns everything currently registered
@@ -370,6 +371,7 @@ func ConvertToServicePoint(sr forms.ServiceRecord_v1) (sp forms.ServicePoint_v1)
 	}
 	sp.ServLocation = proto + "://" + rec.IPAddresses[0] + ":" + strconv.Itoa(port) + "/" + rec.SystemName + "/" + rec.SubPath
 	sp.ServNode = rec.ServiceNode
+	sp.SubscribeAble = rec.SubscribeAble
 	return
 }
 

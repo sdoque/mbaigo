@@ -79,7 +79,11 @@ type ServicePoint_v1 struct {
 	ServLocation      string              `json:"serviceURL"`
 	ServNode          string              `json:"serviceNode"`
 	Token             string              `json:"token"`
-	Version           string              `json:"version"`
+	// SubscribeAble says this provider will let a consumer follow the value
+	// rather than ask for it repeatedly. Carried here because it is the consumer
+	// that decides whether to follow, and this is what the consumer is handed.
+	SubscribeAble bool   `json:"subscribeAble,omitempty"`
+	Version       string `json:"version"`
 }
 
 func (f *ServicePoint_v1) NewForm() Form {

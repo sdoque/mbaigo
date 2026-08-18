@@ -1,6 +1,6 @@
 # Service Subscription
 
-**Status:** Publisher implemented; consumer side not yet. See "What exists" below. The corresponding Go implementation will live in this
+**Status:** Implemented, both halves. Not yet run on hardware. See "What exists" below. The corresponding Go implementation will live in this
 directory (`subscribe.go`); this document defines the contract.
 
 **What exists today is a different thing, and this document does not describe
@@ -231,12 +231,26 @@ Three decisions were taken while building it that this document did not settle:
   registry stream needs resynchronisation and this does not: there, a dropped
   event is a change nobody will mention again.
 
-Still to build: the consumer side. A cervice for a subscribable service should
-follow it and keep the last value, so `GetState` answers from the cache without
-a network call and every existing consumer is unchanged. A service that is not
-subscribable is polled exactly as now, and a subscription that dies falls back to
-polling rather than failing — a controller should degrade to slower data, not to
-no data.
+The consumer half is in the same file. A cervice whose provider says it can be
+followed is followed, and `GetState` answers from what the subscription last
+delivered instead of asking. **No consuming system changes**: the control loop
+calls `GetState` on its own clock exactly as it did, and what changes is that
+the answer no longer costs a request. That is the whole design — subscription as
+an optimisation rather than a migration, because thirty-odd consumers would
+otherwise each need rewriting around a new control flow.
+
+The cache holds the bytes that arrived rather than a parsed form, so a followed
+reading and a polled one travel the same path afterwards: unpacked by the same
+code and converted into the consumer's unit by the same code. A second path
+would be a second place to get a unit wrong, and a controller fed a number in the
+wrong unit does not fail — it quietly does the wrong thing.
+
+Falling back is the point of the staleness rule. A publisher promised to speak
+every heartbeat whether the value moved or not, so silence past three of them
+means it is gone rather than steady; the cached value is dropped and the next
+read asks over the network, as it always did. A controller degrades to slower
+data, never to no data and never to an hour-old reading from a sensor that has
+died.
 
 ## Versioning
 
@@ -244,3 +258,4 @@ no data.
 |------|--------|
 | 2026-04-30 | Initial specification: SSE transport, shared baseline, heartbeat-resets-on-send, on-subscribe-emits-current. |
 | 2026-08-18 | Publisher implemented. Stream moved onto the service's own path via Accept; terms negotiated rather than dictated; slow subscribers skipped rather than resynchronised. |
+| 2026-08-18 | Consumer implemented: a followed cervice answers GetState from the last delivered value, falls back to polling when the subscription lapses, and no consuming system changes. |

@@ -19,12 +19,15 @@
 package usecases
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -382,4 +385,147 @@ func (p *Publisher) Subscribers() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return len(p.subscribers)
+}
+
+//------------------------------------- The consuming half
+
+// Follow keeps a cervice's value up to date from a provider that publishes it.
+//
+// The consumer's control loop is not changed by this and does not know about it.
+// It goes on calling GetState on its own clock; what changes is that the answer
+// comes from the last thing the provider said rather than from a request made
+// now. A cloud of thirty consumers polling a sensor every second becomes thirty
+// idle connections and a message when the reading actually moves.
+//
+// One follower per cervice, and only for a provider that said it can be
+// followed. Everything else is polled exactly as before — a service that is not
+// subscribable, a provider that refuses the stream, a cloud whose systems
+// predate this. That is the point: subscription is an optimisation, not a
+// migration.
+func Follow(cer *components.Cervice, sys *components.System) {
+	if cer == nil || sys == nil || !cer.StartFollowing() {
+		return
+	}
+	go followUntilDone(cer, sys)
+}
+
+// followUntilDone reconnects for as long as the system runs.
+func followUntilDone(cer *components.Cervice, sys *components.System) {
+	attempt := 0
+	for {
+		if err := followOnce(cer, sys); err != nil && sys.Ctx.Err() == nil {
+			log.Printf("following %s ended (%v); the value will be asked for until it resumes\n",
+				cer.Definition, err)
+		} else {
+			attempt = 0
+		}
+		// The cached value goes as soon as the connection does. A reading nobody
+		// is maintaining is one a control loop must not be handed, and polling is
+		// what it falls back to — slower data rather than no data.
+		cer.Forget()
+		if !cer.StartFollowing() {
+			// Forget released the claim; take it again, or stop if something
+			// else has taken over.
+			return
+		}
+
+		select {
+		case <-sys.Ctx.Done():
+			return
+		case <-time.After(followBackoff(attempt)):
+		}
+		attempt++
+	}
+}
+
+// followBackoff spaces out reconnections, and spreads consumers apart so a
+// provider restarting is not met by all of them at once.
+func followBackoff(attempt int) time.Duration {
+	wait := 5 * time.Second << min(attempt, 4)
+	jitter := time.Duration(time.Now().UnixNano() % int64(wait/2))
+	return wait/2 + jitter
+}
+
+// followOnce opens one subscription and reads it until it ends.
+func followOnce(cer *components.Cervice, sys *components.System) error {
+	url, token, subscribable := followable(cer)
+	if !subscribable {
+		return fmt.Errorf("no provider of %q offers a subscription", cer.Definition)
+	}
+
+	req, err := http.NewRequestWithContext(sys.Ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	if token != "" {
+		req.Header.Set(TokenHeader, token)
+	}
+	// What this consumer would like. The provider clamps it to what it can
+	// honour and says so in the first event, which is the only reason to ask.
+	if wanted := firstDetail(cer.Details, "Unit"); wanted != "" {
+		query := req.URL.Query()
+		query.Set("unit", wanted)
+		req.URL.RawQuery = query.Encode()
+	}
+
+	client := &http.Client{Transport: http.DefaultClient.Transport} // no timeout: it is meant to stay open
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		reason, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return fmt.Errorf("%s refused the subscription: %s: %s",
+			url, resp.Status, strings.TrimSpace(ForLog(string(reason))))
+	}
+	return readValues(cer, resp)
+}
+
+// followable returns a provider that publishes this cervice's value.
+func followable(cer *components.Cervice) (url, token string, ok bool) {
+	action := ActionForMethod(http.MethodGet)
+	for _, ni := range cer.Providers() {
+		if !ni.SubscribeAble || ni.URL == "" {
+			continue
+		}
+		tok, _ := ni.TokenFor(action)
+		return ni.URL, tok, true
+	}
+	return "", "", false
+}
+
+// readValues consumes the stream, keeping the cervice's value current.
+func readValues(cer *components.Cervice, resp *http.Response) error {
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 8*1024), 512*1024)
+
+	heartbeat := time.Duration(0)
+	kind := ""
+	for scanner.Scan() {
+		line := scanner.Text()
+		switch {
+		case strings.HasPrefix(line, "event: "):
+			kind = strings.TrimPrefix(line, "event: ")
+		case strings.HasPrefix(line, "data: "):
+			payload := strings.TrimPrefix(line, "data: ")
+			switch kind {
+			case "terms":
+				// What the provider actually agreed to, which is not necessarily
+				// what was asked for. The heartbeat is the useful part: it says
+				// how long silence may last before it means the publisher is
+				// gone rather than the value being steady.
+				var agreed struct {
+					Heartbeat float64 `json:"heartbeat"`
+				}
+				if err := json.Unmarshal([]byte(payload), &agreed); err == nil && agreed.Heartbeat > 0 {
+					heartbeat = time.Duration(agreed.Heartbeat * float64(time.Second))
+				}
+			case "value":
+				cer.Remember([]byte(payload), "application/json", heartbeat)
+			}
+		}
+	}
+	return scanner.Err()
 }

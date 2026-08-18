@@ -2,6 +2,8 @@ package usecases
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -246,4 +248,104 @@ func TestASubscribableServiceIsGivenAPublisher(t *testing.T) {
 	}
 	Publish(sys.UAssets["sensor"], "jitter", sample(3.0)) // must not panic
 	Publish(nil, "temp", sample(1.0))                     // nor this
+}
+
+// A followed value is answered without asking the provider, and the caller's
+// loop cannot tell the difference — which is the whole point: no consumer is
+// rewritten to gain a subscription.
+func TestAFollowedValueIsAnsweredWithoutARequest(t *testing.T) {
+	asked := 0
+	useTransport(t, roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		asked++
+		return nil, fmt.Errorf("the provider was asked, when the value was already known")
+	}))
+
+	cer := &components.Cervice{
+		Definition: "temperature",
+		Nodes: map[string][]components.NodeInfo{"sensor": {{
+			URL: "http://sensor/temperature", SubscribeAble: true,
+			Tokens: map[string]string{"read": "tok"},
+		}}},
+		Details: map[string][]string{"Unit": {"<http://qudt.org/vocab/unit/DEG_C>"}},
+	}
+	// As a subscription would have left it.
+	cer.Remember([]byte(`{"value":21.5,"unit":"<http://qudt.org/vocab/unit/DEG_C>","version":"SignalA_v1.0"}`),
+		"application/json", 30*time.Second)
+
+	// Already being followed, which is the state a read finds in production: the
+	// subscription is up and the value is arriving. Without this, Follow starts
+	// one here and its first connection attempt is the request the test is
+	// counting.
+	cer.StartFollowing()
+
+	sys := createTestSystem(false)
+	form, err := stateHandler(http.MethodGet, cer, &sys, nil)
+	if err != nil {
+		t.Fatalf("reading a followed value: %v", err)
+	}
+	if asked != 0 {
+		t.Errorf("the provider was asked %d times for a value already being followed", asked)
+	}
+	if got := form.(*forms.SignalA_v1a).Value; got != 21.5 {
+		t.Errorf("read %v, want 21.5", got)
+	}
+}
+
+// A value nobody is keeping current must not be served. The publisher promised
+// to speak every heartbeat whether the value moved or not, so silence past a few
+// of those means it is gone — and a controller fed the last reading of a sensor
+// that died an hour ago is worse off than one told to go and ask.
+func TestAStaleFollowedValueIsNotServed(t *testing.T) {
+	cer := &components.Cervice{Definition: "temperature"}
+	cer.Remember([]byte(`{"value":21.5,"version":"SignalA_v1.0"}`), "application/json", time.Millisecond)
+
+	if _, _, fresh := cer.Recall(); !fresh {
+		t.Fatal("a value just delivered was already considered stale")
+	}
+	time.Sleep(10 * time.Millisecond) // past three heartbeats of 1ms
+	if _, _, fresh := cer.Recall(); fresh {
+		t.Error("a value older than three heartbeats was still offered to a control loop")
+	}
+}
+
+// The stream's terms and values reach the cervice, and the heartbeat with them —
+// without it, staleness cannot be judged.
+func TestFollowingKeepsTheValueCurrent(t *testing.T) {
+	stream := "event: terms\ndata: {\"heartbeat\":20,\"threshold\":0.5}\n\n" +
+		"event: value\ndata: {\"value\":19.0,\"unit\":\"<http://qudt.org/vocab/unit/DEG_C>\",\"version\":\"SignalA_v1.0\"}\n\n" +
+		"event: value\ndata: {\"value\":19.7,\"unit\":\"<http://qudt.org/vocab/unit/DEG_C>\",\"version\":\"SignalA_v1.0\"}\n\n"
+
+	cer := &components.Cervice{Definition: "temperature"}
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader(stream))}
+	if err := readValues(cer, resp); err != nil {
+		t.Fatalf("reading the stream: %v", err)
+	}
+
+	payload, _, fresh := cer.Recall()
+	if !fresh {
+		t.Fatal("nothing was remembered from the stream")
+	}
+	form, err := Unpack(payload, "application/json")
+	if err != nil {
+		t.Fatalf("what was remembered is not readable: %v", err)
+	}
+	if got := form.(*forms.SignalA_v1a).Value; got != 19.7 {
+		t.Errorf("the cervice holds %v; the last value on the stream was 19.7", got)
+	}
+}
+
+// Only one follower per cervice: a second would open a second connection to the
+// same provider and write over the same value.
+func TestOnlyOneFollowerPerCervice(t *testing.T) {
+	cer := &components.Cervice{Definition: "temperature"}
+	if !cer.StartFollowing() {
+		t.Fatal("the first follower was refused")
+	}
+	if cer.StartFollowing() {
+		t.Error("a second follower was allowed onto the same cervice")
+	}
+	cer.Forget()
+	if !cer.StartFollowing() {
+		t.Error("after the subscription ended, nothing could take it up again")
+	}
 }
