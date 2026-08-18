@@ -1,7 +1,6 @@
 # Service Subscription
 
-**Status:** Working specification for *service value* subscription.
-Pre-implementation. The corresponding Go implementation will live in this
+**Status:** Publisher implemented; consumer side not yet. See "What exists" below. The corresponding Go implementation will live in this
 directory (`subscribe.go`); this document defines the contract.
 
 **What exists today is a different thing, and this document does not describe
@@ -204,8 +203,44 @@ goroutine).
   pick one and fail over if it dies? Belongs in the orchestrator's
   domain, not in this spec.
 
+## What exists
+
+The publisher half is implemented in `publishing.go`. A service declares itself
+in `systemconfig.json` and its system hands each sample to `usecases.Publish`;
+everything else — baseline, threshold, heartbeat, subscribers — is the
+framework's.
+
+Three decisions were taken while building it that this document did not settle:
+
+- **The stream is the service's own path with `Accept: text/event-stream`**, not
+  a `/subscribe` beneath it. The same resource in two representations, as the
+  registry's system list already does. There is then no second path to declare,
+  discover and authorize, and following a value is authorized as the read it
+  already is — this cloud has been bitten once by a path the framework served
+  without declaring.
+- **Terms are negotiated, not deferred to v2.** A subscriber proposes a
+  heartbeat and a threshold as query parameters, the publisher clamps them to
+  what it can honour (`fastestHeartbeat`, `finestThreshold`), and the agreed
+  terms are the first event on the stream. A control loop that believes it will
+  hear about a change of 0.1 and will not is worse off than one that knows.
+  Retrofitting a negotiation onto a deployed protocol is much harder than
+  starting with one.
+- **A slow subscriber is skipped, not disconnected and not waited for.** A
+  value is a state rather than a sequence, so a subscriber that misses one
+  learns the truth from the next event or the next heartbeat. This is why the
+  registry stream needs resynchronisation and this does not: there, a dropped
+  event is a change nobody will mention again.
+
+Still to build: the consumer side. A cervice for a subscribable service should
+follow it and keep the last value, so `GetState` answers from the cache without
+a network call and every existing consumer is unchanged. A service that is not
+subscribable is polled exactly as now, and a subscription that dies falls back to
+polling rather than failing — a controller should degrade to slower data, not to
+no data.
+
 ## Versioning
 
 | Date | Change |
 |------|--------|
 | 2026-04-30 | Initial specification: SSE transport, shared baseline, heartbeat-resets-on-send, on-subscribe-emits-current. |
+| 2026-08-18 | Publisher implemented. Stream moved onto the service's own path via Accept; terms negotiated rather than dictated; slow subscribers skipped rather than resynchronised. |

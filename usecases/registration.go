@@ -64,6 +64,11 @@ func RegisterServices(sys *components.System) {
 		log.Fatalf("mission configuration error: %v\n", err)
 	}
 
+	// Before anything is advertised, so a service registered as subscribable can
+	// be followed from the moment a consumer discovers it. Every system calls
+	// this, so turning subscription on stays a matter of configuration.
+	PreparePublishers(sys)
+
 	// Keep track of the registrar URL. The URL is shared between goroutines,
 	// so it must be protected from data races using a mutex.
 	registrar := &registrarTracker{}

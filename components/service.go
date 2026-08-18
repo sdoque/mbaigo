@@ -22,7 +22,10 @@
 
 package components
 
-import "sync"
+import (
+	"net/http"
+	"sync"
+)
 
 // An Arrowhead Service has specific properties that exposes a unit asset's functionality
 type Service struct {
@@ -35,10 +38,54 @@ type Service struct {
 	RegTimestamp  string              `json:"-"`                  // the creation date in the Service Registry to ensure that reRegistration is with the same record
 	RegExpiration string              `json:"-"`                  // The actual time when the service record will expire if not refreshed
 	Description   string              `json:"-"`                  // This is used in the service description in /doc
-	SubscribeAble bool                `json:"-"`                  // If true, one can subscribe to this service
-	ACost         float64             `json:"-"`                  // activity cost to execute the service
-	CUnit         string              `json:"costUnit"`           // cost unit
-	CFootprint    float64             `json:"-"`                  // carbon footprint in metric tonnes when executing the service
+	// SubscribeAble says a consumer may follow this service's value rather than
+	// ask for it repeatedly. Configurable, which it was not: the field carried
+	// `json:"-"`, so a systemconfig.json could not turn it on and nothing but
+	// code ever could.
+	SubscribeAble bool `json:"subscribable,omitempty"`
+	// Heartbeat is how long this service may go without saying anything to a
+	// subscriber, in seconds. A subscriber that hears nothing for a few of these
+	// treats the publisher as gone, so it is the liveness contract as much as a
+	// refresh rate. Zero means the framework's default.
+	Heartbeat int `json:"heartbeat,omitempty"`
+	// Threshold is how much the value must move, in this service's own unit,
+	// before it is worth telling anyone. Zero means any change is.
+	//
+	// In this service's unit, which matters: a consumer reading in °F and asking
+	// for 0.5 is asking for something other than it thinks, so a proposal
+	// carries its unit and is converted.
+	Threshold float64 `json:"threshold,omitempty"`
+	// FastestHeartbeat and FinestThreshold bound what a subscriber may ask for.
+	// A consumer knows what it needs and the provider knows what it can honour —
+	// a threshold below the sensor's resolution is meaningless and a heartbeat
+	// faster than the sampling period is impossible — so a proposal is clamped
+	// to these and the subscriber is told what it actually got.
+	FastestHeartbeat int     `json:"fastestHeartbeat,omitempty"`
+	FinestThreshold  float64 `json:"finestThreshold,omitempty"`
+	// Stream carries this service's value to whoever is following it, and is nil
+	// until the framework prepares one for a service that declares itself
+	// subscribable.
+	//
+	// An interface rather than the publisher itself, because the publisher lives
+	// in usecases and usecases already imports this package. What a service needs
+	// to know about it is only whether it can be followed and how to answer
+	// somebody who wants to.
+	Stream ValueStream `json:"-"`
+
+	ACost      float64 `json:"-"`        // activity cost to execute the service
+	CUnit      string  `json:"costUnit"` // cost unit
+	CFootprint float64 `json:"-"`        // carbon footprint in metric tonnes when executing the service
+}
+
+// ValueStream is a service's value as something to follow rather than to ask
+// for.
+type ValueStream interface {
+	// Subscribable reports whether this service is meant to be followed. It is
+	// safe on a nil stream, which is what a service that declares nothing has.
+	Subscribable() bool
+	// ServeStream answers a request to follow the value and holds the connection
+	// open until the caller goes away.
+	ServeStream(w http.ResponseWriter, r *http.Request)
 }
 
 // type Services is a collection of service structs
@@ -73,8 +120,14 @@ func (s Service) DeepCopy() *Service {
 		RegExpiration: s.RegExpiration,
 		Description:   s.Description,
 		SubscribeAble: s.SubscribeAble,
-		ACost:         s.ACost,
-		CUnit:         s.CUnit,
+		Heartbeat:     s.Heartbeat,
+		Threshold:     s.Threshold,
+
+		FastestHeartbeat: s.FastestHeartbeat,
+		FinestThreshold:  s.FinestThreshold,
+
+		ACost: s.ACost,
+		CUnit: s.CUnit,
 	}
 }
 

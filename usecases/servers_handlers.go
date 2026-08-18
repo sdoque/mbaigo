@@ -295,8 +295,27 @@ func handleFourParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 		if !permitted(sys, w, r, resourceName, uAsset.GetServices(), servicePath) {
 			return
 		}
+		// The same resource in two representations: ask for the value and it is
+		// answered once, ask for a stream and it is answered now and again
+		// whenever it moves. On the service's own path rather than a /subscribe
+		// beside it, so there is no second path to declare, discover and
+		// authorize — following a value is the read it already is, and this
+		// cloud has already been bitten once by a path the framework served
+		// without declaring.
+		if serv := findServiceByPath(uAsset.GetServices(), servicePath); serv != nil &&
+			wantsStream(r) && serv.Stream.Subscribable() {
+			serv.Stream.ServeStream(w, r)
+			return
+		}
 		uAsset.Serving(w, r, servicePath)
 	}
+}
+
+// wantsStream reports whether the caller asked to follow the value rather than
+// read it once.
+func wantsStream(r *http.Request) bool {
+	return r.Method == http.MethodGet &&
+		strings.Contains(r.Header.Get("Accept"), "text/event-stream")
 }
 
 // handleFiveParts handles a request with five parts
