@@ -8,7 +8,7 @@ configuration file, enrolling with a certificate authority, registering services
 finding a provider, asking it for a value, answering somebody who asks, and
 describing itself to a knowledge graph.
 
-Almost none of it is called by a system directly. A system's `main` calls six
+Almost none of it is called by a system directly. A system's `main` calls five
 functions, in this order, and the rest of the package is reached through them.
 
 ## The five calls every system makes
