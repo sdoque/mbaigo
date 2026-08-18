@@ -506,3 +506,99 @@ func TestAProviderThatDoesNotPublishIsNotChasedForever(t *testing.T) {
 			"publishing would never be picked up")
 	}
 }
+
+// TestAnArrivingValueWakesTheConsumer is the difference between a subscription
+// that saves bandwidth and one that makes a controller respond.
+//
+// Following a value only changed where a reading came from; the control loop
+// still ran on its own ticker, so a sensor plunged into warm water still took a
+// full period to reach the valve. An update nobody acts on buys only network
+// traffic.
+func TestAnArrivingValueWakesTheConsumer(t *testing.T) {
+	cer := &components.Cervice{Definition: "temperature"}
+
+	woken := cer.Updated()
+	select {
+	case <-woken:
+		t.Fatal("a consumer was woken before any value arrived")
+	default:
+	}
+
+	cer.Remember([]byte(`{"value":21.5,"version":"SignalA_v1.0"}`), "application/json", 30*time.Second)
+
+	select {
+	case <-woken:
+	case <-time.After(time.Second):
+		t.Fatal("a value arrived and nothing woke the consumer, so a control loop " +
+			"waits for its next tick to notice")
+	}
+}
+
+// A value reported finely must not drive an actuator finely. The threshold says
+// what is worth reporting; the floor says what is worth acting on, and they are
+// different questions — a valve that chased every tenth of a degree would
+// chatter and wear for no improvement in control.
+func TestAValueThatMovesConstantlyDoesNotWakeConstantly(t *testing.T) {
+	cer := &components.Cervice{Definition: "temperature", WakeFloor: 50 * time.Millisecond}
+	woken := cer.Updated()
+
+	for i := 0; i < 20; i++ { // a sensor in moving water
+		cer.Remember([]byte(`{"value":21.5,"version":"SignalA_v1.0"}`), "application/json", time.Second)
+	}
+
+	wakes := 0
+	for {
+		select {
+		case <-woken:
+			wakes++
+			continue
+		default:
+		}
+		break
+	}
+	if wakes > 1 {
+		t.Errorf("twenty readings produced %d wakes; they arrived inside one floor", wakes)
+	}
+
+	// And after the floor has passed, the next reading wakes it again: the floor
+	// paces a control loop, it does not silence it.
+	time.Sleep(60 * time.Millisecond)
+	cer.Remember([]byte(`{"value":22.0,"version":"SignalA_v1.0"}`), "application/json", time.Second)
+	select {
+	case <-woken:
+	case <-time.After(time.Second):
+		t.Error("after the floor passed, a new reading did not wake the consumer")
+	}
+}
+
+// A consumer may wait on a cervice nobody publishes to. It simply never fires,
+// and the loop runs on its ticker as it always did.
+func TestWaitingOnACervicreNobodyPublishesToIsSafe(t *testing.T) {
+	cer := &components.Cervice{Definition: "temperature"}
+	if cer.Updated() == nil {
+		t.Fatal("Updated returned nil, which in a select blocks for ever")
+	}
+	select {
+	case <-cer.Updated():
+		t.Error("a cervice nobody publishes to woke somebody")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// A consumer whose configuration names no provider for something holds a nil
+// cervice. Waiting on it must not be what stops a plant.
+func TestWaitingOnACerviceThatDoesNotExistIsSafe(t *testing.T) {
+	var missing *components.Cervice // as t.cervices["temperature"] would be
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("a control loop panicked setting itself up: %v", r)
+		}
+	}()
+
+	select {
+	case <-missing.Updated():
+		t.Error("a cervice that does not exist woke a control loop")
+	case <-time.After(30 * time.Millisecond):
+	}
+}

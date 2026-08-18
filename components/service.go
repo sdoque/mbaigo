@@ -79,7 +79,7 @@ type Service struct {
 }
 
 // Remember stores a value a subscription delivered, and the terms it arrived
-// under.
+// under, and wakes whoever is waiting for one.
 func (c *Cervice) Remember(payload []byte, mediaType string, heartbeat time.Duration) {
 	c.Mutex.Lock()
 	defer c.Mutex.Unlock()
@@ -88,6 +88,58 @@ func (c *Cervice) Remember(payload []byte, mediaType string, heartbeat time.Dura
 	c.followedAt = time.Now()
 	if heartbeat > 0 {
 		c.heartbeat = heartbeat
+	}
+
+	floor := c.WakeFloor
+	if floor <= 0 {
+		floor = DefaultWakeFloor
+	}
+	if !c.lastWake.IsZero() && time.Since(c.lastWake) < floor {
+		return
+	}
+	c.lastWake = time.Now()
+	c.wakeChan()
+	select {
+	case c.updates <- struct{}{}:
+	default: // one is already pending, and one wake is as good as three
+	}
+}
+
+// DefaultWakeFloor is how often a followed value may wake a consumer when the
+// consumer has not said. A second is short enough that a control loop feels
+// immediate to somebody holding a sensor, and long enough that an actuator is
+// not driven by the noise of a value that is merely being reported finely.
+const DefaultWakeFloor = time.Second
+
+// Updated is closed-over-time notification that a followed value has arrived.
+//
+// A control loop selects on it beside its own ticker: the ticker is the
+// guarantee that the loop runs at all, and this is what makes it run *now* when
+// something has changed. Waiting on it alone would leave a loop asleep for as
+// long as its provider had nothing to say — and a publisher that has died says
+// nothing at all.
+//
+// Safe on a cervice that does not exist. A consumer whose configuration names no
+// provider for something holds a nil cervice, and a nil channel in a select
+// simply never fires — which is the right answer and, more to the point, is not
+// a panic in a control loop. Calling this in the one line that sets a feedback
+// loop going must not be the thing that stops a plant.
+func (c *Cervice) Updated() <-chan struct{} {
+	if c == nil {
+		return nil
+	}
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+	c.wakeChan()
+	return c.updates
+}
+
+// wakeChan makes the channel on first use. Cervices are built as struct
+// literals all over this project, so nothing can be assumed to have run a
+// constructor. Callers hold the lock.
+func (c *Cervice) wakeChan() {
+	if c.updates == nil {
+		c.updates = make(chan struct{}, 1)
 	}
 }
 
@@ -291,6 +343,26 @@ type Cervice struct {
 	// following says a subscription is already being kept up, so a second
 	// discovery does not start a second one.
 	following bool
+
+	// updates carries "a new value has arrived" to whoever is waiting on it, so
+	// a control loop can act on a reading instead of finding it on its next
+	// tick. Buffered by one and never blocked on: the point is to wake somebody,
+	// and one pending wake is as good as three.
+	updates chan struct{}
+	// lastWake is when the last one was sent, so a value that moves constantly
+	// does not wake a control loop constantly.
+	lastWake time.Time
+	// WakeFloor is the shortest interval between wakes. Zero means the default.
+	//
+	// A threshold is chosen for what is worth reporting; this is for what is
+	// worth acting on, and they are not the same question. A tenth of a degree
+	// is worth telling a data logger about and not worth moving a valve for —
+	// so a servo that chased every reported change would chatter and wear for no
+	// improvement in control.
+	//
+	// Suppressing a wake never loses the value: it is already in the cache, and
+	// the loop's own ticker remains the guarantee that it is acted upon.
+	WakeFloor time.Duration
 
 	// Mutex guards Nodes and the tokens inside it.
 	//

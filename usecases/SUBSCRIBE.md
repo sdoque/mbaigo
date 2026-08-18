@@ -245,6 +245,24 @@ code and converted into the consumer's unit by the same code. A second path
 would be a second place to get a unit wrong, and a controller fed a number in the
 wrong unit does not fail — it quietly does the wrong thing.
 
+**A control loop wakes on an arrival.** `Cervice.Updated()` fires when a value is
+delivered, and a loop selects on it beside its own ticker. Both arms matter: the
+ticker guarantees the loop runs at all — a publisher that has died says nothing,
+and a controller waiting only for news would wait for ever — while the arrival is
+what makes it act now rather than at the end of a period that has just begun.
+
+Without that second arm, following a value only made the reading cheaper to
+fetch: the valve still moved on the control period, so a sensor plunged into warm
+water took a full cycle to reach it. An update nobody acts on buys only network
+traffic.
+
+How often an arrival may wake a consumer is separate from how often a change is
+reported, because they answer different questions. A tenth of a degree is worth
+telling a data logger about and not worth moving a valve for, so wakes are paced
+by `Cervice.WakeFloor` (a second by default). Suppressing a wake never loses the
+value — it is already cached, and the ticker remains the guarantee that it is
+acted upon.
+
 Falling back is the point of the staleness rule. A publisher promised to speak
 every heartbeat whether the value moved or not, so silence past three of them
 means it is gone rather than steady; the cached value is dropped and the next
@@ -259,3 +277,4 @@ died.
 | 2026-04-30 | Initial specification: SSE transport, shared baseline, heartbeat-resets-on-send, on-subscribe-emits-current. |
 | 2026-08-18 | Publisher implemented. Stream moved onto the service's own path via Accept; terms negotiated rather than dictated; slow subscribers skipped rather than resynchronised. |
 | 2026-08-18 | Consumer implemented: a followed cervice answers GetState from the last delivered value, falls back to polling when the subscription lapses, and no consuming system changes. |
+| 2026-08-18 | Cervice.Updated added, and the three control loops wake on it. Following a value had only made the reading cheaper; the controller still acted on its own period. |
