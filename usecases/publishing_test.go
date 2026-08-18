@@ -465,3 +465,44 @@ func TestTheRegistrationSaysAServiceCanBeFollowed(t *testing.T) {
 			"subscribable, so no consumer will ever follow it")
 	}
 }
+
+// TestAProviderThatDoesNotPublishIsNotChasedForever separates a fact from a
+// fault.
+//
+// "No provider offers a subscription" describes what is registered; nothing will
+// change until discovery says otherwise, so there is nothing to retry. Treating
+// it as a transient failure meant a consumer whose provider simply polls
+// reconnected for ever and wrote a line in the log each time — which is what the
+// testbed showed: a thermostat reporting every half minute, for as long as it
+// ran, that a subscription it never had was over.
+func TestAProviderThatDoesNotPublishIsNotChasedForever(t *testing.T) {
+	attempts := 0
+	useTransport(t, roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		return nil, fmt.Errorf("no subscription should have been attempted")
+	}))
+
+	cer := &components.Cervice{
+		Definition: "temperature",
+		Nodes: map[string][]components.NodeInfo{"sensor": {{
+			URL: "http://sensor/temperature", SubscribeAble: false, // it only answers reads
+			Tokens: map[string]string{"read": ""},
+		}}},
+	}
+	sys := components.NewSystem("thermostat", context.Background())
+
+	for i := 0; i < 5; i++ { // as a control loop would, every cycle
+		Follow(cer, &sys)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	if attempts != 0 {
+		t.Errorf("%d connections were attempted to a provider that does not publish", attempts)
+	}
+	// And nothing is left holding the claim, so the moment a publishing provider
+	// is discovered the next read can follow it.
+	if !cer.StartFollowing() {
+		t.Error("the cervice is still marked as followed, so a provider that starts " +
+			"publishing would never be picked up")
+	}
+}

@@ -21,6 +21,7 @@ package usecases
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -389,6 +390,15 @@ func (p *Publisher) Subscribers() int {
 
 //------------------------------------- The consuming half
 
+// errNotOffered says no provider of this cervice publishes its value.
+//
+// A fact about what is registered rather than a failure to connect, and the
+// difference decides what to do about it: there is nothing to retry, because
+// nothing will change until discovery says something different. Treating it as a
+// transient fault meant a consumer whose provider simply does not publish
+// reconnected for ever, and said so in the log every time.
+var errNotOffered = errors.New("no provider offers a subscription")
+
 // Follow keeps a cervice's value up to date from a provider that publishes it.
 //
 // The consumer's control loop is not changed by this and does not know about it.
@@ -403,7 +413,17 @@ func (p *Publisher) Subscribers() int {
 // predate this. That is the point: subscription is an optimisation, not a
 // migration.
 func Follow(cer *components.Cervice, sys *components.System) {
-	if cer == nil || sys == nil || !cer.StartFollowing() {
+	if cer == nil || sys == nil {
+		return
+	}
+	// Asked before the claim is staked, so a cervice whose providers do not
+	// publish costs nothing at all: no goroutine, no connection, no log line.
+	// This is called on every read, and most services in most clouds are not
+	// followed.
+	if _, _, ok := followable(cer); !ok {
+		return
+	}
+	if !cer.StartFollowing() {
 		return
 	}
 	go followUntilDone(cer, sys)
@@ -413,7 +433,14 @@ func Follow(cer *components.Cervice, sys *components.System) {
 func followUntilDone(cer *components.Cervice, sys *components.System) {
 	attempt := 0
 	for {
-		if err := followOnce(cer, sys); err != nil && sys.Ctx.Err() == nil {
+		err := followOnce(cer, sys)
+		if errors.Is(err, errNotOffered) {
+			// Nothing to wait for. A later discovery may find a provider that
+			// publishes, and the next read will start this again.
+			cer.Forget()
+			return
+		}
+		if err != nil && sys.Ctx.Err() == nil {
 			log.Printf("following %s ended (%v); the value will be asked for until it resumes\n",
 				cer.Definition, err)
 		} else {
@@ -450,7 +477,7 @@ func followBackoff(attempt int) time.Duration {
 func followOnce(cer *components.Cervice, sys *components.System) error {
 	url, token, subscribable := followable(cer)
 	if !subscribable {
-		return fmt.Errorf("no provider of %q offers a subscription", cer.Definition)
+		return fmt.Errorf("%q: %w", cer.Definition, errNotOffered)
 	}
 
 	req, err := http.NewRequestWithContext(sys.Ctx, http.MethodGet, url, nil)
