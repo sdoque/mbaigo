@@ -529,3 +529,70 @@ func TestLegacyUnitNamesStillConvert(t *testing.T) {
 		}
 	}
 }
+
+// TestConvertDoesNotProduceNaN is follow-up finding N12. tidy scaled by
+// 10^(12−exponent), and for a value near the bottom of float64's range that
+// exponent passes 308: math.Pow returns +Inf, Round(v*Inf)/Inf is NaN, and the
+// caller received a NaN with a nil error beside it — which then poisons every
+// comparison it reaches.
+func TestConvertDoesNotProduceNaN(t *testing.T) {
+	meter, foot := mustLookup(t, qudtUnit+"M"), mustLookup(t, qudtUnit+"FT")
+
+	for _, v := range []float64{1e-300, 1e-297, 5e-320, 1e300, -1e-300} {
+		got, err := Convert(v, meter, foot, false)
+		if err != nil {
+			t.Errorf("Convert(%g) errored: %v", v, err)
+			continue
+		}
+		if math.IsNaN(got) {
+			t.Errorf("Convert(%g m to ft) = NaN with no error", v)
+		}
+	}
+
+	// And the rounding it exists for still happens at ordinary magnitudes.
+	if got, err := Convert(100, mustLookup(t, qudtUnit+"DEG_C"), mustLookup(t, qudtUnit+"DEG_F"), false); err != nil || got != 212 {
+		t.Errorf("100 °C is %v °F (%v), want exactly 212", got, err)
+	}
+}
+
+// TestTheAliasTableIsSymmetricAndSound is follow-up finding N14.
+func TestTheAliasTableIsSymmetricAndSound(t *testing.T) {
+	// Every temperature name resolves, in both the spelled and the symbol form.
+	// The table used to take "C" and "F" but not "K", and neither "°C" nor "°F".
+	for name, want := range map[string]string{
+		"Celsius": qudtUnit + "DEG_C", "°C": qudtUnit + "DEG_C", "degC": qudtUnit + "DEG_C",
+		"Fahrenheit": qudtUnit + "DEG_F", "°F": qudtUnit + "DEG_F", "degF": qudtUnit + "DEG_F",
+		"Kelvin": qudtUnit + "K", "K": qudtUnit + "K",
+	} {
+		def, ok := LookupUnit(name)
+		if !ok {
+			t.Errorf("%q does not resolve", name)
+			continue
+		}
+		if def.IRI != want {
+			t.Errorf("%q resolves to %s, want %s", name, def.IRI, want)
+		}
+	}
+
+	// The single letters that mean something else in SI are gone: C is the
+	// coulomb, F the farad, m the metre. Aliasing them is convenient only while
+	// the table holds no electrical units.
+	for _, ambiguous := range []string{"C", "F", "m"} {
+		if def, ok := LookupUnit(ambiguous); ok {
+			t.Errorf("%q resolves to %s; it is an SI symbol for another quantity", ambiguous, def.IRI)
+		}
+	}
+
+	// Every alias points at a unit the table actually holds, so none of them can
+	// resolve to a UnitDef with an empty IRI reported as known.
+	for name, canonical := range legacyUnitNames {
+		def, ok := LookupUnit(name)
+		if !ok {
+			t.Errorf("alias %q does not resolve", name)
+			continue
+		}
+		if def.IRI == "" {
+			t.Errorf("alias %q resolved to a unit with no IRI (points at %q)", name, canonical)
+		}
+	}
+}

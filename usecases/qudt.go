@@ -201,7 +201,13 @@ func LookupUnit(iri string) (UnitDef, bool) {
 		return def, true
 	}
 	if canonical, ok := legacyUnitNames[trimmed]; ok {
-		return units[canonical], true
+		// The ok matters: an alias pointing at a name the table does not hold
+		// would otherwise resolve to a zero UnitDef reported as known — a unit
+		// with an empty IRI, which Convert then refuses for a reason that names
+		// neither the alias nor the typo behind it.
+		if def, known := units[canonical]; known {
+			return def, true
+		}
 	}
 	return UnitDef{}, false
 }
@@ -217,14 +223,25 @@ func LookupUnit(iri string) (UnitDef, bool) {
 // wrote are here, and a new configuration should state the IRI: a name is
 // ambiguous across domains in a way an IRI is not, which is the reason for
 // adopting QUDT in the first place.
+//
+// Single letters are deliberately absent, apart from K. In SI, C is the coulomb,
+// F the farad and m the metre — so aliasing them to degrees Celsius, degrees
+// Fahrenheit and the metre reads as convenient only while the table holds no
+// electrical units. The moment it grows toward the full vocabulary they become
+// silently wrong conversions rather than lookup failures, which is the worse of
+// the two. K is unambiguous: it is the kelvin in both readings.
 var legacyUnitNames = map[string]string{
 	"Celsius":     qudtUnit + "DEG_C",
 	"celsius":     qudtUnit + "DEG_C",
-	"C":           qudtUnit + "DEG_C",
+	"°C":          qudtUnit + "DEG_C",
+	"degC":        qudtUnit + "DEG_C",
 	"Fahrenheit":  qudtUnit + "DEG_F",
 	"fahrenheit":  qudtUnit + "DEG_F",
-	"F":           qudtUnit + "DEG_F",
+	"°F":          qudtUnit + "DEG_F",
+	"degF":        qudtUnit + "DEG_F",
 	"Kelvin":      qudtUnit + "K",
+	"kelvin":      qudtUnit + "K",
+	"K":           qudtUnit + "K",
 	"Percent":     qudtUnit + "PERCENT",
 	"percent":     qudtUnit + "PERCENT",
 	"%":           qudtUnit + "PERCENT",
@@ -244,7 +261,6 @@ var legacyUnitNames = map[string]string{
 	"radian":      qudtUnit + "RAD",
 	"meter":       qudtUnit + "M",
 	"metre":       qudtUnit + "M",
-	"m":           qudtUnit + "M",
 	"foot":        qudtUnit + "FT",
 	"ft":          qudtUnit + "FT",
 	"kg":          qudtUnit + "KG",
@@ -323,7 +339,15 @@ func tidy(v float64) float64 {
 	if v == 0 || math.IsNaN(v) || math.IsInf(v, 0) {
 		return v
 	}
+	// The scale factor has to be representable. For a value near the bottom of
+	// float64's range the exponent exceeds 308, math.Pow returns +Inf, and
+	// Round(v*Inf)/Inf is NaN — a value with no error beside it, which poisons
+	// every comparison downstream. A number that small has no digits to trim
+	// anyway.
 	scale := math.Pow(10, float64(significantDigits)-math.Ceil(math.Log10(math.Abs(v))))
+	if math.IsInf(scale, 0) || scale == 0 {
+		return v
+	}
 	return math.Round(v*scale) / scale
 }
 
@@ -411,7 +435,25 @@ func AdoptUnit(bearer forms.UnitBearer, want string, interval bool) error {
 	source, sent := LookupUnit(got)
 	if !known || !sent {
 		if got != want {
-			return fmt.Errorf("the value is in %q but %q was expected, and neither is a QUDT unit that can be converted", got, want)
+			// Which side could not be resolved, because that is what an
+			// operator has to change. The reading is refused rather than passed
+			// through: a number relabelled with a unit nobody could convert
+			// into is a wrong number that looks entirely reasonable, and these
+			// drive heaters and valves.
+			switch {
+			case !known && !sent:
+				return fmt.Errorf("the value is in %q and %q was expected, and neither is a unit "+
+					"this framework can convert; write QUDT identifiers such as "+
+					"<http://qudt.org/vocab/unit/DEG_C> in both places", got, want)
+			case !sent:
+				return fmt.Errorf("the value is in %q, which is not a unit this framework can "+
+					"convert into %q; write a QUDT identifier such as "+
+					"<http://qudt.org/vocab/unit/DEG_C> in the providing service's details", got, want)
+			default:
+				return fmt.Errorf("%q was expected, which is not a unit this framework can convert "+
+					"the value's %q into; write a QUDT identifier such as "+
+					"<http://qudt.org/vocab/unit/DEG_C> where the unit is asked for", want, got)
+			}
 		}
 		return nil
 	}

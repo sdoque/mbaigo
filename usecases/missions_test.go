@@ -10,7 +10,7 @@ import (
 // assetWith builds a unit asset carrying the given asset-level mission and one
 // service per entry in serviceMissions (keyed by definition, empty value meaning
 // the service declares none of its own).
-func assetWith(name, assetMission string, serviceMissions map[string]string) *components.UnitAsset {
+func assetWith(name string, assetMission components.Mission, serviceMissions map[string]components.Mission) *components.UnitAsset {
 	services := components.Services{}
 	for definition, mission := range serviceMissions {
 		services[definition] = &components.Service{
@@ -37,7 +37,7 @@ func systemWith(assets ...*components.UnitAsset) *components.System {
 
 func TestValidateMissionsAcceptsAssetLevelMission(t *testing.T) {
 	sys := systemWith(assetWith("sensor_Id", components.MissionMeasurement,
-		map[string]string{"temperature": ""}))
+		map[string]components.Mission{"temperature": {}}))
 
 	if err := ValidateMissions(sys); err != nil {
 		t.Errorf("ValidateMissions = %v; a service inherits its asset's mission", err)
@@ -47,8 +47,8 @@ func TestValidateMissionsAcceptsAssetLevelMission(t *testing.T) {
 // A PLC or broker front end is too coarse to authorize against: the mission
 // belongs to what is behind each service.
 func TestValidateMissionsAcceptsServiceLevelOverride(t *testing.T) {
-	plc := assetWith("PLC with Modbus slave", components.MissionMeasurement, map[string]string{
-		"Slider1_Front_PB":      "",                          // ro register, inherits measurement
+	plc := assetWith("PLC with Modbus slave", components.MissionMeasurement, map[string]components.Mission{
+		"Slider1_Front_PB":      {},                          // ro register, inherits measurement
 		"Slider1_Motor_Forward": components.MissionActuation, // rw register, overrides
 	})
 
@@ -73,22 +73,16 @@ func TestValidateMissionsRejectsUndeclaredAndUnknown(t *testing.T) {
 	}{
 		{
 			name:         "neither asset nor service declares one",
-			asset:        assetWith("Bathroom/temperature", "", map[string]string{"temperature": ""}),
+			asset:        assetWith("Bathroom/temperature", components.Mission{}, map[string]components.Mission{"temperature": {}}),
 			wantInError:  "declares no mission",
 			wantsService: "temperature",
 		},
-		{
-			name:         "pre-taxonomy free text at asset level",
-			asset:        assetWith("sensor_Id", "measure_temperature", map[string]string{"temperature": ""}),
-			wantInError:  "unknown mission",
-			wantsService: "temperature",
-		},
-		{
-			name:         "unknown mission at service level despite a valid asset",
-			asset:        assetWith("gateway", components.MissionMeasurement, map[string]string{"plug": "switching"}),
-			wantInError:  "unknown mission",
-			wantsService: "plug",
-		},
+		// The two cases that used to sit here — free text at asset level and an
+		// unknown mission at service level — can no longer be written in Go.
+		// components.Mission has an unexported field, so a value outside the
+		// taxonomy cannot be constructed outside that package, and text is only
+		// turned into one by MissionFromString, which refuses it. Those two are
+		// tested there, at the boundary the text arrives by.
 	}
 
 	for _, tc := range tests {

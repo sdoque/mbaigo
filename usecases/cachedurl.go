@@ -14,18 +14,24 @@
  *   Thomas Hedeler, Hamburg - initial implementation
  ***************************************************************************SDG*/
 
-package components
+package usecases
 
 import "sync"
 
 // CachedURL holds a core-system URL discovered once and reused until the system
 // it names stops answering.
 //
+// Not a component. It appears in no block definition diagram and in no ontology,
+// because it is not a thing a local cloud contains — it is a way of not asking
+// the same question twice, owned by the behaviour that asks. It lived in the
+// components package for a while for the reason such things always do: that is
+// the package everything imports.
+//
 // It exists because the obvious way to write this is wrong. A plain string field
 // looks harmless:
 //
 //	if t.leadingRegistrar == "" {
-//	    t.leadingRegistrar, err = GetRunningCoreSystemURL(sys, "serviceregistrar")
+//	    t.leadingRegistrar, err = components.GetRunningCoreSystemURL(sys, "serviceregistrar")
 //	}
 //	url := t.leadingRegistrar + "/query"
 //

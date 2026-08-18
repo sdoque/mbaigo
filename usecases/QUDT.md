@@ -1,5 +1,9 @@
 # QUDT unit handling — design note
 
+QUDT is the *Quantities, Units, Dimensions and Data Types* vocabulary: a public
+ontology that gives every unit a stable identifier, states what it measures, and
+records how it relates to the SI unit of the same dimension.
+
 Status: **largely implemented.** The conversion machinery, the discovery
 relaxation and the consumption hook are in `usecases/qudt.go`; `ds18b20`,
 `ds18b20F`, `thermostat`, `parallax`, `leveler`, `ethermostat`, `revolutionary`,
@@ -10,7 +14,8 @@ Two decisions differ from the plan below, and the plan is left as written so the
 change of mind is visible:
 
 - **No new signal form.** Section 9 argued for `SignalA_v1b` because putting an
-  IRI in `Unit` changes the meaning of a field. In the end the IRI went into
+  Internationalized Resource Identifier (IRI) in `Unit` changes the meaning of a
+  field. In the end the IRI went into
   `SignalA_v1a.Unit` and normalization was made inert wherever either side is not
   a QUDT unit, so a pre-QUDT deployment is untouched and no form had to be
   versioned. The compatibility the version bump was meant to buy is bought by the
@@ -47,7 +52,8 @@ The unit appears in three unconnected places:
 | Payload field | ~~`f.Unit = "Celsius"` hardcoded~~ — now stamped from the configured unit | — |
 | Consumption | — | `thing.go:252-259` asserts `*SignalA_v1a`, reads `.Value`, **never reads `.Unit`** |
 
-The ESR filter (`systems/esr/thing.go:251-280`) is a plain string-set membership
+The filter in the ESR, the ephemeral service registrar
+(`systems/esr/thing.go:251-280`), is a plain string-set membership
 test. So `unit:DEG_F` vs `unit:DEG_C` yields *no match at all*: the thermostat
 falls to `updateValvePosition(50)` and logs "unable to obtain a temperature
 reading" forever. Not silent corruption — but not a resolution either.
@@ -58,7 +64,7 @@ feeds Fahrenheit numbers straight into the P controller with no check.
 
 ## 2. Layering
 
-**ESR — leave alone.** It is deliberately a dumb string matcher. Teaching it QUDT
+**ESR — leave unchanged.** It compares strings and nothing more, deliberately. Teaching it QUDT
 couples the service registry to a physics library and to lookups during a query.
 
 **Orchestrator — compatibility, not conversion.** It never sees a payload; it
@@ -96,7 +102,8 @@ the GET stateful per consumer and breaks the shared cached reading.
 ## 3. The general pattern (length, mass, pressure, … not just temperature)
 
 QUDT gives every unit a `qudt:conversionMultiplier` and `qudt:conversionOffset`
-relative to the SI coincident unit of its dimension. Conversion is therefore two
+relative to the coincident unit of its dimension in the International System of
+Units (SI). Conversion is therefore two
 affine steps *through SI*, never a pairwise table — **N entries, not N²**:
 
     si       = value_from * from.Multiplier + from.Offset
@@ -116,7 +123,8 @@ affine steps *through SI*, never a pairwise table — **N entries, not N²**:
 
 The offset is zero for essentially everything except temperature and gauge
 pressure. Length and mass collapse to pure scaling, which is why they never raise
-the point-vs-interval question below. The pattern generalises for free;
+the question of points against intervals below. The pattern extends to every
+dimension without additional cases;
 temperature merely exercises the one term the others leave at zero. Composite
 units come along too — `unit:MilliM-PER-HR` → `unit:M-PER-SEC` is the same two
 numbers, which matters given `rdfObject`'s doc comment already cites `mm/h` and
@@ -154,7 +162,7 @@ func Convert(v float64, from, to *UnitDef, interval bool) (float64, error) {
   what the Orchestrator matches on. Required because dimension alone is not
   sufficient: torque and energy are both `L2 M1 T-2`, so a dimension-only check
   will happily hand a torque sensor to something asking for energy. Likewise
-  frequency vs. becquerel.
+  frequency against becquerel.
 
 ## 5. The one thing QUDT will not tell you
 
@@ -238,7 +246,7 @@ Across all systems today:
 - **Logarithmic and ordinal units** (dB, pH, Richter) have no meaningful
   multiplier. QUDT flags them; `HasFactor` must refuse rather than silently
   produce nonsense.
-- **Gauge vs. absolute pressure** is the other real-world offset trap, and QUDT
+- **Gauge against absolute pressure** is the other real-world offset trap, and QUDT
   does *not* model it — `unit:KiloPA` says nothing about the reference. With 7
   kPa services and 1 bar service in the cloud, check this before assuming
   pressure is pure scaling.

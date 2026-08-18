@@ -1,8 +1,33 @@
 # Service Subscription
 
-**Status:** Working specification. Pre-implementation. The corresponding Go
-implementation will live in this directory (`subscribe.go`); this document
-defines the contract.
+**Status:** Implemented, both halves. Not yet run on hardware. See "What exists" below. The corresponding Go implementation will live in this
+directory (`subscribe.go`); this document defines the contract.
+
+**What exists today is a different thing, and this document does not describe
+it.** The Service Registrar carries a *registry* subscription: `GET /syslist`
+with `Accept: text/event-stream` returns a snapshot of the registered systems
+followed by one event per registration and deregistration, so a consumer such as
+the KGrapher learns when the cloud's shape changes. It has no thresholds, no
+baselines and no per-service values, because it is not about a service's value —
+there are no `/subscribe` endpoints on services, and looking for them is the
+mistake this note exists to prevent.
+
+Two properties of the registry stream are worth stating where a reader of this
+document will look for them:
+
+- **It heartbeats.** The registrar writes an SSE comment line every 20 seconds
+  on an idle stream, and a subscriber treats silence past three intervals as a
+  dead connection rather than a quiet cloud. The reasoning is the one given
+  below for service values: a stream that is idle by design cannot otherwise be
+  told from one that has stopped existing.
+- **Its authorization is checked once, at connect.** The access token is
+  verified when the stream opens and not again, so a subscription outlives the
+  token that opened it and revoking a policy takes effect only when the
+  connection next drops. This is the lenient of the two models named below, and
+  it is a deliberate choice for a stream whose content is the registry's public
+  shape rather than a plant's measurements. A service value subscription should
+  take the strict model instead: keep the claims, and close the stream when they
+  expire, letting the reconnection re-authorize.
 
 ## Purpose
 
@@ -11,7 +36,7 @@ systems register interest in a provider's service and receive notifications
 when the service's value changes meaningfully — *plus* a periodic heartbeat
 so the consumer can distinguish "value is unchanged" from "publisher is
 gone." The intended use case is the small, slow-changing measurement
-streams that dominate OT plants: a `ds18b20` temperature sensor consumed by
+streams that dominate operational technology (OT) plants: a `ds18b20` temperature sensor consumed by
 a `Thermostat`, an `eThermostat`, and a `Collector` system simultaneously.
 
 The mechanism is *subscription* in semantics (registration-based
@@ -90,7 +115,8 @@ subscription endpoint at `GET /system/asset/service/subscribe` automatically.
 
 ## Wire format — Server-Sent Events
 
-A subscriber opens the subscription endpoint with an SSE-style request:
+A subscriber opens the subscription endpoint with a request in the
+server-sent events (SSE) style:
 
 ```
 GET /<system>/<asset>/<service>/subscribe HTTP/1.1
@@ -143,7 +169,7 @@ channel.
 A subscription is a continuous form of `read`. The authorizer's existing
 `read` action gates it; no new verb is required at the policy layer.
 
-What does need deliberate handling is **token TTL versus subscription
+What does need deliberate handling is **token time to live (TTL) versus subscription
 lifetime**. A subscription may run for hours; an authorization token is
 valid for minutes. Two acceptable resolutions, to be settled in the
 authorizer's specification (see `security/authorizer/POLICY.md`):
@@ -177,8 +203,78 @@ goroutine).
   pick one and fail over if it dies? Belongs in the orchestrator's
   domain, not in this spec.
 
+## What exists
+
+The publisher half is implemented in `publishing.go`. A service declares itself
+in `systemconfig.json` and its system hands each sample to `usecases.Publish`;
+everything else — baseline, threshold, heartbeat, subscribers — is the
+framework's.
+
+Three decisions were taken while building it that this document did not settle:
+
+- **The stream is the service's own path with `Accept: text/event-stream`**, not
+  a `/subscribe` beneath it. The same resource in two representations, as the
+  registry's system list already does. There is then no second path to declare,
+  discover and authorize, and following a value is authorized as the read it
+  already is — this cloud has been bitten once by a path the framework served
+  without declaring.
+- **Terms are negotiated, not deferred to v2.** A subscriber proposes a
+  heartbeat and a threshold as query parameters, the publisher clamps them to
+  what it can honour (`fastestHeartbeat`, `finestThreshold`), and the agreed
+  terms are the first event on the stream. A control loop that believes it will
+  hear about a change of 0.1 and will not is worse off than one that knows.
+  Retrofitting a negotiation onto a deployed protocol is much harder than
+  starting with one.
+- **A slow subscriber is skipped, not disconnected and not waited for.** A
+  value is a state rather than a sequence, so a subscriber that misses one
+  learns the truth from the next event or the next heartbeat. This is why the
+  registry stream needs resynchronisation and this does not: there, a dropped
+  event is a change nobody will mention again.
+
+The consumer half is in the same file. A cervice whose provider says it can be
+followed is followed, and `GetState` answers from what the subscription last
+delivered instead of asking. **No consuming system changes**: the control loop
+calls `GetState` on its own clock exactly as it did, and what changes is that
+the answer no longer costs a request. That is the whole design — subscription as
+an optimisation rather than a migration, because thirty-odd consumers would
+otherwise each need rewriting around a new control flow.
+
+The cache holds the bytes that arrived rather than a parsed form, so a followed
+reading and a polled one travel the same path afterwards: unpacked by the same
+code and converted into the consumer's unit by the same code. A second path
+would be a second place to get a unit wrong, and a controller fed a number in the
+wrong unit does not fail — it quietly does the wrong thing.
+
+**A control loop wakes on an arrival.** `Cervice.Updated()` fires when a value is
+delivered, and a loop selects on it beside its own ticker. Both arms matter: the
+ticker guarantees the loop runs at all — a publisher that has died says nothing,
+and a controller waiting only for news would wait for ever — while the arrival is
+what makes it act now rather than at the end of a period that has just begun.
+
+Without that second arm, following a value only made the reading cheaper to
+fetch: the valve still moved on the control period, so a sensor plunged into warm
+water took a full cycle to reach it. An update nobody acts on buys only network
+traffic.
+
+How often an arrival may wake a consumer is separate from how often a change is
+reported, because they answer different questions. A tenth of a degree is worth
+telling a data logger about and not worth moving a valve for, so wakes are paced
+by `Cervice.WakeFloor` (a second by default). Suppressing a wake never loses the
+value — it is already cached, and the ticker remains the guarantee that it is
+acted upon.
+
+Falling back is the point of the staleness rule. A publisher promised to speak
+every heartbeat whether the value moved or not, so silence past three of them
+means it is gone rather than steady; the cached value is dropped and the next
+read asks over the network, as it always did. A controller degrades to slower
+data, never to no data and never to an hour-old reading from a sensor that has
+died.
+
 ## Versioning
 
 | Date | Change |
 |------|--------|
 | 2026-04-30 | Initial specification: SSE transport, shared baseline, heartbeat-resets-on-send, on-subscribe-emits-current. |
+| 2026-08-18 | Publisher implemented. Stream moved onto the service's own path via Accept; terms negotiated rather than dictated; slow subscribers skipped rather than resynchronised. |
+| 2026-08-18 | Consumer implemented: a followed cervice answers GetState from the last delivered value, falls back to polling when the subscription lapses, and no consuming system changes. |
+| 2026-08-18 | Cervice.Updated added, and the three control loops wake on it. Following a value had only made the reading cheaper; the controller still acted on its own period. |

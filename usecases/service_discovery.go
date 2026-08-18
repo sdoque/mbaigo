@@ -23,8 +23,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
@@ -32,7 +34,7 @@ import (
 
 // ServRegForms returns the list of forms that the service registration handles
 func ServQuestForms() []string {
-	return []string{"ServiceQuest_v1", "ServicePoint_v1"}
+	return []string{"ServiceQuest_v1", "ServicePoint_v1", "ServicePointList_v1"}
 }
 
 // FillQuestForm described the sought service (e.g., RemoteSignal)
@@ -160,7 +162,7 @@ func Search4ServicesAs(cer *components.Cervice, sys *components.System, action s
 	if !ok {
 		return fmt.Errorf("unable to unpack discovery request form")
 	}
-	recordNode(cer, df.ServNode, df.ServLocation, df.Details, action, df.Token)
+	recordNode(cer, df.ServNode, df.ServLocation, df.Details, action, df.Token, df.SubscribeAble)
 	return nil
 }
 
@@ -170,7 +172,10 @@ func Search4ServicesAs(cer *components.Cervice, sys *components.System, action s
 // discovered twice, once per action, and appending would leave two entries for
 // the same provider — the caller would then poll it twice per round and, worse,
 // might pick the copy carrying the wrong token.
-func recordNode(cer *components.Cervice, node, url string, details map[string][]string, action, token string) {
+func recordNode(cer *components.Cervice, node, url string, details map[string][]string, action, token string, subscribable bool) {
+	cer.Mutex.Lock()
+	defer cer.Mutex.Unlock()
+
 	for i, ni := range cer.Nodes[node] {
 		if ni.URL != url {
 			continue
@@ -184,9 +189,10 @@ func recordNode(cer *components.Cervice, node, url string, details map[string][]
 		return
 	}
 	cer.Nodes[node] = append(cer.Nodes[node], components.NodeInfo{
-		URL:     url,
-		Details: details,
-		Tokens:  map[string]string{action: token},
+		URL:           url,
+		Details:       details,
+		Tokens:        map[string]string{action: token},
+		SubscribeAble: subscribable,
 	})
 }
 
@@ -236,15 +242,108 @@ func Search4MultipleServicesAs(cer *components.Cervice, sys *components.System, 
 	if err != nil {
 		return err
 	}
-	srList, ok := discoveryForm.(*forms.ServiceRecordList_v1)
-	if !ok {
-		return fmt.Errorf("unable to unpack discovery request form")
+	points, err := servicePoints(discoveryForm)
+	if err != nil {
+		return err
 	}
-	for _, values := range srList.List {
-		sp := ConvertToServicePoint(values)
-		recordNode(cer, sp.ServNode, sp.ServLocation, sp.Details, action, sp.Token)
+	registered := make(map[string]bool, len(points))
+	for _, sp := range points {
+		if sp.ServLocation == "" {
+			// Nothing to call, so nothing to record. Recording it would put a
+			// node with an empty URL in the list, which the consuming round then
+			// skips on every poll and which pruning would keep alive because it
+			// was "returned".
+			continue
+		}
+		recordNode(cer, sp.ServNode, sp.ServLocation, sp.Details, action, sp.Token, sp.SubscribeAble)
+		registered[sp.ServLocation] = true
 	}
+	// A discovery for several providers returns everything currently registered
+	// under this definition, so anything cached and not returned is gone. Adding
+	// without ever removing left a sensor in the list after the registrar had
+	// stopped listing it — retried every round, paying its own timeout, for as
+	// long as the consumer ran.
+	//
+	// Only here. Search4ServicesAs asks the orchestrator for one provider, so
+	// what it does not return says nothing about the others.
+	pruneNodes(cer, registered, action)
 	return nil
+}
+
+// servicePoints reads the orchestrator's answer to a multi-provider quest.
+//
+// Two forms are accepted because the two ends are upgraded separately. A
+// ServicePointList_v1 carries a token per provider; a ServiceRecordList_v1 is
+// what an orchestrator that predates this answers with, and has nowhere to put
+// one — so a consumer talking to an older orchestrator still discovers its
+// providers, and is refused by them in an authorized cloud exactly as it was
+// before. Refusing to parse it instead would take the cloud down on an upgrade
+// rather than at the moment the tokens start being needed.
+func servicePoints(f forms.Form) ([]forms.ServicePoint_v1, error) {
+	switch list := f.(type) {
+	case *forms.ServicePointList_v1:
+		return list.List, nil
+	case *forms.ServiceRecordList_v1:
+		olderOrchestrator.Do(func() {
+			log.Printf("the orchestrator answers multi-provider discovery with %s, "+
+				"which carries no access token: requests to those providers will be "+
+				"refused in an authorized cloud until it is upgraded\n",
+				list.FormVersion())
+		})
+		points := make([]forms.ServicePoint_v1, 0, len(list.List))
+		for _, rec := range list.List {
+			points = append(points, ConvertToServicePoint(rec))
+		}
+		return points, nil
+	default:
+		return nil, fmt.Errorf("unable to unpack discovery request form: got %T", f)
+	}
+}
+
+// olderOrchestrator reports the tokenless answer once rather than on every
+// discovery, which for a polling consumer is every few seconds.
+var olderOrchestrator sync.Once
+
+// pruneNodes drops what a discovery did not return, for the action it was made
+// under.
+//
+// The quest carries an action, so the orchestrator's answer is what this
+// consumer may do *for that action* — and a cervice used for both a GET and a
+// PUT is discovered twice, once per action. Deleting every provider absent from
+// one action's answer therefore threw away providers that were perfectly good
+// for the other: two temperature providers, one read-write and one read-only, a
+// later write discovery returning only the first, and the read-only one gone.
+// Every subsequent read then reached one sensor instead of two, with nothing to
+// say so.
+//
+// So a provider loses only this action's token here. It is removed outright
+// when it has none left for any action, because then nothing discovered it at
+// all and it is no longer a provider of anything.
+func pruneNodes(cer *components.Cervice, registered map[string]bool, action string) {
+	// Deleting during a range over the same map is what makes this the crash
+	// rather than the race: `fatal error: concurrent map iteration and map
+	// write` is not recoverable, and two polling goroutines of one unit asset
+	// share this cervice.
+	cer.Mutex.Lock()
+	defer cer.Mutex.Unlock()
+
+	for node, nodes := range cer.Nodes {
+		kept := nodes[:0]
+		for _, ni := range nodes {
+			if !registered[ni.URL] {
+				delete(ni.Tokens, action)
+				if len(ni.Tokens) == 0 {
+					continue // discovered for nothing: no longer a provider here
+				}
+			}
+			kept = append(kept, ni)
+		}
+		if len(kept) == 0 {
+			delete(cer.Nodes, node)
+			continue
+		}
+		cer.Nodes[node] = kept
+	}
 }
 
 // ConvertToServicePoint turns a registration record into the service point handed
@@ -259,8 +358,20 @@ func ConvertToServicePoint(sr forms.ServiceRecord_v1) (sp forms.ServicePoint_v1)
 	sp.ServiceDefinition = rec.ServiceDefinition
 	sp.Details = rec.Details
 	proto, port := preferredProtoPort(rec.ProtoPort)
+	// A record with no address leaves nothing to build a URL from, and indexing
+	// it panicked the poll goroutine of every system consuming that definition.
+	// The address comes off the wire from the registrar, which copies whatever
+	// the provider registered, and a host whose interface enumeration found
+	// nothing registers an empty list. One such provider should cost its own
+	// discovery, not everyone else's.
+	if len(rec.IPAddresses) == 0 {
+		log.Printf("the registrar lists %s of %s with no address, so there is nothing to call\n",
+			rec.ServiceDefinition, rec.SystemName)
+		return sp
+	}
 	sp.ServLocation = proto + "://" + rec.IPAddresses[0] + ":" + strconv.Itoa(port) + "/" + rec.SystemName + "/" + rec.SubPath
 	sp.ServNode = rec.ServiceNode
+	sp.SubscribeAble = rec.SubscribeAble
 	return
 }
 

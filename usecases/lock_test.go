@@ -65,7 +65,7 @@ func TestLoggingDoesNotStallTheRequestPath(t *testing.T) {
 	sys.Husk.AuthorizerKey.Store(&key.PublicKey)
 
 	hung := &hangingTransport{entered: make(chan struct{}), release: make(chan struct{})}
-	http.DefaultClient.Transport = hung
+	useTransport(t, hung)
 	defer close(hung.release)
 
 	logging := make(chan struct{})
@@ -108,7 +108,7 @@ func TestAMessengerDroppedWhileLoggingIsNotResurrected(t *testing.T) {
 	}
 
 	hung := &hangingTransport{entered: make(chan struct{}), release: make(chan struct{})}
-	http.DefaultClient.Transport = hung
+	useTransport(t, hung)
 
 	logging := make(chan struct{})
 	go func() {

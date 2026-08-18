@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"testing"
 
 	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
@@ -18,15 +19,17 @@ type mockTransport struct {
 	err      error
 }
 
-func newMockTransport(respFunc func() *http.Response, v int, err error) *mockTransport {
-	t := &mockTransport{
+func newMockTransport(t *testing.T, respFunc func() *http.Response, v int, err error) *mockTransport {
+	t.Helper()
+	mock := &mockTransport{
 		respFunc: respFunc,
 		hits:     v,
 		err:      err,
 	}
-	// Hijack the default http client so no actual http requests are sent over the network
-	http.DefaultClient.Transport = t
-	return t
+	// Hijack the default http client so no actual http requests are sent over
+	// the network, and put the previous transport back when this test ends.
+	useTransport(t, mock)
+	return mock
 }
 
 // RoundTrip method is required to fulfill the RoundTripper interface (as required by the DefaultClient).

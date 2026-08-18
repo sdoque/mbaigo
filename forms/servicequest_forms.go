@@ -79,7 +79,11 @@ type ServicePoint_v1 struct {
 	ServLocation      string              `json:"serviceURL"`
 	ServNode          string              `json:"serviceNode"`
 	Token             string              `json:"token"`
-	Version           string              `json:"version"`
+	// SubscribeAble says this provider will let a consumer follow the value
+	// rather than ask for it repeatedly. Carried here because it is the consumer
+	// that decides whether to follow, and this is what the consumer is handed.
+	SubscribeAble bool   `json:"subscribeAble,omitempty"`
+	Version       string `json:"version"`
 }
 
 func (f *ServicePoint_v1) NewForm() Form {
@@ -91,7 +95,36 @@ func (f *ServicePoint_v1) FormVersion() string {
 	return f.Version
 }
 
-// Register ServicePoint_v1 in the formTypeMap
+// ServicePointList_v1 is what a consumer receives when it asks for every
+// provider of a service rather than one.
+//
+// A list of service points rather than of registration records, because the two
+// carry different things. A record is what the registrar holds about a service;
+// a service point is that plus what this consumer needs in order to use it —
+// the endpoint chosen for the protocols it speaks, and the access token minted
+// for it.
+//
+// The multi-provider answer used to be a ServiceRecordList_v1, which has
+// nowhere to put a token. So every request from that path went out with an
+// empty one and was refused by any provider in an authorized cloud, and the
+// orchestrator did not filter the list by policy either — the authorizer was
+// never consulted on that path at all.
+type ServicePointList_v1 struct {
+	List    []ServicePoint_v1 `json:"list"`
+	Version string            `json:"version"`
+}
+
+func (f *ServicePointList_v1) NewForm() Form {
+	f.Version = "ServicePointList_v1"
+	return f
+}
+
+func (f *ServicePointList_v1) FormVersion() string {
+	return f.Version
+}
+
+// Register the service point forms in the formTypeMap
 func init() {
 	FormTypeMap["ServicePoint_v1"] = reflect.TypeOf(ServicePoint_v1{})
+	FormTypeMap["ServicePointList_v1"] = reflect.TypeOf(ServicePointList_v1{})
 }

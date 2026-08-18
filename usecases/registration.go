@@ -64,6 +64,11 @@ func RegisterServices(sys *components.System) {
 		log.Fatalf("mission configuration error: %v\n", err)
 	}
 
+	// Before anything is advertised, so a service registered as subscribable can
+	// be followed from the moment a consumer discovers it. Every system calls
+	// this, so turning subscription on stays a matter of configuration.
+	PreparePublishers(sys)
+
 	// Keep track of the registrar URL. The URL is shared between goroutines,
 	// so it must be protected from data races using a mutex.
 	registrar := &registrarTracker{}
@@ -257,7 +262,17 @@ func serviceRegistrationForm(sys *components.System, ua *components.UnitAsset, s
 		// It is the service's effective mission, not the asset's: an asset that
 		// fronts a device — a PLC, a broker, a gateway — is too coarse to
 		// authorize against.
-		sr.Mission = components.EffectiveMission(ua, serv)
+		sr.Mission = components.EffectiveMission(ua, serv).String()
+		// Whether this service can be followed rather than asked repeatedly.
+		// It travels for the same reason the mission does: a consumer decides
+		// whether to subscribe from what the registrar told it, never from the
+		// provider's own configuration file, which it cannot read.
+		//
+		// The field existed on both the service and the record and nothing
+		// joined them, so every service in every cloud has registered as not
+		// subscribable whatever it declared — and a consumer, believing the
+		// registry, polled a service that was willing to publish.
+		sr.SubscribeAble = serv.SubscribeAble
 		sr.Details = deepCopyMap((*ua).GetDetails())
 		for key, valueSlice := range serv.Details {
 			sr.Details[key] = append(sr.Details[key], valueSlice...)

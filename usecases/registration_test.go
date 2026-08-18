@@ -176,7 +176,7 @@ func TestUnregisterService(t *testing.T) {
 		testSys := createTestSystem(false)
 		serv := (*testSys.UAssets["testUnitAsset"]).GetServices()["test"]
 
-		newMockTransport(createWorkingHttpResp(), testCase.mockTransportErr, testCase.errHTTP)
+		newMockTransport(t, createWorkingHttpResp(), testCase.mockTransportErr, testCase.errHTTP)
 		err := unregisterService(testCase.registrarUrl, serv)
 		if (testCase.expectedErr == true && err == nil) || (testCase.expectedErr == false && err != nil) {
 			t.Errorf("In test case: %s: We expected %t error, got: %v", testCase.testName, testCase.expectedErr, err)
@@ -280,7 +280,7 @@ func TestRegisterService(t *testing.T) {
 		mockSys, mua, mockServ := createMockSysMockUnitAssetandMockService(testCase.mockServID)
 		respFunc := createWorkingRegisterServiceBody(mockSys, mua, mockServ, testCase.correctTime,
 			testCase.contentType, testCase.brokenBody)
-		newMockTransport(respFunc, testCase.mockTransportErr, testCase.errHTTP)
+		newMockTransport(t, respFunc, testCase.mockTransportErr, testCase.errHTTP)
 
 		test, err := registerService(&mockSys, testCase.registrarUrl, mua, mockServ)
 

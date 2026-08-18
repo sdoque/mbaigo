@@ -25,6 +25,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"reflect"
 	"strings"
@@ -169,12 +170,52 @@ func IsCamelCase(s string) bool {
 
 // ------- HTTP Client Tools -------
 
+// The one place the framework's HTTP client is installed.
+//
+// There were two: this one, and another in authentication.go that added the TLS
+// dial. Go runs a package's files in name order, so this one ran second and
+// replaced the other — leaving a client with no transport, which means no CA
+// pool and no client certificate. Every system-to-system call over HTTPS then
+// failed with "certificate signed by unknown authority", because the client had
+// nothing to verify against.
+//
+// Installed here, once, at package load, so it is in place before any goroutine
+// in any system can read it. The TLS configuration it dials with arrives later,
+// when enrollment completes, and is published through clientTLS rather than by
+// replacing the client — http.DefaultClient is a package-level variable that
+// three dozen call sites read.
+//
+// The tests depend on this client too, and sometimes replace its transport with
+// a mock.
 func init() {
-	// Sets up a new global client with better defaults
-	// (the tests depends on this client too, and sometimes
-	// replaces it with a mock).
+	// Go's own transport with the TLS dial added, not a bare one.
+	//
+	// A bare &http.Transport{} keeps none of what http.DefaultTransport sets:
+	// Proxy is nil where it had ProxyFromEnvironment, so a system behind an
+	// HTTPS_PROXY dials the address directly and waits for a timeout instead of
+	// reaching anything; the idle connection pool and its timeout are gone, so
+	// every call opens a fresh connection; and the handshake and expect-continue
+	// timeouts are gone with them.
+	//
+	// Cloned rather than mutated, because http.DefaultTransport is shared with
+	// anything else in the process that uses it, and the TLS dial belongs to
+	// this cloud's client alone.
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		// Not reachable with the standard library, and not worth guessing at:
+		// a transport of some other type is one whose settings cannot be
+		// carried over, so say so rather than silently drop them.
+		log.Printf("http.DefaultTransport is a %T, so the framework's client is built "+
+			"without its proxy and connection-pool settings\n", http.DefaultTransport)
+		transport = &http.Transport{}
+	} else {
+		transport = transport.Clone()
+	}
+	transport.DialTLSContext = dialTLS
+
 	http.DefaultClient = &http.Client{
-		Timeout: time.Second * 30,
+		Timeout:   time.Second * 30,
+		Transport: transport,
 	}
 }
 
@@ -210,7 +251,11 @@ func sendHTTPReqWithToken(method string, url string, token string, data []byte) 
 		// polling against a standing 403 does once per tick.
 		reason, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		_ = resp.Body.Close()
-		if detail := strings.TrimSpace(string(reason)); detail != "" {
+		// Sanitized like any other text from off this machine. It is written
+		// into a log line, and a remote peer that can put newlines in its own
+		// refusal can forge entries around it — the same reason paths and
+		// common names go through ForLog.
+		if detail := strings.TrimSpace(ForLog(string(reason))); detail != "" {
 			return nil, fmt.Errorf("%s: %s", resp.Status, detail)
 		}
 		return nil, fmt.Errorf("bad response: %s", resp.Status)
@@ -232,13 +277,22 @@ func sendHTTPReqWithToken(method string, url string, token string, data []byte) 
 func ForLog(s string) string {
 	const most = 256
 	cleaned := strings.Map(func(r rune) rune {
-		if r == utf8.RuneError || unicode.IsControl(r) {
+		// Control characters, and the three other categories a log viewer or a
+		// terminal gives meaning to: the line and paragraph separators some
+		// honour as newlines, and the format characters, which include the
+		// bidirectional overrides that can reverse how a line reads.
+		if r == utf8.RuneError || unicode.IsControl(r) ||
+			unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
 			return -1
 		}
 		return r
 	}, s)
-	if len(cleaned) > most {
-		return cleaned[:most] + "…(truncated)"
+
+	// Cut on a rune boundary. Slicing bytes puts back exactly what the map above
+	// exists to remove: half of a multi-byte character is invalid UTF-8.
+	runes := []rune(cleaned)
+	if len(runes) > most {
+		return string(runes[:most]) + "…(truncated)"
 	}
 	return cleaned
 }

@@ -49,7 +49,14 @@ func Certificate(w http.ResponseWriter, req *http.Request, sys components.System
 	log.Printf("serving system's certificate upon request from %s", safeAddr) // #nosec G706 -- remoteAddr is sanitised above
 	// log.Printf("serving system's certificate upon request from %s (User-Agent: %s, X-Forwarded-For: %s)", remoteAddr, userAgent, xForwardedFor)
 
+	// Under the lock the writer takes. This endpoint is served by the HTTP
+	// server, which binds before enrollment finishes, and it is what every other
+	// system polls to bootstrap verification — so it is read precisely while
+	// acquireCertificate is writing the field. System.Mutex is a pointer, so the
+	// copy this function receives guards the same lock as the original.
+	sys.Mutex.Lock()
 	cert := sys.Husk.Certificate
+	sys.Mutex.Unlock()
 
 	// Set the content type to text/plain
 	w.Header().Set("Content-Type", "text/plain")
