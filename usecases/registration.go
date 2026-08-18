@@ -263,6 +263,16 @@ func serviceRegistrationForm(sys *components.System, ua *components.UnitAsset, s
 		// fronts a device — a PLC, a broker, a gateway — is too coarse to
 		// authorize against.
 		sr.Mission = components.EffectiveMission(ua, serv).String()
+		// Whether this service can be followed rather than asked repeatedly.
+		// It travels for the same reason the mission does: a consumer decides
+		// whether to subscribe from what the registrar told it, never from the
+		// provider's own configuration file, which it cannot read.
+		//
+		// The field existed on both the service and the record and nothing
+		// joined them, so every service in every cloud has registered as not
+		// subscribable whatever it declared — and a consumer, believing the
+		// registry, polled a service that was willing to publish.
+		sr.SubscribeAble = serv.SubscribeAble
 		sr.Details = deepCopyMap((*ua).GetDetails())
 		for key, valueSlice := range serv.Details {
 			sr.Details[key] = append(sr.Details[key], valueSlice...)

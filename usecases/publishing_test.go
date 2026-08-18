@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -425,4 +426,42 @@ func TestAPublisherAndAConsumerMeet(t *testing.T) {
 	}
 	t.Errorf("the consumer still reads %v after the publisher moved to 21.0",
 		form.(*forms.SignalA_v1a).Value)
+}
+
+// TestTheRegistrationSaysAServiceCanBeFollowed is the join that was missing.
+//
+// A consumer decides whether to subscribe from what the registrar told it — it
+// cannot read the provider's configuration file. The field was on the service
+// and on the record and nothing connected them, so every service in every cloud
+// registered as not subscribable whatever it declared, and consumers polled
+// providers that were willing to publish. The framework never noticed because
+// both ends were individually correct.
+func TestTheRegistrationSaysAServiceCanBeFollowed(t *testing.T) {
+	sys := components.NewSystem("ds18b20", context.Background())
+	sys.Husk = &components.Husk{
+		Host:      &components.HostingDevice{Name: "canbus", IPAddresses: []string{"192.0.2.1"}},
+		ProtoPort: map[string]int{"http": 20150},
+	}
+	sys.Husk.Bound.Bind("http", 20150)
+
+	followed := temperature(0.1)
+	asset := &components.UnitAsset{
+		Name: "28-00000f030344", Mission: components.MissionMeasurement,
+		ServicesMap: components.Services{followed.SubPath: followed},
+	}
+	sys.UAssets[asset.Name] = asset
+
+	payload, err := serviceRegistrationForm(&sys, sys.UAssets[asset.Name], followed, "ServiceRecord_v1")
+	if err != nil {
+		t.Fatalf("building the registration: %v", err)
+	}
+
+	var record forms.ServiceRecord_v1
+	if err := json.Unmarshal(payload, &record); err != nil {
+		t.Fatalf("the registration is not readable: %v", err)
+	}
+	if !record.SubscribeAble {
+		t.Error("a service that declares itself subscribable is registered as not " +
+			"subscribable, so no consumer will ever follow it")
+	}
 }
