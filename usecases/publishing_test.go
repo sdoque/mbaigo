@@ -349,3 +349,80 @@ func TestOnlyOneFollowerPerCervice(t *testing.T) {
 		t.Error("after the subscription ended, nothing could take it up again")
 	}
 }
+
+// TestAPublisherAndAConsumerMeet is the one test that proves the two halves fit.
+//
+// Everything else here exercises one side against a fixture the other side never
+// wrote. This runs a real publisher behind a real HTTP server, points a cervice
+// at it, and asks the question a control loop asks — with no consuming code
+// written for the occasion, because the claim being tested is that none is
+// needed.
+func TestAPublisherAndAConsumerMeet(t *testing.T) {
+	service := temperature(0.5)
+	service.FastestHeartbeat = 1
+	publisher := NewPublisher(service)
+	service.Stream = publisher
+
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !wantsStream(r) {
+			t.Error("the consumer asked for the value without asking to follow it")
+			return
+		}
+		publisher.ServeStream(w, r)
+	}))
+	// Closed last: httptest waits for outstanding requests, and a subscription is
+	// an outstanding request that never ends until the consumer stops. Cancelling
+	// the consumer's context is what lets the handler return, so it has to happen
+	// first — deferred later, therefore run earlier.
+	defer provider.Close()
+
+	publisher.Sample(sample(19.0))
+
+	ctx, stopConsumer := context.WithCancel(context.Background())
+	defer stopConsumer()
+	sys := components.NewSystem("thermostat", ctx)
+	sys.Husk = &components.Husk{ProtoPort: map[string]int{"http": 0}}
+	cer := &components.Cervice{
+		Definition: "temperature",
+		Details:    map[string][]string{"Unit": {"<http://qudt.org/vocab/unit/DEG_C>"}},
+		Nodes: map[string][]components.NodeInfo{"sensor": {{
+			URL: provider.URL, SubscribeAble: true,
+			Tokens: map[string]string{"read": ""},
+		}}},
+	}
+
+	Follow(cer, &sys)
+
+	// The value should arrive without anybody asking for it.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, _, fresh := cer.Recall(); fresh {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, _, fresh := cer.Recall(); !fresh {
+		t.Fatal("the consumer subscribed and no value ever arrived")
+	}
+
+	form, err := stateHandler(http.MethodGet, cer, &sys, nil)
+	if err != nil {
+		t.Fatalf("reading the followed value: %v", err)
+	}
+	if got := form.(*forms.SignalA_v1a).Value; got != 19.0 {
+		t.Fatalf("the consumer read %v, want the published 19.0", got)
+	}
+
+	// And it follows the value as it moves.
+	publisher.Sample(sample(21.0))
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		form, err = stateHandler(http.MethodGet, cer, &sys, nil)
+		if err == nil && form.(*forms.SignalA_v1a).Value == 21.0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("the consumer still reads %v after the publisher moved to 21.0",
+		form.(*forms.SignalA_v1a).Value)
+}
