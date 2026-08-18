@@ -193,6 +193,7 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 	// different thing from defaulting a blank field: nothing is guessed, and an
 	// asset the template does not know about is still refused.
 	rawResources = fillMissionsFromTemplates(sys, rawResources)
+	rawResources = fillServicesFromTemplates(sys, rawResources)
 
 	sys.Name = configurationIn.CName
 	// Restore IP addresses from config, allowing operators to limit which address is used.
@@ -225,6 +226,127 @@ func soleTemplate(sys *components.System) *components.UnitAsset {
 		return ua
 	}
 	return nil
+}
+
+// capabilities are the service fields a running system decides, not a file.
+//
+// Whether a service can be followed depends on whether this build's code
+// publishes to it; an operator cannot make that true or false by editing JSON,
+// and a configuration written before the field existed says false by omission —
+// which is indistinguishable from an operator having turned it off, so the
+// template is taken as the answer.
+var capabilities = map[string]bool{
+	"subscribable": true,
+}
+
+// fillServicesFromTemplates gives a configured service whatever its system's
+// template says and its configuration file does not.
+//
+// A systemconfig.json is written once, when there is none, and never merged
+// into afterwards. So every field added to a service since a deployment was
+// commissioned is missing from that deployment's file, and every service added
+// since is missing altogether. That has cost this project four separate
+// deployments: a files service that never appeared, a syslist the registrar
+// served without declaring, missions that stopped systems from starting, and a
+// temperature that registered as unfollowable because the file predated the
+// word.
+//
+// Two kinds of field, treated differently. A capability comes from the template,
+// because it describes what the code can do. Everything else is a deployment's
+// own business and the file wins wherever it says anything at all — a threshold
+// or a heartbeat an operator tuned is not overwritten by a release.
+func fillServicesFromTemplates(sys *components.System, raws []json.RawMessage) []json.RawMessage {
+	for i, raw := range raws {
+		var asset map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &asset); err != nil {
+			continue
+		}
+		var name string
+		_ = json.Unmarshal(asset["name"], &name)
+
+		template, known := sys.UAssets[name]
+		if !known {
+			template = soleTemplate(sys)
+		}
+		if template == nil {
+			continue
+		}
+
+		var configured []map[string]json.RawMessage
+		if raw, present := asset["services"]; present {
+			if err := json.Unmarshal(raw, &configured); err != nil {
+				continue
+			}
+		}
+
+		bySubPath := map[string]int{}
+		for at, serv := range configured {
+			var subPath string
+			_ = json.Unmarshal(serv["subpath"], &subPath)
+			bySubPath[subPath] = at
+		}
+
+		changed := false
+		for _, offered := range getServicesList(*template) {
+			fields, err := asFields(offered)
+			if err != nil {
+				continue
+			}
+			at, present := bySubPath[offered.SubPath]
+			if !present {
+				// A service this build serves and the file has never heard of.
+				// Left out, it is a path the system answers on and the cloud
+				// cannot discover, authorize or reason about.
+				configured = append(configured, fields)
+				changed = true
+				continue
+			}
+			for key, value := range fields {
+				_, stated := configured[at][key]
+				if stated && !capabilities[key] {
+					continue // the file has its own answer and is entitled to it
+				}
+				if !stated || !sameJSON(configured[at][key], value) {
+					configured[at][key] = value
+					changed = true
+				}
+			}
+		}
+		if !changed {
+			continue
+		}
+
+		services, err := json.Marshal(configured)
+		if err != nil {
+			continue
+		}
+		asset["services"] = services
+		patched, err := json.Marshal(asset)
+		if err != nil {
+			continue
+		}
+		raws[i] = patched
+	}
+	return raws
+}
+
+// asFields renders one template service as the fields a configuration file
+// would carry for it, so the two can be compared key by key.
+func asFields(serv components.Service) (map[string]json.RawMessage, error) {
+	encoded, err := json.Marshal(serv)
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		return nil, err
+	}
+	return fields, nil
+}
+
+// sameJSON reports whether two encoded values say the same thing.
+func sameJSON(a, b json.RawMessage) bool {
+	return string(a) == string(b)
 }
 
 // fillMissionsFromTemplates supplies a mission to a configured asset that has

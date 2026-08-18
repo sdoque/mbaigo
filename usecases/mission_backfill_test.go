@@ -94,3 +94,123 @@ func TestARenamedAssetGetsNoGuessWhenTemplatesDiffer(t *testing.T) {
 		t.Errorf("an asset was given the mission %q, which no template named it for", got.Mission)
 	}
 }
+
+// The four deployments this has cost, as four tests.
+//
+// A systemconfig.json is written once, when there is none, and never merged into
+// afterwards. Every field added to a service since a deployment was commissioned
+// is therefore missing from that deployment's file, and every service added since
+// is missing altogether — and the failure is always silent, because a missing
+// field reads as a deliberate zero.
+func TestAConfigurationWrittenBeforeAFieldExistedGetsIt(t *testing.T) {
+	sys := components.NewSystem("ds18b20", context.Background())
+	sys.UAssets["sensor_Id"] = &components.UnitAsset{
+		Name:    "sensor_Id",
+		Mission: components.MissionMeasurement,
+		ServicesMap: components.Services{"temperature": {
+			Definition:       "temperature",
+			SubPath:          "temperature",
+			SubscribeAble:    true,
+			Heartbeat:        30,
+			Threshold:        0.1,
+			FastestHeartbeat: 2,
+			FinestThreshold:  0.0625,
+		}},
+	}
+
+	// The file as it was written before any of that existed.
+	before := json.RawMessage(`{"name":"28-00000f030344","mission":"measurement","services":[
+		{"definition":"temperature","subpath":"temperature","registrationPeriod":30}]}`)
+
+	after := fillServicesFromTemplates(&sys, []json.RawMessage{before})
+
+	var got ConfigurableAsset
+	if err := json.Unmarshal(after[0], &got); err != nil {
+		t.Fatalf("the patched asset is not readable: %v", err)
+	}
+	if len(got.Services) != 1 {
+		t.Fatalf("got %d services, want 1", len(got.Services))
+	}
+	serv := got.Services[0]
+
+	// A capability: whether the code publishes, which no file can decide.
+	if !serv.SubscribeAble {
+		t.Error("a service this build publishes registers as unfollowable, so every " +
+			"consumer polls a provider that was willing to push")
+	}
+	// Terms: the file said nothing, so the template's stand.
+	if serv.Heartbeat != 30 || serv.Threshold != 0.1 {
+		t.Errorf("terms came out as %ds / %v, want the template's 30s / 0.1",
+			serv.Heartbeat, serv.Threshold)
+	}
+	if serv.FastestHeartbeat != 2 || serv.FinestThreshold != 0.0625 {
+		t.Error("the bounds a subscriber is clamped to were not carried over")
+	}
+	// And what the file did say is untouched.
+	if serv.RegPeriod != 30 {
+		t.Errorf("the configured registration period became %d", serv.RegPeriod)
+	}
+}
+
+// What an operator tuned is theirs. A release supplies what is missing and
+// overrules nothing that the file states.
+func TestWhatTheFileSaysIsNotOverruled(t *testing.T) {
+	sys := components.NewSystem("ds18b20", context.Background())
+	sys.UAssets["sensor_Id"] = &components.UnitAsset{
+		Name:    "sensor_Id",
+		Mission: components.MissionMeasurement,
+		ServicesMap: components.Services{"temperature": {
+			Definition: "temperature", SubPath: "temperature",
+			SubscribeAble: true, Heartbeat: 30, Threshold: 0.1,
+		}},
+	}
+
+	tuned := json.RawMessage(`{"name":"sensor_Id","mission":"measurement","services":[
+		{"definition":"temperature","subpath":"temperature","heartbeat":120,"threshold":2.5}]}`)
+
+	after := fillServicesFromTemplates(&sys, []json.RawMessage{tuned})
+	var got ConfigurableAsset
+	if err := json.Unmarshal(after[0], &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Services[0].Heartbeat != 120 || got.Services[0].Threshold != 2.5 {
+		t.Errorf("an operator's terms were overwritten by the release: %ds / %v",
+			got.Services[0].Heartbeat, got.Services[0].Threshold)
+	}
+	if !got.Services[0].SubscribeAble {
+		t.Error("the capability was not supplied alongside the tuning that was kept")
+	}
+}
+
+// A service the build serves and the file has never heard of. Left out, it is a
+// path the system answers on that the cloud cannot discover, authorize or reason
+// about — which is what happened to the registrar's system list.
+func TestAServiceTheFileNeverHeardOfIsAdded(t *testing.T) {
+	sys := components.NewSystem("serviceregistrar", context.Background())
+	sys.UAssets["registry"] = &components.UnitAsset{
+		Name:    "registry",
+		Mission: components.MissionCore,
+		ServicesMap: components.Services{
+			"query":   {Definition: "query", SubPath: "query"},
+			"syslist": {Definition: "syslist", SubPath: "syslist"},
+		},
+	}
+
+	old := json.RawMessage(`{"name":"registry","mission":"core","services":[
+		{"definition":"query","subpath":"query","registrationPeriod":30}]}`)
+
+	after := fillServicesFromTemplates(&sys, []json.RawMessage{old})
+	var got ConfigurableAsset
+	if err := json.Unmarshal(after[0], &got); err != nil {
+		t.Fatal(err)
+	}
+
+	var paths []string
+	for _, s := range got.Services {
+		paths = append(paths, s.SubPath)
+	}
+	if len(got.Services) != 2 {
+		t.Fatalf("services are %v; a service this build serves is missing from the "+
+			"configuration and therefore from the registry", paths)
+	}
+}
