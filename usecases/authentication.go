@@ -21,6 +21,7 @@ package usecases
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -35,6 +36,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sdoque/mbaigo/components"
@@ -146,25 +148,47 @@ func acquireCertificate(sys *components.System, certReady chan struct{}) {
 		}
 	}
 
+	// Under the lock the readers take. Posture and fetchAuthorizerKey read this
+	// while the HTTP server — bound before enrollment finishes — is already
+	// answering, so a GET /<system>/kgraph lands here mid-write. The earlier fix
+	// added the mutex on the reading side only, which synchronized with nothing.
+	sys.Mutex.Lock()
 	sys.Husk.Certificate = response
-	installTLSConfig(sys)
+	sys.Mutex.Unlock()
+
+	if !installTLSConfig(sys) {
+		// Not ready, so certReady stays open. Closing it regardless is what let
+		// startHTTPSServer bind a listener with RequireAndVerifyClientCert
+		// against a pool holding nothing: the system then advertised an HTTPS
+		// port that refused every peer, which looks like a cloud-wide mTLS
+		// problem rather than one system that never got the CA's certificate.
+		//
+		// The system keeps serving HTTP and keeps retrying nothing on its own —
+		// this returns, and the operator has the failure in the log above. That
+		// is the same position as a system whose enrollment has not finished,
+		// which is a state the rest of the cloud already handles.
+		log.Printf("%s: TLS is not configured, so the HTTPS endpoint will not be bound\n", sys.Name)
+		return
+	}
 	close(certReady)
 }
 
-// installTLSConfig fetches the CA certificate, builds the TLS configuration from the system's
-// certificate and private key, and installs it on http.DefaultClient.
-func installTLSConfig(sys *components.System) {
+// installTLSConfig fetches the CA certificate, builds the TLS configuration from
+// the system's certificate and private key, and installs it on
+// http.DefaultClient. It reports whether TLS is usable afterwards.
+func installTLSConfig(sys *components.System) bool {
 	// Get CA's certificate
 	caCert, err := getCACertificate(sys)
 	if err != nil {
 		log.Printf("failed to obtain CA's certificate: %v\n", err)
-		return
+		return false
 	}
+	sys.Mutex.Lock()
 	sys.Husk.CA_cert = caCert
+	sys.Mutex.Unlock()
 
-	// Load CA certificate
-	caCertPool := x509.NewCertPool()
-	if ok := caCertPool.AppendCertsFromPEM([]byte(caCert)); !ok {
+	caCertPool, err := trustPool(caCert)
+	if err != nil {
 		log.Fatalf("Failed to append CA certificate to pool\n")
 	}
 
@@ -180,24 +204,25 @@ func installTLSConfig(sys *components.System) {
 		RootCAs:      caCertPool,
 		MinVersion:   tls.VersionTLS12,
 	}
+	sys.Mutex.Lock()
 	sys.Husk.TlsConfig = tlsConfig
+	sys.Mutex.Unlock()
 
-	// Install the TLS config on the default HTTP client so that all subsequent
-	// outbound calls (registration, orchestration, service invocation) present
-	// the client certificate when connecting over HTTPS.
-	http.DefaultClient = &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-	}
+	// Published for the client installed at package load to pick up on its next
+	// TLS dial. The client itself is never replaced: it used to be, here, and
+	// http.DefaultClient is a package-level variable that three dozen call sites
+	// read — including the registration loop, which by this point has been
+	// running for as long as enrollment took.
+	clientTLS.Store(tlsConfig)
 
 	// Output the certificate details
 	fmt.Printf("System %s's parsed Certificate:\n", sys.Name)
 	cert, err := x509.ParseCertificate(clientCert.Certificate[0])
 	if err != nil {
+		// The configuration is installed and usable; only the summary printed
+		// for the operator is missing, so this is not a reason to withhold TLS.
 		log.Printf("failed to parse certificate: %v\n", err)
-		return
+		return true
 	}
 	fmt.Printf("  Subject: %s\n", cert.Subject)
 	fmt.Printf("  Issuer: %s\n", cert.Issuer)
@@ -206,6 +231,7 @@ func installTLSConfig(sys *components.System) {
 	fmt.Printf("  Not After: %s\n", cert.NotAfter)
 	fmt.Printf("  DNS Names: %v\n", cert.DNSNames)
 	fmt.Printf("  IP Addresses: %v\n", cert.IPAddresses)
+	return true
 }
 
 func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
@@ -236,7 +262,8 @@ func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
 		// not learn from its own output that the cause was a maitreD that was
 		// not running.
 		reason, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		if detail := strings.TrimSpace(string(reason)); detail != "" {
+		// Sanitized: this reaches a log line, and it came off the wire.
+		if detail := strings.TrimSpace(ForLog(string(reason))); detail != "" {
 			return "", fmt.Errorf("the CA refused to certify (%s): %s", resp.Status, detail)
 		}
 		return "", fmt.Errorf("the CA refused to certify: %s", resp.Status)
@@ -251,6 +278,65 @@ func sendCSR(sys *components.System, csrPEM []byte) (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+// clientTLS is the client-side TLS configuration, published once enrollment
+// completes and read on every outbound TLS dial.
+//
+// A pointer swapped atomically rather than a client replaced in place. The
+// framework's HTTP client is installed once — see the init in utilities.go,
+// which is the single place that does it — and never changes after that; what
+// changes is what it finds here when it dials.
+var clientTLS atomic.Pointer[tls.Config]
+
+// dialTLS is the framework client's TLS dial. It reads the configuration
+// published by installTLSConfig rather than holding one, so the client that
+// calls it never has to be replaced.
+func dialTLS(ctx context.Context, network, addr string) (net.Conn, error) {
+	// Before enrollment, ordinary TLS against the host's trusted authorities.
+	//
+	// Refusing here instead was a mistake worth naming: it read every outbound
+	// HTTPS call as a call to another system in the cloud. Most are, but a
+	// system that fetches a weather station's readings or an electricity price
+	// does so over the public internet, often at startup and long before a
+	// certificate has been issued. Those calls have nothing to do with
+	// enrollment, and telling them the system has not enrolled is both a
+	// failure they should not have and an explanation that does not fit.
+	//
+	// A cloud peer still refuses the handshake for want of a client
+	// certificate. That is the peer's answer to give, not this dial's to
+	// predict.
+	cfg := clientTLS.Load() // nil until enrollment: tls.Dialer then uses the defaults
+	return (&tls.Dialer{Config: cfg}).DialContext(ctx, network, addr)
+}
+
+// trustPool is what this system verifies a TLS peer against: the cloud's CA in
+// addition to the authorities the host already trusts, not instead of them.
+//
+// A pool holding only the cloud's CA is right for reaching other systems and
+// wrong for everything else, and systems do reach everything else: a weather
+// station's API, an electricity spot price, a message broker. Those are signed
+// by public authorities, and against a pool of one they fail with "certificate
+// signed by unknown authority" — from enrollment onwards, which is minutes
+// after the system started working, so the system appears to work and then
+// stops.
+//
+// Adding to the host's pool is not a widening of what the cloud trusts. A peer
+// inside the cloud is verified by the same CA either way, and the authorizer
+// binds its claims to a name from that certificate besides.
+func trustPool(caCertPEM string) (*x509.CertPool, error) {
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		// No host pool to be had. The cloud is still reachable; the public
+		// internet is not, which is the situation this used to create everywhere.
+		log.Printf("could not read this host's trusted certificates (%v): only "+
+			"the local cloud will be reachable over TLS\n", err)
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM([]byte(caCertPEM)) {
+		return nil, fmt.Errorf("the CA certificate could not be read as PEM")
+	}
+	return pool, nil
 }
 
 // getCACertificate gets the CA's certificate necessary for the dual server-client authentication in the TLS setup

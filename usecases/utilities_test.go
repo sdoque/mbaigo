@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/sdoque/mbaigo/forms"
 )
@@ -293,5 +294,39 @@ func TestForLogCannotForgeALogLine(t *testing.T) {
 	// And a caller does not get to choose how long a log line is.
 	if long := ForLog(strings.Repeat("a", 5000)); len(long) > 300 {
 		t.Errorf("a 5000-character path produced a %d-character log field", len(long))
+	}
+}
+
+// TestForLogTruncatesOnARuneBoundary is follow-up finding N13. The length check
+// counted bytes and the slice cut bytes, so a run of multi-byte characters was
+// cut mid-rune — putting back exactly the invalid UTF-8 the map above it exists
+// to strip.
+func TestForLogTruncatesOnARuneBoundary(t *testing.T) {
+	got := ForLog(strings.Repeat("€", 400))
+	if !utf8.ValidString(got) {
+		t.Error("truncation produced invalid UTF-8")
+	}
+	if !strings.Contains(got, "truncated") {
+		t.Errorf("a 400-character run was not truncated: %d characters", utf8.RuneCountInString(got))
+	}
+}
+
+// A log viewer gives meaning to more than the control characters: the line and
+// paragraph separators some honour as newlines, and the bidirectional overrides,
+// which can make a line read in the opposite direction from how it was written.
+func TestForLogStripsWhatALogViewerActsOn(t *testing.T) {
+	for name, r := range map[string]rune{
+		"line separator U+2028":      ' ',
+		"paragraph separator U+2029": ' ',
+		"right-to-left override":     '\u202E',
+		"zero-width joiner":          '‍',
+	} {
+		got := ForLog("before" + string(r) + "after")
+		if strings.ContainsRune(got, r) {
+			t.Errorf("%s survived: %q", name, got)
+		}
+		if got != "beforeafter" {
+			t.Errorf("%s: got %q, want %q", name, got, "beforeafter")
+		}
 	}
 }

@@ -144,8 +144,17 @@ func startHTTPSServer(sys *components.System, httpsPort int) error {
 		return fmt.Errorf("parsing certificate/private key: %w", err)
 	}
 
+	// Peer certificates are verified against the cloud's CA alone — deliberately
+	// not the host's trusted authorities, which the client pool includes: a
+	// WebPKI certificate must never become a peer identity inside the cloud.
 	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM([]byte(sys.Husk.CA_cert))
+	if !caCertPool.AppendCertsFromPEM([]byte(sys.Husk.CA_cert)) {
+		// Binding anyway gives an HTTPS port that refuses every peer, with a TLS
+		// error at each caller and nothing here to say why. Refusing to bind
+		// leaves the system on HTTP, which the rest of the cloud already knows
+		// how to treat, and puts the reason in one place.
+		return fmt.Errorf("the CA certificate could not be read, so no peer could be verified")
+	}
 
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
@@ -286,8 +295,27 @@ func handleFourParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 		if !permitted(sys, w, r, resourceName, uAsset.GetServices(), servicePath) {
 			return
 		}
+		// The same resource in two representations: ask for the value and it is
+		// answered once, ask for a stream and it is answered now and again
+		// whenever it moves. On the service's own path rather than a /subscribe
+		// beside it, so there is no second path to declare, discover and
+		// authorize — following a value is the read it already is, and this
+		// cloud has already been bitten once by a path the framework served
+		// without declaring.
+		if serv := findServiceByPath(uAsset.GetServices(), servicePath); serv != nil &&
+			wantsStream(r) && serv.Stream.Subscribable() {
+			serv.Stream.ServeStream(w, r)
+			return
+		}
 		uAsset.Serving(w, r, servicePath)
 	}
+}
+
+// wantsStream reports whether the caller asked to follow the value rather than
+// read it once.
+func wantsStream(r *http.Request) bool {
+	return r.Method == http.MethodGet &&
+		strings.Contains(r.Header.Get("Accept"), "text/event-stream")
 }
 
 // handleFiveParts handles a request with five parts
@@ -304,8 +332,26 @@ func handleFiveParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 	// to precede the transfer: TransferFile writes headers and body, and a
 	// refusal issued afterwards is a superfluous WriteHeader against a response
 	// that has already gone out.
-	if servicePath == "files" {
-		if !permitted(sys, w, r, resourceName, uAsset.GetServices(), servicePath) {
+	//
+	// The guard needs something to call this request, and no unit asset
+	// registers a service whose subpath is "files" — the three systems that
+	// serve files handle the word inside their own dispatch. Guarding it against
+	// whatever findServiceByPath returned meant guarding it against a service
+	// with no definition, and a token can never name one of those: mismatch
+	// requires claimed == actual and claimed != "". So every file request in an
+	// authorized cloud was refused, permanently, by a check that was meant to
+	// let the authorized ones through.
+	//
+	// FileService is what such a request is called now. A policy can name it, a
+	// consumer can be granted it, and an asset that registers a service by that
+	// subpath — which makes it discoverable — is judged by its own record
+	// instead.
+	if servicePath == FileService {
+		serv := findServiceByPath(uAsset.GetServices(), servicePath)
+		if serv == nil {
+			serv = &components.Service{Definition: FileService, SubPath: FileService}
+		}
+		if !permittedAs(sys, w, r, resourceName, serv) {
 			return
 		}
 		forms.TransferFile(w, r)
@@ -354,11 +400,40 @@ func handleFiveParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 func permitted(sys *components.System, w http.ResponseWriter, r *http.Request, assetName string, services map[string]*components.Service, servicePath string) bool {
 	serv := findServiceByPath(services, servicePath)
 	if serv == nil {
-		// Nothing to classify the request as. Harmless where no authorizer is
-		// configured, and refused where one is.
-		serv = &components.Service{}
+		// Nothing to classify the request as. Refusing here rather than passing
+		// on a service with no definition: an empty one cannot satisfy mismatch,
+		// so it would be refused anyway — but with a message about a token claim
+		// rather than about the path being unknown, which sends the reader to
+		// the policy file for a problem that is not in it.
+		if _, err := components.GetRunningCoreSystemURL(sys, AuthorizerName); err == nil {
+			log.Printf("%s: refusing %s %s: no service is registered at that path\n",
+				sys.Name, r.Method, ForLog(r.URL.Path)) //#nosec G706 -- sanitized by ForLog
+			// Which refusal depends on who is asking, because the two answers
+			// differ and the difference is information. A caller with no
+			// certificate that got 404 here and 401 on a real path could map
+			// this system's whole service surface without ever presenting a
+			// credential — one request per guess, and the status tells it which
+			// guesses were right.
+			//
+			// So an unidentified caller gets what it would have got for a
+			// service that does exist. A caller the connection can name gets the
+			// path problem stated plainly, which is what it is useful for: it
+			// sends the reader to the configuration rather than to the policy
+			// file.
+			if _, identified := PeerCN(r); !identified {
+				http.Error(w, "the caller presented no verified certificate", http.StatusUnauthorized)
+				return false
+			}
+			http.Error(w, "no service is registered at that path", http.StatusNotFound)
+			return false
+		}
+		return true // no authorizer in this local cloud
 	}
+	return permittedAs(sys, w, r, assetName, serv)
+}
 
+// permittedAs is permitted for a request whose service is already resolved.
+func permittedAs(sys *components.System, w http.ResponseWriter, r *http.Request, assetName string, serv *components.Service) bool {
 	status, err := AuthorizeRequest(sys, r, assetName, serv)
 	if status == 0 {
 		return true

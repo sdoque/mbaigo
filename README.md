@@ -41,7 +41,7 @@ The static structure of an mbaigo system.
   The asymmetry is load-bearing: the producer/consumer roles drive registration,
   discovery, and the per-asset behavioral model the framework emits.
 
-### `usecases` — the behavior the framework gives you for free
+### `usecases` — the behavior the framework provides without further work
 
 You import the use cases you need; everything else stays out.
 
@@ -112,12 +112,15 @@ application owns the behavior.
 
 - **Universal mTLS, attested at startup.** Every system enrolls with the CA via
   executable-hash attestation performed by a host-local sentinel (`maitreD`).
-  The CA signs a CSR only after `maitreD` confirms the requesting process's
+  The certificate authority (CA) signs a certificate signing request (CSR) only
+  after `maitreD` confirms the requesting process's
   binary hash is on a cloud-wide whitelist. Application keys are memory-only —
   identity is the running binary, not a long-lived on-disk credential.
 - **Self-describing systems.** Every system serves three meta-views at runtime:
-  a browsable HATEOAS index (`/doc`), a SysML v2 BDD/IBD fragment (`/smodel`),
-  and an OWL/RDF knowledge-graph block (`/kgraph`). The `modeler` and
+  a browsable HATEOAS index (`/doc`), a SysML v2 fragment of block definition
+  and internal block diagrams (BDD and IBD) at `/smodel`, and a knowledge-graph
+  block in the Web Ontology Language and Resource Description Framework
+  (OWL/RDF) at `/kgraph`. The `modeler` and
   `kgrapher` systems aggregate these per-system fragments into one cloud-wide
   model.
 - **Operational simplicity as a design target.** Adding a system is one binary,
@@ -155,7 +158,7 @@ in:
 
 ## Contributing
 
-- Code must pass `gofmt -l .` (CI enforces).
+- Code must pass `gofmt -l .`; continuous integration (CI) enforces this.
 - Tests live next to the code they cover and run under `go test ./...`.
 - Local-build artefacts use the `_amac` suffix (caught by the repo's
   `.gitignore`) so binaries stay out of commits.

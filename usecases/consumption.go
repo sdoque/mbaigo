@@ -20,9 +20,11 @@
 package usecases
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"testing"
 
 	"net/http"
@@ -65,9 +67,37 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 		serviceUrl, token, _ = pickNode(cer, action)
 	}
 
+	// A value somebody is already keeping current, answered without asking for
+	// it. The caller's loop is unchanged and does not know: it asks on its own
+	// clock and gets a reading that is at most one publisher heartbeat old,
+	// where before every one of those calls was a request over the network.
+	//
+	// Only for a read. A PUT is an instruction to a provider and there is
+	// nothing cached about it.
+	if httpMethod == http.MethodGet {
+		Follow(cer, sys)
+		if payload, mediaType, fresh := cer.Recall(); fresh {
+			f, err = Unpack(payload, mediaType)
+			if err == nil {
+				// The same conversion a polled reading gets, by the same code:
+				// the provider publishes in its own unit and the consumer reads
+				// in the one it asked for, cached or not.
+				return NormalizeUnits(cer, f)
+			}
+			// Unreadable, so fall through and ask. Something changed at the
+			// other end that this consumer does not understand, and a request
+			// will fail loudly rather than quietly serving a stale reading.
+			cer.Forget()
+		}
+	}
+
 	resp, err := sendHTTPReqWithToken(httpMethod, serviceUrl, token, bodyBytes)
 	if err != nil {
-		cer.Nodes = make(map[string][]components.NodeInfo) // Failed to get the resource at that location: reset the providers list, which will trigger a new service search
+		// Failed to reach the provider: forget everything discovered, so the next
+		// call searches again.
+		cer.Mutex.Lock()
+		cer.Nodes = make(map[string][]components.NodeInfo)
+		cer.Mutex.Unlock()
 		return f, err
 	}
 	defer resp.Body.Close()
@@ -98,6 +128,9 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 // one node per provider, but a provider that answered only one of the two
 // discoveries is present without a token for the other.
 func pickNode(cer *components.Cervice, action string) (url, token string, ok bool) {
+	cer.Mutex.RLock()
+	defer cer.Mutex.RUnlock()
+
 	for _, nodes := range cer.Nodes {
 		for _, ni := range nodes {
 			if tok, discovered := ni.TokenFor(action); discovered {
@@ -205,7 +238,7 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 	// Cervice.Mode says it might.
 	action := ActionForMethod(httpMethod)
 
-	if len(cer.Nodes) == 0 {
+	if cer.ProviderCount() == 0 {
 		if currentErr := Search4MultipleServicesAs(cer, sys, action); currentErr != nil {
 			f = append(f, nil)
 			err = append(err, currentErr)
@@ -217,10 +250,12 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 	// provider that the authorizer permitted this call, and flattening the nodes
 	// to a list of strings threw it away — every request from this path went out
 	// unauthorized while the single-provider path above sent one.
-	var providers []components.NodeInfo
-	for _, nodes := range cer.Nodes {
-		providers = append(providers, nodes...)
-	}
+	// A snapshot, and the requests below are made from it rather than from the
+	// map. Ranging over cer.Nodes while a discovery on another goroutine deletes
+	// from it is `fatal error: concurrent map iteration and map write`; holding
+	// the lock across the requests instead would block every other user of this
+	// cervice for as long as the slowest provider takes to time out.
+	providers := cer.Providers()
 
 	// Discovered for a different action than this call performs. One round for
 	// the whole cervice rather than one per provider: they were all discovered
@@ -231,10 +266,18 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 			err = append(err, currentErr)
 			return f, err
 		}
-		providers = providers[:0]
-		for _, nodes := range cer.Nodes {
-			providers = append(providers, nodes...)
-		}
+		providers = cer.Providers()
+	}
+
+	// No providers is an answer, and it has to be given as one. Returning empty
+	// slices left the caller's range running zero times and its error check
+	// finding nothing wrong — a control loop reads that as "no readings changed"
+	// rather than "there are no sensors", and holds its last output. The
+	// registrar restarting, or a detail that stopped matching, is enough to
+	// produce it.
+	if len(providers) == 0 {
+		return []forms.Form{nil}, []error{
+			fmt.Errorf("no provider of %q is available for %s", cer.Definition, action)}
 	}
 
 	failures := 0
@@ -245,6 +288,17 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 		formValue, currentErr := askOneProvider(httpMethod, ni, cer, action, bodyBytes)
 		if currentErr != nil {
 			failures++
+			// Forget this one provider's token, not the whole set. Clearing
+			// everything on one failure threw away the providers that had just
+			// answered; clearing nothing until they had all failed left a
+			// powered-off sensor in the list forever, retried every round at the
+			// cost of its own timeout, and still there long after the registrar
+			// had stopped listing it. Without a token for this action the node
+			// is rediscovered on the next call, which either finds it again or
+			// does not.
+			if errors.As(currentErr, &staleProvider{}) {
+				forgetToken(cer, ni.URL, action)
+			}
 			f = append(f, nil)
 			err = append(err, currentErr)
 			continue
@@ -253,14 +307,44 @@ func stateHandlers(httpMethod string, cer *components.Cervice, sys *components.S
 		err = append(err, nil)
 	}
 
-	// Only when nothing answered. Discarding every provider because one of them
-	// failed threw away the ones that had just worked, and forced a rediscovery
-	// on the next call for no reason.
-	if failures > 0 && failures == len(f) {
-		cer.Nodes = make(map[string][]components.NodeInfo)
-	}
+	_ = failures // every failure has already forgotten its own provider
 
 	return f, err
+}
+
+// staleProvider marks a failure that says something about the *provider* rather
+// than about the answer it gave.
+//
+// Only these are worth forgetting a token over: it could not be reached, or it
+// refused the credential. An empty body, a form version this consumer does not
+// know, a unit it cannot convert — those are the provider answering, and it is
+// still the provider it was discovered as. Forgetting the token on those meant
+// one sensor answering in an unknown form cost a full rediscovery of every
+// provider on every poll thereafter, for as long as it kept answering.
+type staleProvider struct{ err error }
+
+func (s staleProvider) Error() string { return s.err.Error() }
+func (s staleProvider) Unwrap() error { return s.err }
+
+// forgetToken drops one provider's token for one action, so the next call
+// rediscovers that provider rather than presenting a token to something that
+// did not answer.
+//
+// The node itself is left in place. It carries the tokens for the other actions
+// this cervice may also use, and discovery reconciles the set: a provider the
+// registrar no longer lists is removed there, where the whole list is known.
+func forgetToken(cer *components.Cervice, url, action string) {
+	cer.Mutex.Lock()
+	defer cer.Mutex.Unlock()
+
+	for node, nodes := range cer.Nodes {
+		for i, ni := range nodes {
+			if ni.URL == url && ni.Tokens != nil {
+				delete(ni.Tokens, action)
+				cer.Nodes[node][i] = ni
+			}
+		}
+	}
 }
 
 // needsDiscovery reports whether any provider lacks a token for this action, and
@@ -288,9 +372,19 @@ func askOneProvider(httpMethod string, ni components.NodeInfo, cer *components.C
 	token, _ := ni.TokenFor(action)
 	resp, err := sendHTTPReqWithToken(httpMethod, ni.URL, token, bodyBytes)
 	if err != nil {
-		return nil, err
+		// Unreachable: whatever was discovered is not there now.
+		return nil, staleProvider{err}
 	}
 	defer resp.Body.Close()
+
+	// Read before unpacking. A refusal carries a sentence, not a form, so
+	// unpacking it fails with a message about JSON — which is how a request
+	// refused for want of a token used to be reported as a malformed answer.
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		reason, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return nil, staleProvider{fmt.Errorf("%s refused the request: %s: %s",
+			ni.URL, resp.Status, strings.TrimSpace(ForLog(string(reason))))}
+	}
 
 	// A separate variable: assigning into bodyBytes made the previous provider's
 	// answer the request body sent to the next one.

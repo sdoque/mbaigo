@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/sdoque/mbaigo/components"
@@ -33,8 +34,12 @@ import (
 // configurableAsset is a struct that contains the name of the asset and its
 // configurable details and services
 type ConfigurableAsset struct {
-	Name     string               `json:"name"`
-	Mission  string               `json:"mission,omitempty"`
+	Name string `json:"name"`
+	// The validated type, not the text. A configuration naming a mission that
+	// does not exist is refused as the file is read, where the message can name
+	// the file and the field, rather than carried inward to be refused later as
+	// an authorization question.
+	Mission  components.Mission   `json:"mission,omitempty"`
 	Details  map[string][]string  `json:"details"`
 	Services []components.Service `json:"services"`
 	Traits   []json.RawMessage    `json:"traits"`
@@ -176,6 +181,20 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 		}
 	}
 
+	// A configuration written before its system declared missions has assets
+	// without one, and the framework refuses to start a system whose assets do
+	// not classify themselves. Left alone, adding a mission to a system would
+	// stop every deployment of it that already exists: the template is written
+	// only when there is no systemconfig.json and is never merged into one that
+	// is already there, so the file cannot correct itself.
+	//
+	// The value comes from the system author's own template, which is what the
+	// file would have been seeded with had it been written today. That is a
+	// different thing from defaulting a blank field: nothing is guessed, and an
+	// asset the template does not know about is still refused.
+	rawResources = fillMissionsFromTemplates(sys, rawResources)
+	rawResources = fillServicesFromTemplates(sys, rawResources)
+
 	sys.Name = configurationIn.CName
 	// Restore IP addresses from config, allowing operators to limit which address is used.
 	if len(configurationIn.IPAddresses) > 0 {
@@ -195,6 +214,204 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 	}
 
 	return rawResources, nil
+}
+
+// soleTemplate returns the system's only template asset, or nil if it has more
+// than one and so cannot speak for an asset it does not name.
+func soleTemplate(sys *components.System) *components.UnitAsset {
+	if len(sys.UAssets) != 1 {
+		return nil
+	}
+	for _, ua := range sys.UAssets {
+		return ua
+	}
+	return nil
+}
+
+// capabilities are the service fields a running system decides, not a file.
+//
+// Whether a service can be followed depends on whether this build's code
+// publishes to it; an operator cannot make that true or false by editing JSON,
+// and a configuration written before the field existed says false by omission —
+// which is indistinguishable from an operator having turned it off, so the
+// template is taken as the answer.
+var capabilities = map[string]bool{
+	"subscribable": true,
+}
+
+// fillServicesFromTemplates gives a configured service whatever its system's
+// template says and its configuration file does not.
+//
+// A systemconfig.json is written once, when there is none, and never merged
+// into afterwards. So every field added to a service since a deployment was
+// commissioned is missing from that deployment's file, and every service added
+// since is missing altogether. That has cost this project four separate
+// deployments: a files service that never appeared, a syslist the registrar
+// served without declaring, missions that stopped systems from starting, and a
+// temperature that registered as unfollowable because the file predated the
+// word.
+//
+// Two kinds of field, treated differently. A capability comes from the template,
+// because it describes what the code can do. Everything else is a deployment's
+// own business and the file wins wherever it says anything at all — a threshold
+// or a heartbeat an operator tuned is not overwritten by a release.
+func fillServicesFromTemplates(sys *components.System, raws []json.RawMessage) []json.RawMessage {
+	for i, raw := range raws {
+		var asset map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &asset); err != nil {
+			continue
+		}
+		var name string
+		_ = json.Unmarshal(asset["name"], &name)
+
+		template, known := sys.UAssets[name]
+		if !known {
+			template = soleTemplate(sys)
+		}
+		if template == nil {
+			continue
+		}
+
+		var configured []map[string]json.RawMessage
+		if raw, present := asset["services"]; present {
+			if err := json.Unmarshal(raw, &configured); err != nil {
+				continue
+			}
+		}
+
+		bySubPath := map[string]int{}
+		for at, serv := range configured {
+			var subPath string
+			_ = json.Unmarshal(serv["subpath"], &subPath)
+			bySubPath[subPath] = at
+		}
+
+		changed := false
+		for _, offered := range getServicesList(*template) {
+			fields, err := asFields(offered)
+			if err != nil {
+				continue
+			}
+			at, present := bySubPath[offered.SubPath]
+			if !present {
+				// A service this build serves and the file has never heard of.
+				// Left out, it is a path the system answers on and the cloud
+				// cannot discover, authorize or reason about.
+				configured = append(configured, fields)
+				changed = true
+				continue
+			}
+			for key, value := range fields {
+				_, stated := configured[at][key]
+				if stated && !capabilities[key] {
+					continue // the file has its own answer and is entitled to it
+				}
+				if !stated || !sameJSON(configured[at][key], value) {
+					configured[at][key] = value
+					changed = true
+				}
+			}
+		}
+		if !changed {
+			continue
+		}
+
+		services, err := json.Marshal(configured)
+		if err != nil {
+			continue
+		}
+		asset["services"] = services
+		patched, err := json.Marshal(asset)
+		if err != nil {
+			continue
+		}
+		raws[i] = patched
+	}
+	return raws
+}
+
+// asFields renders one template service as the fields a configuration file
+// would carry for it, so the two can be compared key by key.
+func asFields(serv components.Service) (map[string]json.RawMessage, error) {
+	encoded, err := json.Marshal(serv)
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		return nil, err
+	}
+	return fields, nil
+}
+
+// sameJSON reports whether two encoded values say the same thing.
+func sameJSON(a, b json.RawMessage) bool {
+	return string(a) == string(b)
+}
+
+// fillMissionsFromTemplates supplies a mission to a configured asset that has
+// none, taking it from the template asset of the same name.
+//
+// The templates are in sys.UAssets: a system puts them there before it calls
+// Configure, which is what lets this be done once here rather than in each of
+// the systems.
+//
+// Announced rather than silent. The operator's file is not rewritten — the next
+// release could declare something different — so saying which asset was filled
+// in, and with what, is what lets them put it in the file themselves.
+func fillMissionsFromTemplates(sys *components.System, raws []json.RawMessage) []json.RawMessage {
+	for i, raw := range raws {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			continue // not an object; leave it for the system to reject
+		}
+		var name, mission string
+		_ = json.Unmarshal(fields["name"], &name)
+		_ = json.Unmarshal(fields["mission"], &mission)
+		if mission != "" {
+			continue
+		}
+		template, known := sys.UAssets[name]
+		if !known {
+			// Named for the instance rather than the template, which is the
+			// documented commissioning step for whole families of systems: a
+			// ds18b20 asset is named after its 1-wire identifier, a telegrapher
+			// asset after its MQTT topic. Keying on the name alone therefore
+			// missed exactly the deployments this exists for, and they are the
+			// ones that fail on upgrade.
+			//
+			// A system with one template has only one thing an asset could be,
+			// so the mission is not in doubt. A system with several does not get
+			// a guess: which template a renamed asset came from is not knowable
+			// from here, and inventing a mission is worse than refusing to
+			// start, because it is what the authorizer classifies the asset by.
+			template = soleTemplate(sys)
+			if template == nil {
+				continue
+			}
+		}
+		if template == nil {
+			continue
+		}
+		from := template.Mission
+		if from.IsZero() {
+			continue
+		}
+		filled, err := json.Marshal(from)
+		if err != nil {
+			continue
+		}
+		fields["mission"] = filled
+		patched, err := json.Marshal(fields)
+		if err != nil {
+			continue
+		}
+		raws[i] = patched
+		log.Printf("%s: unit asset %q has no mission in systemconfig.json; using %q "+
+			"from this system's template. Add \"mission\": %q to the asset to "+
+			"declare it yourself.\n", sys.Name, name, from, from)
+	}
+	return raws
 }
 
 // getServicesList() returns the original list of services

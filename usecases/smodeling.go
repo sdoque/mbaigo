@@ -143,7 +143,7 @@ func sysmlBlockDefs(sys *components.System) string {
 	for assetName, ua := range sys.UAssets {
 		out.WriteString(fmt.Sprintf("    part def '%s' :> UnitAsset {\n", assetTypeName(sys, assetName)))
 		// 'mission' is inherited from UnitAsset — it must use 'redefines'.
-		if ua.Mission != "" {
+		if !ua.Mission.IsZero() {
 			out.WriteString(fmt.Sprintf("        attribute redefines mission : String = \"%s\";\n", ua.Mission))
 		}
 

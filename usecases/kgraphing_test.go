@@ -17,6 +17,7 @@ package usecases
 
 import (
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -63,7 +64,7 @@ func addTestAsset(sys *components.System) *components.UnitAsset {
 	}
 	ua := &components.UnitAsset{
 		Name:        "sensor1",
-		Mission:     "measure_things",
+		Mission:     components.MissionMeasurement,
 		Details:     map[string][]string{},
 		ServicesMap: components.Services{"temp": svc},
 		CervicesMap: components.Cervices{"humidity": cerv},
@@ -227,8 +228,66 @@ func TestModelHuskDetails(t *testing.T) {
 	if strings.Contains(out, "LocalCloud") {
 		t.Error("modelHusk: LocalCloud must not appear in Husk block")
 	}
-	if !strings.Contains(out, "afo:hasRole alc:producer") {
-		t.Error("modelHusk: expected hasRole detail")
+	// alc:, not afo:. "Role" is a key from someone's configuration file, and
+	// the Arrowhead Framework Ontology does not define hasRole — writing it in
+	// that namespace would invent a term in a vocabulary this project does not
+	// own, which no reasoner can interpret and the ontology's shapes cannot
+	// validate. The husk detail loop turns any key into a predicate, so without
+	// this an operator mints afo: terms by editing JSON.
+	if !strings.Contains(out, "alc:hasRole alc:producer") {
+		t.Errorf("modelHusk: expected the detail in the local namespace; got:\n%s", out)
+	}
+	if strings.Contains(out, "afo:hasRole") {
+		t.Error("modelHusk: a configuration key was written as ontology vocabulary")
+	}
+}
+
+// TestModelHuskRefusesAnUnwritableDetailKey is about a graph that does not parse
+// at all rather than one that says something wrong.
+//
+// A detail key reaches the predicate position of a triple, where a value would
+// have been quoted or escaped by rdfObject. A key with a space produced
+//
+//	afo:hasFunctional Location alc:Kitchen .
+//
+// which is not Turtle, so one such key in one system's systemconfig.json made
+// the whole cloud's graph unparsable and the triple store rejected all of it —
+// not the line, the upload. The key is checked now, and a key that cannot be
+// written is left out with a line saying so.
+func TestModelHuskRefusesAnUnwritableDetailKey(t *testing.T) {
+	sys := newKGTestSystem()
+	sys.Husk.Details["Functional Location"] = []string{"Kitchen"}
+	sys.Husk.Details["Role"] = []string{"producer"}
+
+	out := modelHusk(sys)
+
+	if strings.Contains(out, "Functional Location") {
+		t.Errorf("a detail key with a space reached the predicate position, so the "+
+			"graph does not parse:\n%s", out)
+	}
+	// Four loops turn a detail key into a predicate — husk, asset, cervice and
+	// service. The first version of this fix corrected two of them, which is the
+	// failure this test is really guarding: one unchecked loop is enough to make
+	// the whole graph unparsable, so the check has to cover all four.
+	asset := addTestAsset(sys)
+	asset.Details["Functional Location"] = []string{"Kitchen"}
+	for _, svc := range asset.ServicesMap {
+		svc.Details["Odd Key"] = []string{"x"}
+	}
+	for _, cerv := range asset.CervicesMap {
+		cerv.Details["Another Key"] = []string{"y"}
+	}
+	sName := sys.Husk.Host.Name + "_" + sys.Name
+	whole := modelUAsset(sys) + modelCervices(sName, asset) + modelServices(sName, asset, sys)
+	for _, bad := range []string{"Functional Location", "Odd Key", "Another Key"} {
+		if strings.Contains(whole, bad) {
+			t.Errorf("the key %q reached a predicate position:\n%s", bad, whole)
+		}
+	}
+	// The rest of the block still has to be written: one unusable key costs its
+	// own triple, not the system's description.
+	if !strings.Contains(out, "alc:hasRole alc:producer") {
+		t.Errorf("a usable detail was dropped along with the unusable one:\n%s", out)
 	}
 }
 
@@ -245,7 +304,7 @@ func TestModelHost(t *testing.T) {
 	if !strings.Contains(out, `afo:hasName "testhost"`) {
 		t.Error("modelHost: missing hasName")
 	}
-	if !strings.Contains(out, `afo:hasIPaddress "192.0.2.1"`) {
+	if !strings.Contains(out, `afo:hasIPAddress "192.0.2.1"`) {
 		t.Error("modelHost: missing IP address")
 	}
 	if !strings.HasSuffix(out, ".\n\n") {
@@ -378,6 +437,63 @@ func TestKGraphing(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("KGraphing response missing %q", want)
+		}
+	}
+}
+
+// TestEveryAFOTermEmittedIsOntologyVocabulary is the invariant that makes the
+// afo: prefix mean something.
+//
+// The Arrowhead Framework Ontology is another project's work, published with its
+// own version and DOI. A term this framework writes in that namespace but which
+// the ontology does not define is one no reasoner can interpret, the ontology's
+// SHACL shapes cannot validate, and a consumer dereferencing the prefix will not
+// find. Terms of ours belong in alc:, which is this cloud's own namespace.
+//
+// The check is over the emission sites rather than over the list: adding a new
+// hardcoded afo:hasSomething to any model function fails here unless the term is
+// also recorded as ontology vocabulary, which is the moment to notice it needs
+// proposing upstream.
+func TestEveryAFOTermEmittedIsOntologyVocabulary(t *testing.T) {
+	sys := newKGTestSystem()
+	sys.Husk.Details["Role"] = []string{"producer"}
+	sys.Husk.Details["Developer"] = []string{"Synecdoque"}
+
+	// Every optional field carries a value, because each one guards an emission
+	// site and a guard that never opens is a site this check does not reach.
+	// The first version of this test passed while afo:hasCost was reachable and
+	// undefined, for exactly that reason.
+	asset := addTestAsset(sys)
+	asset.Details["FunctionalLocation"] = []string{"Kitchen"}
+	asset.Mission = components.MissionMeasurement
+	for _, svc := range asset.ServicesMap {
+		svc.ACost = 1.5
+		svc.CUnit = "SEK"
+		svc.CFootprint = 0.25
+		svc.SubscribeAble = true
+		svc.Mission = components.MissionMeasurement
+	}
+	for _, cerv := range asset.CervicesMap {
+		cerv.Mode = "get"
+		cerv.Nodes["provider"] = []components.NodeInfo{{URL: "http://192.0.2.9:8080/x/y/z"}}
+	}
+
+	graph := modelSystem(sys) + modelHusk(sys) + modelHost(sys) + modelSecurity(sys) +
+		modelEndpoints(sys) + modelUAsset(sys)
+	sName := sys.Husk.Host.Name + "_" + sys.Name
+	for _, ua := range sys.UAssets {
+		graph += modelCervices(sName, ua) + modelServices(sName, ua, sys)
+	}
+
+	// Classes are written afo:System, properties afo:hasName; only the latter
+	// are in afoDefined, so the capitalised ones are skipped here. They are
+	// ontology classes and change far less often.
+	for _, match := range regexp.MustCompile(`afo:([a-z][A-Za-z]*)`).FindAllStringSubmatch(graph, -1) {
+		term := match[1]
+		if !afoDefined[term] {
+			t.Errorf("the graph writes afo:%s, which the ontology does not define; "+
+				"either propose it upstream and record it in afoDefined, or emit it "+
+				"as alc:%s", term, term)
 		}
 	}
 }
