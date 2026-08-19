@@ -22,7 +22,7 @@ func TestNewSystem(t *testing.T) {
 	// for cancelling some background services (system registration and http servers).
 	select {
 	case <-sys.Ctx.Done():
-		t.Fatal("expected context to NOT be cancelled")
+		t.Fatal("expected context to NOT be canceled")
 	default:
 		// pass
 	}
@@ -32,7 +32,7 @@ func TestNewSystem(t *testing.T) {
 	case <-sys.Ctx.Done():
 		// pass
 	default:
-		t.Error("expected context to be cancelled")
+		t.Error("expected context to be canceled")
 	}
 }
 

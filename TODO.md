@@ -12,7 +12,7 @@ systems' own list.
   lifetime. Left open deliberately: there is no better channel for the
   orchestrator to have used, and refusing would stop orchestration cloud-wide
   for a gap the cloud has not yet had the means to close. A test asserts the
-  current behaviour. Worth revisiting, not worth changing quietly.
+  current behavior. Worth revisiting, not worth changing quietly.
 - **Single-letter unit aliases are not coming back.** A code review asked for
   `"C"`, `"F"` and `"m"` to be restored to `legacyUnitNames` for migration. They
   are absent on purpose: in SI, C is the coulomb and F the farad, so restoring
@@ -56,6 +56,6 @@ systems' own list.
   comment on `staleProvider` says it is for "could not be reached, or it refused
   the credential", which neither of those is. Distinguishing them needs the
   status carried on the error. Left alone for now: the retry backoff cut the
-  window to seconds, and this has been the behaviour since it was written, so
+  window to seconds, and this has been the behavior since it was written, so
   changing it without a fault to point at is speculation.
   `TestAProviderThatIsNotReadySaysSo` records what it currently does.

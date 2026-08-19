@@ -816,7 +816,7 @@ func TestAProviderThatIsNotReadySaysSo(t *testing.T) {
 		t.Errorf("the failure reads %q, which does not say the provider is unavailable", errs[0])
 	}
 
-	// The token does not survive, and that is the current behaviour rather than
+	// The token does not survive, and that is the current behavior rather than
 	// a decision: askOneProvider marks every failed request a stale provider,
 	// so a 503 costs the token exactly as a 403 does. It is recorded here so a
 	// change to it is deliberate. The cost is one rediscovery per poll while a

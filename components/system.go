@@ -40,7 +40,7 @@ type System struct {
 	Name    string                `json:"systemName"`
 	Husk    *Husk                 // the system aggregates a "husk" (a wrapper or a shell)
 	UAssets map[string]*UnitAsset // the system aggregates "asset", which is made up of one or more unit-asset
-	Ctx     context.Context       // create a context that can be cancelled
+	Ctx     context.Context       // create a context that can be canceled
 	Sigs    chan os.Signal        // channel to initiate a graceful shutdown when Ctrl+C is pressed
 	Mutex   *sync.Mutex           // used in service provision and consumption to avoid race conditions
 }

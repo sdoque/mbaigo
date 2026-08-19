@@ -40,12 +40,12 @@ func TestWatchShutdownCancelsOnSignal(t *testing.T) {
 	// Simulate a SIGINT arriving on the channel.
 	sys.Sigs <- syscall.SIGINT
 
-	// Context should be cancelled within a small window.
+	// Context should be canceled within a small window.
 	select {
 	case <-ctx.Done():
 		// success
 	case <-time.After(time.Second):
-		t.Fatal("context was not cancelled within 1s of signal")
+		t.Fatal("context was not canceled within 1s of signal")
 	}
 }
 
@@ -64,7 +64,7 @@ func TestWatchShutdownDoesNotCancelWithoutSignal(t *testing.T) {
 	// No signal sent. Context must remain live.
 	select {
 	case <-ctx.Done():
-		t.Fatal("context was cancelled without a signal")
+		t.Fatal("context was canceled without a signal")
 	case <-time.After(50 * time.Millisecond):
 		// success — still live
 	}
