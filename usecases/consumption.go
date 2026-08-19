@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"strings"
 	"testing"
 
 	"net/http"
@@ -377,14 +376,10 @@ func askOneProvider(httpMethod string, ni components.NodeInfo, cer *components.C
 	}
 	defer resp.Body.Close()
 
-	// Read before unpacking. A refusal carries a sentence, not a form, so
-	// unpacking it fails with a message about JSON — which is how a request
-	// refused for want of a token used to be reported as a malformed answer.
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		reason, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return nil, staleProvider{fmt.Errorf("%s refused the request: %s: %s",
-			ni.URL, resp.Status, strings.TrimSpace(ForLog(string(reason))))}
-	}
+	// Every non-2xx answer, refusal included, has already been turned into an
+	// error by sendHTTPReqWithToken — which reads the body, sanitizes it and
+	// reports the status with the reason beside it. A status check here would
+	// never fire: what reaches this line is always a 2xx.
 
 	// A separate variable: assigning into bodyBytes made the previous provider's
 	// answer the request body sent to the next one.

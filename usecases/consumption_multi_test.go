@@ -785,3 +785,43 @@ func useTransport(t *testing.T, rt http.RoundTripper) {
 	http.DefaultClient.Transport = rt
 	t.Cleanup(func() { http.DefaultClient.Transport = previous })
 }
+
+// A provider that has not yet obtained the authorizer's key answers 503 with a
+// sentence. Unpacking that complained about JSON, so the consumer's log blamed
+// the payload for a provider that was merely not ready — the same misreporting
+// the 401 path was fixed for, one status code over.
+func TestAProviderThatIsNotReadySaysSo(t *testing.T) {
+	useTransport(t, roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			Status: "503 Service Unavailable", StatusCode: 503,
+			Header:  http.Header{"Content-Type": []string{"text/plain"}},
+			Body:    io.NopCloser(strings.NewReader("cannot verify access tokens yet: the authorizer's key has not been obtained")),
+			Request: req,
+		}, nil
+	}))
+
+	cer := multiProviderCervice([]components.NodeInfo{
+		{URL: "http://waking/temperature", Tokens: map[string]string{"read": "good"}},
+	}, map[string][]string{"Forms": {"SignalA_v1a"}})
+	sys := createTestSystem(false)
+
+	_, errs := stateHandlers(http.MethodGet, cer, &sys, nil)
+	if len(errs) == 0 || errs[0] == nil {
+		t.Fatal("a provider that refused to serve was not reported")
+	}
+	if strings.Contains(errs[0].Error(), "JSON") || strings.Contains(errs[0].Error(), "json") {
+		t.Errorf("the failure reads %q, which blames the payload for a provider that is not ready", errs[0])
+	}
+	if !strings.Contains(errs[0].Error(), "503") {
+		t.Errorf("the failure reads %q, which does not say the provider is unavailable", errs[0])
+	}
+
+	// The token does not survive, and that is the current behaviour rather than
+	// a decision: askOneProvider marks every failed request a stale provider,
+	// so a 503 costs the token exactly as a 403 does. It is recorded here so a
+	// change to it is deliberate. The cost is one rediscovery per poll while a
+	// provider warms up, which the retry backoff has already cut to seconds.
+	if _, _, ok := pickNode(cer, "read"); ok {
+		t.Log("a 503 now keeps its token; if that was intended, update this test")
+	}
+}

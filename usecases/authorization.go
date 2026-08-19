@@ -108,6 +108,7 @@ func AcquireAuthorizerKey(sys *components.System) {
 			return
 		}
 
+		wait := firstRetry
 		for {
 			if err := fetchAuthorizerKey(sys); err != nil {
 				log.Printf("%s: cannot verify tokens yet: %v\n", sys.Name, err)
@@ -124,12 +125,41 @@ func AcquireAuthorizerKey(sys *components.System) {
 			}
 
 			select {
-			case <-time.After(time.Minute):
+			case <-time.After(wait):
 			case <-sys.Ctx.Done():
 				return
 			}
+			wait = nextRetry(wait)
 		}
 	}()
+}
+
+// How long to wait before asking the authorizer for its key again.
+//
+// A flat minute made the start order look like a dependency it is not. Nothing
+// here requires the authorizer to be running first — a provider that starts
+// ahead of it answers 503 and serves as soon as it has the key — but for up to
+// a minute *after* the authorizer became available, every provider was still
+// refusing. An operator watching that concludes the cloud must be started in
+// order, and begins sequencing what does not need sequencing.
+//
+// Doubling from a second reaches the same ceiling in seven attempts and costs
+// nothing when the authorizer is already up, which is the ordinary case: the
+// first attempt succeeds and none of this runs.
+const (
+	firstRetry = time.Second
+	maxRetry   = time.Minute
+)
+
+// nextRetry doubles the wait up to the ceiling.
+func nextRetry(wait time.Duration) time.Duration {
+	if wait <= 0 {
+		return firstRetry
+	}
+	if doubled := wait * 2; doubled < maxRetry {
+		return doubled
+	}
+	return maxRetry
 }
 
 // AuthorizerKey returns the key to verify with, and whether one is in place.

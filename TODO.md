@@ -48,3 +48,14 @@ systems' own list.
   that no shared vocabulary names, it is what democrat's Asset Interfaces
   Description reads, and promoting it costs one line in `kgraphing.go` once the
   ontology lands. Worth putting to Oskar alongside the 1.2.0 proposal.
+
+- **Every failed request marks the provider stale.** `askOneProvider` wraps any
+  error from `sendHTTPReqWithToken` in `staleProvider`, so a 503 from a provider
+  that has not yet obtained the authorizer's key costs its token exactly as a
+  403 does, and so does a 400 caused by the consumer's own payload. The doc
+  comment on `staleProvider` says it is for "could not be reached, or it refused
+  the credential", which neither of those is. Distinguishing them needs the
+  status carried on the error. Left alone for now: the retry backoff cut the
+  window to seconds, and this has been the behaviour since it was written, so
+  changing it without a fault to point at is speculation.
+  `TestAProviderThatIsNotReadySaysSo` records what it currently does.

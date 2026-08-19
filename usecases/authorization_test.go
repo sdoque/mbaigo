@@ -419,3 +419,40 @@ func TestAnUnnamedServiceCanNeverBeAuthorized(t *testing.T) {
 		t.Error("a service with no definition was authorized; nothing should satisfy it")
 	}
 }
+
+// The retry that made start order look like a dependency.
+//
+// Nothing requires the authorizer to be running before a provider: one that
+// starts ahead of it answers 503 and serves as soon as it has the key. But the
+// wait was a flat minute, so for up to a minute *after* the authorizer became
+// available every provider was still refusing — and an operator watching that
+// concludes the cloud must be started in order, and begins sequencing what does
+// not need sequencing.
+func TestTheKeyRetryConvergesInSecondsNotMinutes(t *testing.T) {
+	// Seven doublings from a second reach the ceiling; what matters is that the
+	// first few are short, because that is the whole of a normal cold start.
+	wait := firstRetry
+	var elapsed time.Duration
+	attempts := 0
+	for elapsed < 10*time.Second {
+		elapsed += wait
+		wait = nextRetry(wait)
+		attempts++
+	}
+	if attempts < 4 {
+		t.Errorf("only %d attempts in the first ten seconds; a provider that starts "+
+			"before the authorizer waits that long to become useful", attempts)
+	}
+
+	// And it does not grow without bound: a cloud whose authorizer never appears
+	// must not end up retrying once an hour.
+	for i := 0; i < 20; i++ {
+		wait = nextRetry(wait)
+	}
+	if wait != maxRetry {
+		t.Errorf("the wait settled at %v, want the %v ceiling", wait, maxRetry)
+	}
+	if nextRetry(0) != firstRetry {
+		t.Errorf("a zero wait becomes %v, want %v", nextRetry(0), firstRetry)
+	}
+}
