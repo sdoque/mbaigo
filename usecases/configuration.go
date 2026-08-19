@@ -110,17 +110,53 @@ func setupDefaultConfig(sys *components.System) (defaultConfig templateOut, err 
 	defaultConfig.Protocols = sys.Husk.ProtoPort
 	defaultConfig.Assets = []ConfigurableAsset{confAsset} // this is a list of unit assets
 
+	// The host's own address rather than "localhost".
+	//
+	// Both name the same machine on a single-host cloud, and localhost was fine
+	// for as long as these URLs were only ever http. They are not: a consumer
+	// that reaches the orchestrator over https must present a client
+	// certificate, and the certificate the CA issues carries the host's
+	// addresses — so "https://localhost:30103" fails to verify against a
+	// certificate that never mentions localhost. Writing the address the system
+	// already knows about itself means switching the scheme is the only edit.
+	//
+	// IPAddresses[0] is the same choice the knowledge graph makes when it builds
+	// a service URL, and IpAddresses appends 127.0.0.1 last on purpose, so this
+	// falls back to loopback exactly when there is nothing else — which is what
+	// localhost meant anyway.
+	host := "localhost"
+	if len(sys.Husk.Host.IPAddresses) > 0 {
+		host = sys.Husk.Host.IPAddresses[0]
+	}
+
 	servReg := components.CoreSystem{
 		Name: "serviceregistrar",
-		Url:  "http://localhost:20102/serviceregistrar/registry",
+		Url:  "http://" + host + ":20102/serviceregistrar/registry",
 	}
 	orches := components.CoreSystem{
 		Name: "orchestrator",
-		Url:  "http://localhost:20103/orchestrator/orchestration",
+		Url:  "http://" + host + ":20103/orchestrator/orchestration",
 	}
 	ca := components.CoreSystem{
 		Name: "ca",
-		Url:  "http://localhost:20100/ca/certification",
+		Url:  "http://" + host + ":20100/ca/certification",
+	}
+	// The authorizer's slot, empty because authorization is adopted per
+	// deployment rather than assumed.
+	//
+	// An empty URL means absent, so a cloud that has not adopted it behaves
+	// exactly as before. What the entry buys is discovery: an operator opening
+	// systemconfig.json sees that the framework has an authorizer and where its
+	// URL goes, instead of having to know the JSON shape and copy it from
+	// another system. Filling it in is then one edit rather than three.
+	//
+	// It stays empty here on purpose. A real URL would make every generated
+	// system refuse to serve anything but its core services until an authorizer
+	// existed, which would break every cloud that has not adopted authorization
+	// — and adoption per deployment is the design.
+	authorizer := components.CoreSystem{
+		Name: "authorizer",
+		Url:  "",
 	}
 
 	// add the core systems to the configuration file.
@@ -128,7 +164,7 @@ func setupDefaultConfig(sys *components.System) (defaultConfig templateOut, err 
 	// maitreD URL via the coreSystems map. The CA reaches the requester's
 	// host-local maitreD by combining the source IP of the inbound CSR with
 	// its own MaitreDPort trait (see systems/ca/thing.go), not via this list.
-	coreSystems := []components.CoreSystem{servReg, orches, ca}
+	coreSystems := []components.CoreSystem{servReg, orches, ca, authorizer}
 	defaultConfig.CCoreS = coreSystems
 	return defaultConfig, nil
 }
