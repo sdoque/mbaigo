@@ -41,3 +41,10 @@ systems' own list.
   is now occupied by `fillServicesFromTemplates`. Either wire it in or delete
   it; a method that documents an intention nothing enforces is worse than
   neither.
+
+- **`hasMethods` belongs in the ontology.** The framework writes it as
+  `alc:hasMethods` because AFO 1.2.0 does not define it, which is what the
+  `afoDefined` comment calls the agenda. It is the one thing a service now says
+  that no shared vocabulary names, it is what democrat's Asset Interfaces
+  Description reads, and promoting it costs one line in `kgraphing.go` once the
+  ontology lands. Worth putting to Oskar alongside the 1.2.0 proposal.
