@@ -403,6 +403,36 @@ func TestModelServices(t *testing.T) {
 	}
 }
 
+// A service that says which methods it answers must reach the graph as the W3C
+// HTTP method IRIs, not as entities this cloud invented.
+//
+// rdfObject turns any detail value that looks like a name into alc:<value>, so
+// a Details entry of {"GET"} would have minted alc:GET — a resource in the local
+// cloud's namespace standing for an HTTP method that the W3C already named and
+// that dereferences. The angle brackets are what keeps it honest, and this is
+// the test that notices if components.HTTPMethods ever stops adding them.
+func TestModelServicesWritesMethodsAsIRIs(t *testing.T) {
+	sys := newKGTestSystem()
+	ua := addTestAsset(sys)
+	for _, serv := range (*ua).GetServices() {
+		serv.Details["Methods"] = components.HTTPMethods("GET", "PUT")
+	}
+
+	out := modelServices("testhost_mysys", ua, sys)
+
+	for _, want := range []string{
+		"alc:hasMethods <http://www.w3.org/2011/http-methods#GET>",
+		"alc:hasMethods <http://www.w3.org/2011/http-methods#PUT>",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("modelServices: missing %q\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "alc:GET") {
+		t.Error("modelServices: an HTTP method became an entity in the local cloud's namespace")
+	}
+}
+
 // ── KGraphing (HTTP handler) ──────────────────────────────────────────────────
 
 func TestKGraphing(t *testing.T) {

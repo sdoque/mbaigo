@@ -207,3 +207,24 @@ func TestMergeDetails(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPMethodsAreDereferenceableRatherThanInvented(t *testing.T) {
+	got := HTTPMethods("get", "PUT")
+	want := []string{
+		"<http://www.w3.org/2011/http-methods#GET>",
+		"<http://www.w3.org/2011/http-methods#PUT>",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d methods, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("method %d is %q, want %q", i, got[i], want[i])
+		}
+	}
+	// The angle brackets are the point: rdfObject passes an IRI through and
+	// turns a bare name into alc:GET, an entity this cloud would have invented.
+	if HTTPMethods("GET")[0][0] != '<' {
+		t.Error("a method without angle brackets becomes a local entity in the graph")
+	}
+}
