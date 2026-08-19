@@ -22,7 +22,7 @@ func TestNewSystem(t *testing.T) {
 	// for cancelling some background services (system registration and http servers).
 	select {
 	case <-sys.Ctx.Done():
-		t.Fatal("expected context to NOT be cancelled")
+		t.Fatal("expected context to NOT be canceled")
 	default:
 		// pass
 	}
@@ -32,7 +32,7 @@ func TestNewSystem(t *testing.T) {
 	case <-sys.Ctx.Done():
 		// pass
 	default:
-		t.Error("expected context to be cancelled")
+		t.Error("expected context to be canceled")
 	}
 }
 
@@ -186,5 +186,33 @@ func TestGetRunningCoreSystem(t *testing.T) {
 		case gotURL != test.url:
 			t.Errorf("expected core system URL '%s', got '%s'", test.url, gotURL)
 		}
+	}
+}
+
+// The generated configuration carries an empty authorizer entry so an operator
+// can see where the URL goes. Until one is written the cloud has no authorizer,
+// and every caller must reach that conclusion: a provider that read the slot as
+// present would demand tokens nothing could issue, and would answer 503 to
+// everything but its core services for as long as it ran.
+func TestAnEmptySlotIsNotACoreSystem(t *testing.T) {
+	sys := NewSystem("ds18b20", context.Background())
+	sys.Husk = &Husk{CoreS: []*CoreSystem{
+		{Name: "authorizer", Url: ""},
+		{Name: "ca", Url: "http://192.168.1.10:20100/ca/certification"},
+	}}
+
+	if _, err := GetRunningCoreSystemURL(&sys, "authorizer"); err == nil {
+		t.Error("an entry with no URL was treated as a running authorizer")
+	}
+	// Whitespace is the same thing written less obviously.
+	sys.Husk.CoreS[0].Url = "   "
+	if _, err := GetRunningCoreSystemURL(&sys, "authorizer"); err == nil {
+		t.Error("an entry whose URL is only spaces was treated as a running authorizer")
+	}
+	// And a real one still resolves.
+	sys.Husk.CoreS[0].Url = "https://192.168.1.10:30104/authorizer/authorization"
+	got, err := GetRunningCoreSystemURL(&sys, "authorizer")
+	if err != nil || got != "https://192.168.1.10:30104/authorizer/authorization" {
+		t.Errorf("a configured authorizer resolved to %q (%v)", got, err)
 	}
 }

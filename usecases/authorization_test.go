@@ -419,3 +419,146 @@ func TestAnUnnamedServiceCanNeverBeAuthorized(t *testing.T) {
 		t.Error("a service with no definition was authorized; nothing should satisfy it")
 	}
 }
+
+// The retry that made start order look like a dependency.
+//
+// Nothing requires the authorizer to be running before a provider: one that
+// starts ahead of it answers 503 and serves as soon as it has the key. But the
+// wait was a flat minute, so for up to a minute *after* the authorizer became
+// available every provider was still refusing — and an operator watching that
+// concludes the cloud must be started in order, and begins sequencing what does
+// not need sequencing.
+func TestTheKeyRetryConvergesInSecondsNotMinutes(t *testing.T) {
+	// Seven doublings from a second reach the ceiling; what matters is that the
+	// first few are short, because that is the whole of a normal cold start.
+	wait := firstRetry
+	var elapsed time.Duration
+	attempts := 0
+	for elapsed < 10*time.Second {
+		elapsed += wait
+		wait = nextRetry(wait)
+		attempts++
+	}
+	if attempts < 4 {
+		t.Errorf("only %d attempts in the first ten seconds; a provider that starts "+
+			"before the authorizer waits that long to become useful", attempts)
+	}
+
+	// And it does not grow without bound: a cloud whose authorizer never appears
+	// must not end up retrying once an hour.
+	for i := 0; i < 20; i++ {
+		wait = nextRetry(wait)
+	}
+	if wait != maxRetry {
+		t.Errorf("the wait settled at %v, want the %v ceiling", wait, maxRetry)
+	}
+	if nextRetry(0) != firstRetry {
+		t.Errorf("a zero wait becomes %v, want %v", nextRetry(0), firstRetry)
+	}
+}
+
+// The deadlock that made authorization impossible to switch on.
+//
+// One configuration list says both "this is my authorizer" and "I demand tokens
+// on my own services". The orchestrator must name the authorizer to consult it,
+// which made /squest demand a token — and a service quest is where a token
+// comes from. Every discovery request would have been refused, and no token
+// could ever be issued in the cloud.
+func TestACoreServiceDoesNotDemandTheTokenItIssues(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("key: %v", err)
+	}
+	sys := systemUnderTest(t, &components.CoreSystem{
+		Name: AuthorizerName, Url: "http://localhost:20104/authorizer/authorization",
+	})
+	sys.Husk.AuthorizerKey.Store(&key.PublicKey)
+
+	squest := &components.Service{Definition: "squest"}
+	sys.UAssets["orchestration"] = coreAsset("orchestration", squest)
+
+	// The consumer that has no token yet, which is every consumer at first.
+	r := httptest.NewRequest("POST", "/orchestrator/orchestration/squest", nil)
+	r.TLS = tlsStateWithCN("thermostat")
+
+	status, err := AuthorizeRequest(sys, r, "orchestration", squest)
+	if status != 0 {
+		t.Fatalf("a service quest was refused with %d (%v); nothing in the cloud could then "+
+			"obtain a token, because this is where tokens come from", status, err)
+	}
+}
+
+// And it answers while the provider is still fetching the authorizer's key.
+// A core service that returned 503 for the length of that fetch would stop the
+// cloud discovering anything — the start-order dependency this framework does
+// not have.
+func TestACoreServiceAnswersBeforeTheKeyArrives(t *testing.T) {
+	sys := systemUnderTest(t, &components.CoreSystem{
+		Name: AuthorizerName, Url: "http://localhost:20104/authorizer/authorization",
+	})
+	// No key stored: this system has just started.
+	register := &components.Service{Definition: "register"}
+	sys.UAssets["registry"] = coreAsset("registry", register)
+
+	r := httptest.NewRequest("POST", "/serviceregistrar/registry/register", nil)
+	r.TLS = tlsStateWithCN("ds18b20")
+
+	if status, err := AuthorizeRequest(sys, r, "registry", register); status != 0 {
+		t.Errorf("registration got %d (%v) while the key was being fetched; a system "+
+			"cannot register during that window and the cloud looks start-ordered", status, err)
+	}
+}
+
+// The exemption is the mission, not the system. A core system offering
+// something that is not core has it gated like anything else — otherwise
+// "core" would become a place to hide a service from policy.
+func TestOnlyTheCoreMissionIsExempt(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("key: %v", err)
+	}
+	sys := systemUnderTest(t, &components.CoreSystem{
+		Name: AuthorizerName, Url: "http://localhost:20104/authorizer/authorization",
+	})
+	sys.Husk.AuthorizerKey.Store(&key.PublicKey)
+
+	// An asset whose mission is core, with one service that declares its own.
+	reading := &components.Service{Definition: "temperature", Mission: components.MissionMeasurement}
+	sys.UAssets["registry"] = coreAsset("registry", reading)
+
+	r := httptest.NewRequest("GET", "/serviceregistrar/registry/temperature", nil)
+	r.TLS = tlsStateWithCN("collector")
+
+	status, _ := AuthorizeRequest(sys, r, "registry", reading)
+	if status != http.StatusUnauthorized {
+		t.Errorf("a measurement served by a core system got %d; want it gated like any other", status)
+	}
+}
+
+// An asset the system does not have cannot be exempted by claiming to be core.
+func TestAnUnknownAssetIsNotExempt(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("key: %v", err)
+	}
+	sys := systemUnderTest(t, &components.CoreSystem{
+		Name: AuthorizerName, Url: "http://localhost:20104/authorizer/authorization",
+	})
+	sys.Husk.AuthorizerKey.Store(&key.PublicKey)
+
+	r := httptest.NewRequest("GET", "/ds18b20/ghost/temperature", nil)
+	r.TLS = tlsStateWithCN("thermostat")
+
+	if status, _ := AuthorizeRequest(sys, r, "ghost", &components.Service{Definition: "temperature"}); status == 0 {
+		t.Error("a request against an asset this system does not have was permitted")
+	}
+}
+
+// coreAsset builds a unit asset of the core mission holding one service.
+func coreAsset(name string, serv *components.Service) *components.UnitAsset {
+	return &components.UnitAsset{
+		Name:        name,
+		Mission:     components.MissionCore,
+		ServicesMap: components.Services{serv.Definition: serv},
+	}
+}

@@ -24,17 +24,49 @@ package components
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
 
 // An Arrowhead Service has specific properties that exposes a unit asset's functionality
 type Service struct {
-	ID            int                 `json:"-"`                  // Id assigned by the Service Registrar
-	Definition    string              `json:"definition"`         // Service definition or purpose
-	SubPath       string              `json:"subpath"`            // The URL subpath after the resource's
-	Mission       Mission             `json:"mission,omitempty"`  // Overrides the unit asset's mission, where the asset's is too coarse (see EffectiveMission)
-	Details       map[string][]string `json:"details"`            // Metadata or details about the service
+	ID         int     `json:"-"`                 // Id assigned by the Service Registrar
+	Definition string  `json:"definition"`        // Service definition or purpose
+	SubPath    string  `json:"subpath"`           // The URL subpath after the resource's
+	Mission    Mission `json:"mission,omitempty"` // Overrides the unit asset's mission, where the asset's is too coarse (see EffectiveMission)
+	// Details is metadata about the service, and is the framework's open slot:
+	// anything a system wants said about a service that has no field of its own
+	// goes here, reaches the registrar, and is written into the knowledge graph
+	// as a predicate.
+	//
+	// Conventional keys, all optional:
+	//
+	//	Forms         the payload form, e.g. "SignalA_v1a"
+	//	Unit          a QUDT unit IRI, in angle brackets
+	//	QuantityKind  a QUDT quantity kind IRI, in angle brackets
+	//	Measure       "interval" or "point", where the difference matters
+	//	Methods       the HTTP methods this service answers (see below)
+	//
+	// Methods says which methods the service accepts, as W3C HTTP method IRIs:
+	//
+	//	"Methods": {"<http://www.w3.org/2011/http-methods#GET>",
+	//	            "<http://www.w3.org/2011/http-methods#PUT>"}
+	//
+	// Only worth stating when the service accepts more than a read, because a
+	// consumer reasonably assumes GET. Until this existed, nothing outside the
+	// provider's own `serving` switch knew a service could be written to: the
+	// registration form did not carry it and the graph did not say it, so the
+	// only record that a setpoint was settable was the English in Description.
+	// A consumer generating a client, or an AAS describing the interface, had
+	// no way to find out except by trying a PUT and seeing what happened.
+	//
+	// IRIs rather than the bare strings "GET" and "PUT" because a detail value
+	// that looks like a name is written into the graph as an entity in the
+	// local cloud's namespace — alc:GET, a thing this cloud invented — whereas
+	// the W3C HTTP vocabulary already has these and they dereference. It is the
+	// same reason Unit carries a QUDT IRI instead of the word "Celsius".
+	Details       map[string][]string `json:"details"`
 	RegPeriod     int                 `json:"registrationPeriod"` // The period until the registrar is expecting a sign of life
 	RegTimestamp  string              `json:"-"`                  // the creation date in the Service Registry to ensure that reRegistration is with the same record
 	RegExpiration string              `json:"-"`                  // The actual time when the service record will expire if not refreshed
@@ -411,3 +443,23 @@ func (c *Cervice) ProviderCount() int {
 
 // Cervises is a collection of "Cervice" structs
 type Cervices map[string]*Cervice
+
+// HTTPMethodVocabulary is the W3C HTTP Vocabulary in RDF, where the methods a
+// service accepts are already named and already dereferenceable.
+const HTTPMethodVocabulary = "http://www.w3.org/2011/http-methods#"
+
+// HTTPMethods renders method names as the Details["Methods"] value expects, so
+// a system states what it accepts without writing the vocabulary IRI out four
+// times:
+//
+//	Details: map[string][]string{"Methods": components.HTTPMethods("GET", "PUT")},
+//
+// A service that only answers GET need say nothing; that is what a consumer
+// assumes of a service it has been told nothing about.
+func HTTPMethods(names ...string) []string {
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		out = append(out, "<"+HTTPMethodVocabulary+strings.ToUpper(name)+">")
+	}
+	return out
+}

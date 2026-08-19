@@ -115,7 +115,7 @@ type BoundPorts struct {
 	// registration and the wrong one for a security decision. A system that
 	// refuses plaintext while TLS is bound would start accepting it again the
 	// moment the TLS server returned — a cert rotation, a stolen port, a
-	// cancelled context — because Release drops the entry and the check reads
+	// canceled context — because Release drops the entry and the check reads
 	// zero. A permission that can come back on its own is not a permission.
 	ever map[string]int
 }

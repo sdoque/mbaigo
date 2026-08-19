@@ -30,6 +30,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 )
@@ -39,7 +40,7 @@ type System struct {
 	Name    string                `json:"systemName"`
 	Husk    *Husk                 // the system aggregates a "husk" (a wrapper or a shell)
 	UAssets map[string]*UnitAsset // the system aggregates "asset", which is made up of one or more unit-asset
-	Ctx     context.Context       // create a context that can be cancelled
+	Ctx     context.Context       // create a context that can be canceled
 	Sigs    chan os.Signal        // channel to initiate a graceful shutdown when Ctrl+C is pressed
 	Mutex   *sync.Mutex           // used in service provision and consumption to avoid race conditions
 }
@@ -96,6 +97,16 @@ func GetRunningCoreSystemURL(sys *System, systemType string) (string, error) {
 	for _, core := range sys.Husk.CoreS {
 		// Ignore unrelated systems
 		if core.Name != systemType {
+			continue
+		}
+
+		// An entry with no URL is a slot, not a core system. The generated
+		// configuration carries an empty authorizer entry so an operator can see
+		// where the URL goes; until one is written, the cloud has no authorizer
+		// and every caller of this function must reach that conclusion — a
+		// provider that treated the slot as present would demand tokens nothing
+		// could issue.
+		if strings.TrimSpace(core.Url) == "" {
 			continue
 		}
 

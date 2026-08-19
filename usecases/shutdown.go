@@ -34,7 +34,7 @@ import (
 // un-killable except by SIGKILL or SIGQUIT.
 //
 // With this helper, the signal handler is wired up at startup and the
-// context is cancelled the moment a signal arrives, regardless of what
+// context is canceled the moment a signal arrives, regardless of what
 // main is currently doing.
 func WatchShutdown(sys *components.System, cancel context.CancelFunc) {
 	go func() {

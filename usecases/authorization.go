@@ -108,6 +108,7 @@ func AcquireAuthorizerKey(sys *components.System) {
 			return
 		}
 
+		wait := firstRetry
 		for {
 			if err := fetchAuthorizerKey(sys); err != nil {
 				log.Printf("%s: cannot verify tokens yet: %v\n", sys.Name, err)
@@ -124,12 +125,41 @@ func AcquireAuthorizerKey(sys *components.System) {
 			}
 
 			select {
-			case <-time.After(time.Minute):
+			case <-time.After(wait):
 			case <-sys.Ctx.Done():
 				return
 			}
+			wait = nextRetry(wait)
 		}
 	}()
+}
+
+// How long to wait before asking the authorizer for its key again.
+//
+// A flat minute made the start order look like a dependency it is not. Nothing
+// here requires the authorizer to be running first — a provider that starts
+// ahead of it answers 503 and serves as soon as it has the key — but for up to
+// a minute *after* the authorizer became available, every provider was still
+// refusing. An operator watching that concludes the cloud must be started in
+// order, and begins sequencing what does not need sequencing.
+//
+// Doubling from a second reaches the same ceiling in seven attempts and costs
+// nothing when the authorizer is already up, which is the ordinary case: the
+// first attempt succeeds and none of this runs.
+const (
+	firstRetry = time.Second
+	maxRetry   = time.Minute
+)
+
+// nextRetry doubles the wait up to the ceiling.
+func nextRetry(wait time.Duration) time.Duration {
+	if wait <= 0 {
+		return firstRetry
+	}
+	if doubled := wait * 2; doubled < maxRetry {
+		return doubled
+	}
+	return maxRetry
 }
 
 // AuthorizerKey returns the key to verify with, and whether one is in place.
@@ -284,6 +314,27 @@ func ActionForMethod(method string) string {
 	}
 }
 
+// isBootstrapService reports whether this service belongs to the plane that
+// makes authorization possible, and so cannot be authorized itself.
+//
+// Decided on the mission rather than a list of names, because the mission is
+// already the vocabulary policy is written in and a core system that gains a
+// service should not have to be remembered here. A service's own mission wins
+// over its asset's, which is what lets a core system offer something that is
+// not core and have it gated normally.
+//
+// This is not a hole a rogue provider can climb through. Enforcement is already
+// the provider's own choice — a system that did not want to check tokens would
+// simply leave the authorizer out of its configuration — so a provider calling
+// itself core weakens nothing that was not already its to weaken.
+func isBootstrapService(sys *components.System, assetName string, serv *components.Service) bool {
+	ua, known := sys.UAssets[assetName]
+	if !known {
+		return false
+	}
+	return components.EffectiveMission(ua, serv) == components.MissionCore
+}
+
 // AuthorizeRequest decides whether a provider may serve one incoming request.
 //
 // It runs at dispatch, after the unit asset and service are known, and returns
@@ -296,6 +347,33 @@ func ActionForMethod(method string) string {
 func AuthorizeRequest(sys *components.System, r *http.Request, assetName string, serv *components.Service) (int, error) {
 	if _, err := components.GetRunningCoreSystemURL(sys, AuthorizerName); err != nil {
 		return 0, nil // no authorizer in this local cloud
+	}
+
+	// A core service cannot require a token, because a token comes from a core
+	// service.
+	//
+	// One configuration list says both "this is the authorizer I verify against"
+	// and "I demand tokens on my own services", so naming the authorizer at the
+	// orchestrator made /squest demand one — and a service quest is how a
+	// consumer obtains a token in the first place. The registrar deadlocks the
+	// same way: registration would need a token that registration is a
+	// precondition for. Between them, authorization could not be switched on in
+	// any configuration at all.
+	//
+	// So the bootstrap plane is exempt: discovery, registration, certification
+	// and attestation are what make tokens possible and therefore cannot be
+	// gated by one. What protects them instead is the layer beneath — mutual TLS
+	// with a certificate the CA signed only for a binary whose hash is on the
+	// whitelist. That is a real boundary and POLICY.md states it: any system
+	// this cloud has enrolled may call a core service without a token.
+	//
+	// Before the key check on purpose. A provider still fetching the
+	// authorizer's key answers 503, and a core service that did that would stop
+	// the cloud discovering anything for as long as the fetch took — which is
+	// the start-order dependency this framework does not have and should not
+	// acquire.
+	if isBootstrapService(sys, assetName, serv) {
+		return 0, nil
 	}
 
 	key, ready := AuthorizerKey(sys)

@@ -143,7 +143,7 @@ func acquireCertificate(sys *components.System, certReady chan struct{}) {
 		select {
 		case <-time.After(time.Minute):
 		case <-sys.Ctx.Done():
-			log.Println("context cancelled, aborting certificate request")
+			log.Println("context canceled, aborting certificate request")
 			return
 		}
 	}

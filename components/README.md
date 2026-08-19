@@ -3,7 +3,7 @@
 The blocks an Arrowhead system is made of, and nothing else.
 
 This package is meant to be readable as a block definition diagram: one file per
-block, each block's own attributes declared with it, and no behaviour that a
+block, each block's own attributes declared with it, and no behavior that a
 diagram would not show. `usecases` holds the verbs.
 
 | File | Block | What it is |
@@ -28,9 +28,9 @@ imports:
 **Mechanisms.** `CachedURL` — a mutex around a remembered string, so a core
 system is not asked the same question twice — lived here for a while. It appears
 in no diagram and no ontology, because it is not something a cloud contains. It
-is now in `usecases`, owned by the behaviour that does the asking.
+is now in `usecases`, owned by the behavior that does the asking.
 
-**Behaviour.** `GetRunningCoreSystemURL` is in `system.go` and is a use case
+**Behavior.** `GetRunningCoreSystemURL` is in `system.go` and is a use case
 wearing a block's clothes: it polls registrars to find which one leads. Too much
 depends on it to move today, and it is noted here rather than defended.
 

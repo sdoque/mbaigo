@@ -1,9 +1,11 @@
 package usecases
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/sdoque/mbaigo/components"
@@ -451,5 +453,59 @@ func TestMakeServiceMap(t *testing.T) {
 			t.Errorf(`Expected servMap["%s"].SubPath to be "%s", with ID: "%d". Got: "%s", with ID: "%d"`,
 				service, service, c, servMap[service].SubPath, servMap[service].ID)
 		}
+	}
+}
+
+// The seeded core-system URLs name the host by its own address, not localhost.
+//
+// Both mean the same machine on a single-host cloud, and localhost was fine
+// while these URLs were only ever http. They are not: a consumer that reaches
+// the orchestrator over https presents a client certificate, and the certificate
+// the CA issues carries the host's addresses — so https://localhost:30103 fails
+// to verify against a certificate that never mentions localhost. On the running
+// testbed this was the whole of why authorization refused everything: the quest
+// arrived over http, the subject was the empty string, and no policy can name
+// "".
+func TestSeededCoreSystemsNameTheHostNotLocalhost(t *testing.T) {
+	sys := components.NewSystem("ds18b20", context.Background())
+	sys.Husk = &components.Husk{
+		Host:      &components.HostingDevice{IPAddresses: []string{"192.168.1.10", "127.0.0.1"}},
+		ProtoPort: map[string]int{"http": 20150, "https": 30150},
+		Details:   map[string][]string{},
+	}
+	sys.UAssets["sensor"] = &components.UnitAsset{Name: "sensor", Mission: components.MissionMeasurement}
+
+	config, err := setupDefaultConfig(&sys)
+	if err != nil {
+		t.Fatalf("building the default configuration: %v", err)
+	}
+
+	seen := map[string]string{}
+	for _, core := range config.CCoreS {
+		seen[core.Name] = core.Url
+		if strings.Contains(core.Url, "localhost") {
+			t.Errorf("%s is seeded as %q; a certificate does not mention localhost", core.Name, core.Url)
+		}
+	}
+	for _, name := range []string{"serviceregistrar", "orchestrator", "ca"} {
+		url, present := seen[name]
+		if !present {
+			t.Errorf("%s is not in the generated configuration", name)
+			continue
+		}
+		if !strings.HasPrefix(url, "http://192.168.1.10:") {
+			t.Errorf("%s is seeded as %q; want the host's own address", name, url)
+		}
+	}
+
+	// The authorizer has a slot and no URL: visible to an operator, inert until
+	// filled. A real URL here would make every generated system refuse to serve
+	// anything but its core services until an authorizer existed.
+	url, present := seen["authorizer"]
+	if !present {
+		t.Fatal("the authorizer has no slot, so an operator must know the JSON shape to add one")
+	}
+	if url != "" {
+		t.Errorf("the authorizer is seeded as %q; adoption is per deployment", url)
 	}
 }

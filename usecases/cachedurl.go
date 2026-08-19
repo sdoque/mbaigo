@@ -23,7 +23,7 @@ import "sync"
 //
 // Not a component. It appears in no block definition diagram and in no ontology,
 // because it is not a thing a local cloud contains — it is a way of not asking
-// the same question twice, owned by the behaviour that asks. It lived in the
+// the same question twice, owned by the behavior that asks. It lived in the
 // components package for a while for the reason such things always do: that is
 // the package everything imports.
 //

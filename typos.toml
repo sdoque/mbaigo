@@ -27,3 +27,14 @@ PN = "PN"
 # the SUBSCRIBE spec and likely throughout future docs. The dictionary
 # otherwise flags it as a possible misspelling of TO/OF/OR/NOT.
 OT = "OT"
+
+# AAS — Asset Administration Shell (Industry 4.0 / Platform Industrie 4.0).
+# The three-letter acronym clashes with the dictionary word "ass". The framework
+# mentions it where a service detail exists to be read by one: Details["Methods"]
+# says which HTTP methods a service answers, and an Asset Administration Shell
+# describing that interface is the consumer that needs it.
+#
+# The systems repository has carried this entry since democrat was written; it
+# arrives here now because until this point nothing in the framework itself had
+# reason to name the standard.
+AAS = "AAS"

@@ -596,3 +596,38 @@ func TestTheAliasTableIsSymmetricAndSound(t *testing.T) {
 		}
 	}
 }
+
+// The same unit must reach a consumer spelled one way, whichever provider sent
+// it. ds18b20 resolved its declared unit and published the canonical IRI; the
+// thermostat and parallax copied the configuration string, which an operator
+// writes Turtle-bracketed — so the live cloud served °C under two names.
+func TestAUnitIsSpelledOneWay(t *testing.T) {
+	const celsius = "http://qudt.org/vocab/unit/DEG_C"
+	for _, declared := range []string{
+		celsius,
+		"<" + celsius + ">",
+		"  <" + celsius + ">  ",
+	} {
+		if got := UnitIRI(declared); got != celsius {
+			t.Errorf("UnitIRI(%q) = %q, want %q", declared, got, celsius)
+		}
+	}
+
+	// A pre-QUDT name is published as declared. This fixes a spelling, not a
+	// vocabulary: a deployment that names its unit "Celsius" has done so since
+	// before QUDT, LookupUnit resolves it through the alias table, and
+	// rewriting it would change what an operator sees for an unrelated reason.
+	if got := UnitIRI("Celsius"); got != "Celsius" {
+		t.Errorf("UnitIRI(\"Celsius\") = %q; a legacy name is left as declared", got)
+	}
+
+	// A unit outside the table keeps what was declared, minus the brackets.
+	// This is a spelling fix, not a validation gate: a provider that wants its
+	// configuration checked calls LookupUnit and refuses to start.
+	if got := UnitIRI("<http://example.com/unit/Furlong>"); got != "http://example.com/unit/Furlong" {
+		t.Errorf("an unknown unit came back as %q; want it unbracketed and otherwise intact", got)
+	}
+	if got := UnitIRI(""); got != "" {
+		t.Errorf("UnitIRI(\"\") = %q, want the empty string", got)
+	}
+}
