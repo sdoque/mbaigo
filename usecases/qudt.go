@@ -267,6 +267,41 @@ var legacyUnitNames = map[string]string{
 	"lb":          qudtUnit + "LB",
 }
 
+// UnitIRI is the bare QUDT IRI to publish for a unit declared in configuration.
+//
+// The same unit was reaching consumers in two spellings. A provider that
+// resolved its declared unit through LookupUnit published the canonical IRI;
+// one that copied the configuration string published what an operator had
+// written, which is Turtle-bracketed — so a temperature arrived as
+// "http://qudt.org/vocab/unit/DEG_C" from one system and
+// "<http://qudt.org/vocab/unit/DEG_C>" from the next. Conversion was unaffected,
+// since LookupUnit accepts both, but anything that displays, compares or
+// exports the string saw two different units, and an Asset Administration Shell
+// built from those forms carried the brackets into a data space.
+//
+// A unit the table does not hold keeps whatever was declared, minus the
+// brackets: this is a spelling fix on the way out, not a validation gate. A
+// provider that wants its configuration checked should call LookupUnit and
+// refuse to start, as ds18b20 does — that is a separate decision and a stricter
+// one than every system is ready for.
+func UnitIRI(declared string) string {
+	trimmed := strings.TrimSpace(declared)
+	bare := strings.TrimSuffix(strings.TrimPrefix(trimmed, "<"), ">")
+
+	// A pre-QUDT name — "Celsius", "mm/h" — is published as declared. A
+	// deployment naming its units that way has been doing so since before this
+	// vocabulary existed, LookupUnit resolves them through the alias table
+	// anyway, and rewriting them here would change what an operator sees for a
+	// reason that has nothing to do with the spelling problem this fixes.
+	if bare == trimmed && !strings.Contains(bare, "://") {
+		return declared
+	}
+	if def, ok := LookupUnit(bare); ok {
+		return def.IRI
+	}
+	return bare
+}
+
 // CanonicalUnit reports the QUDT IRI a legacy unit name stands for, so a system
 // that refuses an unknown unit can name the replacement instead of only the
 // problem.
