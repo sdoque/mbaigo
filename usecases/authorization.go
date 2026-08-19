@@ -314,6 +314,27 @@ func ActionForMethod(method string) string {
 	}
 }
 
+// isBootstrapService reports whether this service belongs to the plane that
+// makes authorization possible, and so cannot be authorized itself.
+//
+// Decided on the mission rather than a list of names, because the mission is
+// already the vocabulary policy is written in and a core system that gains a
+// service should not have to be remembered here. A service's own mission wins
+// over its asset's, which is what lets a core system offer something that is
+// not core and have it gated normally.
+//
+// This is not a hole a rogue provider can climb through. Enforcement is already
+// the provider's own choice — a system that did not want to check tokens would
+// simply leave the authorizer out of its configuration — so a provider calling
+// itself core weakens nothing that was not already its to weaken.
+func isBootstrapService(sys *components.System, assetName string, serv *components.Service) bool {
+	ua, known := sys.UAssets[assetName]
+	if !known {
+		return false
+	}
+	return components.EffectiveMission(ua, serv) == components.MissionCore
+}
+
 // AuthorizeRequest decides whether a provider may serve one incoming request.
 //
 // It runs at dispatch, after the unit asset and service are known, and returns
@@ -326,6 +347,33 @@ func ActionForMethod(method string) string {
 func AuthorizeRequest(sys *components.System, r *http.Request, assetName string, serv *components.Service) (int, error) {
 	if _, err := components.GetRunningCoreSystemURL(sys, AuthorizerName); err != nil {
 		return 0, nil // no authorizer in this local cloud
+	}
+
+	// A core service cannot require a token, because a token comes from a core
+	// service.
+	//
+	// One configuration list says both "this is the authorizer I verify against"
+	// and "I demand tokens on my own services", so naming the authorizer at the
+	// orchestrator made /squest demand one — and a service quest is how a
+	// consumer obtains a token in the first place. The registrar deadlocks the
+	// same way: registration would need a token that registration is a
+	// precondition for. Between them, authorization could not be switched on in
+	// any configuration at all.
+	//
+	// So the bootstrap plane is exempt: discovery, registration, certification
+	// and attestation are what make tokens possible and therefore cannot be
+	// gated by one. What protects them instead is the layer beneath — mutual TLS
+	// with a certificate the CA signed only for a binary whose hash is on the
+	// whitelist. That is a real boundary and POLICY.md states it: any system
+	// this cloud has enrolled may call a core service without a token.
+	//
+	// Before the key check on purpose. A provider still fetching the
+	// authorizer's key answers 503, and a core service that did that would stop
+	// the cloud discovering anything for as long as the fetch took — which is
+	// the start-order dependency this framework does not have and should not
+	// acquire.
+	if isBootstrapService(sys, assetName, serv) {
+		return 0, nil
 	}
 
 	key, ready := AuthorizerKey(sys)
