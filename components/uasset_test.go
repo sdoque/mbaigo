@@ -113,3 +113,34 @@ func TestValidateMissionRejectsAnAssetThatDeclaresNone(t *testing.T) {
 		}
 	}
 }
+
+// Mobility is what a load balancer needs and the graph cannot derive. The graph
+// says which host each system runs on, so what is where is known; what is
+// missing is whether any of it could be somewhere else.
+func TestMobilityVocabulary(t *testing.T) {
+	if len(Mobilities) != 3 {
+		t.Fatalf("%d mobilities; the middle case is the common one and must not be collapsed away", len(Mobilities))
+	}
+	seen := map[string]bool{}
+	for _, m := range Mobilities {
+		if m == "" {
+			t.Error("an empty mobility would read as a declaration rather than as silence")
+		}
+		if seen[m] {
+			t.Errorf("%q appears twice", m)
+		}
+		seen[m] = true
+	}
+	for _, want := range []string{MobilityFixed, MobilityTethered, MobilityMovable} {
+		if !seen[want] {
+			t.Errorf("%q is not in Mobilities, so an error cannot name it as permitted", want)
+		}
+	}
+
+	// A detail is a list of strings, so the constants must be usable as one
+	// without conversion — the whole point of the convention.
+	ua := UnitAsset{Details: map[string][]string{"Mobility": {MobilityFixed}}}
+	if got := ua.GetDetails()["Mobility"]; len(got) != 1 || got[0] != "fixed" {
+		t.Errorf("Mobility detail = %v", got)
+	}
+}

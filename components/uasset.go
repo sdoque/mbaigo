@@ -33,9 +33,28 @@ import (
 // The system-specific configuration is held in Traits (any), and the HTTP
 // dispatch logic is wired in via ServingFunc at construction time.
 type UnitAsset struct {
-	Name        string                                           `json:"name"`
-	Mission     Mission                                          `json:"mission,omitempty"`
-	Owner       *System                                          `json:"-"`
+	Name    string  `json:"name"`
+	Mission Mission `json:"mission,omitempty"`
+	Owner   *System `json:"-"`
+	// Details is metadata about the asset — the open slot, as on a Service.
+	// Anything a system wants said that has no field of its own goes here,
+	// reaches the registrar, and becomes a predicate in the knowledge graph.
+	//
+	// Conventional keys, all optional:
+	//
+	//	FunctionalLocation  where the asset is, as an IRI or a name
+	//	Mobility            whether the asset could run on another host
+	//	TetheredTo          what a tethered asset must still be able to reach
+	//
+	// Mobility is what a load balancer needs and cannot derive. The graph says
+	// which host each system runs on, so what is where is already known — what
+	// is missing is whether any of it could be somewhere else. A ds18b20 reads a
+	// 1-wire device on this machine's GPIO and can never move; a kgrapher can
+	// move anywhere. Without the distinction, the first proposal a balancer
+	// makes is to relocate the sensor.
+	//
+	// See MobilityFixed, MobilityTethered and MobilityMovable for the values and
+	// what each obliges.
 	Details     map[string][]string                              `json:"details"`
 	ServicesMap Services                                         `json:"-"`
 	CervicesMap Cervices                                         `json:"-"`
@@ -166,6 +185,38 @@ var (
 	// authorizer, maitreD.
 	MissionCore = Mission{"core"}
 )
+
+// Mobility says whether a unit asset could run on a different host, which is
+// the question a load balancer asks and the graph cannot answer on its own.
+//
+// Three values rather than two, because the interesting middle case is the
+// common one: most assets in this repository speak to a device over the network
+// — Modbus TCP, OPC UA, MQTT, a Zigbee bridge — and so can move to any host that
+// can still reach it. Collapsing that into "fixed" would freeze a cloud that is
+// mostly relocatable; collapsing it into "movable" would license a move that
+// silently breaks the connection it depended on.
+const (
+	// MobilityFixed is bound to this machine's hardware: GPIO, 1-wire, a serial
+	// port, a USB device — or, in maitreD's case, bound by its purpose, since it
+	// attests the host it runs on. Moving it is not a slower operation, it is a
+	// different deployment.
+	MobilityFixed = "fixed"
+
+	// MobilityTethered can move to any host that can still reach what it talks
+	// to. An asset declaring this owes the reader what it is tethered *to*, in a
+	// TetheredTo detail beside it: a balancer must verify reachability before
+	// proposing the move, and cannot do that against an unnamed dependency. A
+	// tethered asset that names nothing should be read as fixed, because a move
+	// nobody can check is a move nobody should make.
+	MobilityTethered = "tethered"
+
+	// MobilityMovable needs nothing of the machine it is on. It reads the
+	// network and computes; it can run wherever the cloud has room.
+	MobilityMovable = "movable"
+)
+
+// Mobilities is the vocabulary, for rendering permitted values in an error.
+var Mobilities = []string{MobilityFixed, MobilityTethered, MobilityMovable}
 
 // Missions is the taxonomy in the order it is documented. Used to render the
 // permitted values in configuration errors, so an operator does not have to find
