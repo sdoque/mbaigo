@@ -1,5 +1,7 @@
 package forms
 
+// Messages: free-form text between systems.
+
 import (
 	"fmt"
 	"reflect"

@@ -14,18 +14,9 @@
  *   Thomas Hedeler, Hamburg - initial implementation
  ***************************************************************************SDG*/
 
-// The "forms" package is designed to define structured schemas, known as "structs,"
-// which represent the format and organization of documents intended for data exchange.
-// These structs are utilized to create forms that are populated with data, acting as
-// standardized payloads for transmission between different systems. This ensures that
-// the data exchanged maintains a consistent structure, facilitating seamless
-// integration and processing across system boundaries.
-// Basic forms include the service registration and the service query forms.
-// The form version is used for backward compatibility.
-
-// the certificate form is a plain text certificate
-
 package forms
+
+// Certificates: the plain-text PEM a system receives from the certificate authority.
 
 import (
 	"log"

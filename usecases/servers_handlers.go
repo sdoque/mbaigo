@@ -302,8 +302,19 @@ func handleFourParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 		// authorize — following a value is the read it already is, and this
 		// cloud has already been bitten once by a path the framework served
 		// without declaring.
+		//
+		// Stream is nil on every service the framework has not prepared one for,
+		// which is most of them, and calling a method on a nil interface panics
+		// rather than returning false. net/http recovers that and closes the
+		// connection with no status line, so the caller sees an empty reply and
+		// the provider looks unreachable — while the pane behind it fills with
+		// stack traces nobody is reading. It cost the ESR its subscription
+		// service: kgrapher asked to follow syslist, was disconnected on every
+		// attempt, never rebuilt, and so never published anything to the triple
+		// store. Nothing in the cloud reported a fault, because from the outside
+		// there was only a connection that closed.
 		if serv := findServiceByPath(uAsset.GetServices(), servicePath); serv != nil &&
-			wantsStream(r) && serv.Stream.Subscribable() {
+			wantsStream(r) && serv.Stream != nil && serv.Stream.Subscribable() {
 			serv.Stream.ServeStream(w, r)
 			return
 		}
