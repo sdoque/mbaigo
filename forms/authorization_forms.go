@@ -14,12 +14,9 @@
  *   Thomas Hedeler, Hamburg - initial implementation
  ***************************************************************************SDG*/
 
-// The authorization forms carry one exchange: the orchestrator asks which of the
-// providers the registrar offered a given consumer may use, and the authorizer
-// answers with the survivors. The schema is specified in
-// systems/authorizer/POLICY.md.
-
 package forms
+
+// Authorization: what the orchestrator asks the authorizer, and the grants and refusals it gets back.
 
 import (
 	"reflect"

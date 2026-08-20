@@ -14,9 +14,9 @@
  *   Thomas Hedeler, Hamburg - initial implementation
  ***************************************************************************SDG*/
 
-// How loaded a machine is, as the machine itself sees it.
-
 package forms
+
+// Hosts: what a machine reports about its own spare capacity.
 
 import (
 	"reflect"

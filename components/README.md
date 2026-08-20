@@ -19,6 +19,36 @@ diagram would not show. `usecases` holds the verbs.
 *actually* serving, as against the ones its configuration names, which is not
 the same question and has caught this project out before.
 
+## Two vocabularies an asset declares
+
+Both are small, closed and reasoned about by other systems, so they are
+constants rather than free strings — a typo should be a compile error.
+
+**`Mission`** says what the asset is *for*: measurement, actuation, control,
+state, aggregation, logging, transaction, core. The authorizer writes policy
+against it, and one further thing follows from it — a service whose effective
+mission is `core` is served without an access token, because the plane that
+makes tokens possible cannot itself require one. A service may override its
+asset's mission where the asset's is too coarse, and `EffectiveMission` is what
+resolves the two.
+
+**`Mobility`** says whether the asset could run on a different host: `fixed`,
+`tethered` or `movable`. It is a `Details` key rather than a field, following
+the same convention as a service's `Methods` — no migration, and it reaches the
+knowledge graph as a predicate on its own.
+
+The graph already knows which host each system runs on, so *what is where* is
+not the question. What was missing is whether any of it could be somewhere
+else, and nothing in the model said. Without it, the first thing anything
+balancing load would propose is to relocate the temperature sensor.
+
+Three values rather than two, because the middle case is the common one: most
+assets in this project talk to a device over the network — Modbus TCP, OPC UA,
+MQTT, a Zigbee bridge, a triple store — and can move to any host that can still
+reach it. A `tethered` asset owes the reader a `TetheredTo` detail naming what
+it must still reach; one that names nothing is read as `fixed`, because a move
+nobody can verify is a move nobody should make.
+
 ## What does not belong here
 
 A type earns its place by appearing in a diagram of the cloud. That rules out

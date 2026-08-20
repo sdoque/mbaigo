@@ -14,16 +14,9 @@
  *   Thomas Hedeler, Hamburg - initial implementation
  ***************************************************************************SDG*/
 
-// The "forms" package is designed to define structured schemas, known as "structs,"
-// which represent the format and organization of documents intended for data exchange.
-// These structs are utilized to create forms that are populated with data, acting as
-// standardized payloads for transmission between different systems. This ensures that
-// the data exchanged maintains a consistent structure, facilitating seamless
-// integration and processing across system boundaries.
-
-// Basic forms include the service registration and the service query forms.
-
 package forms
+
+// Systems: how a cloud describes the systems it holds.
 
 import "reflect"
 
