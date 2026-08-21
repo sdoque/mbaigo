@@ -289,6 +289,10 @@ func (p *Publisher) ServeStream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer remove()
 
+	if err := UnlimitStreamWrite(w); err != nil {
+		log.Printf("%s: %v\n", p.service.Definition, err)
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -555,4 +559,35 @@ func readValues(cer *components.Cervice, resp *http.Response) error {
 		}
 	}
 	return scanner.Err()
+}
+
+// UnlimitStreamWrite lifts the server's write deadline for one connection, so a
+// subscription can outlive a request.
+//
+// SetoutServers gives both servers a WriteTimeout of a minute, which is the
+// right protection for a request that answers and stops: a client that reads
+// its response slowly cannot then hold a goroutine open indefinitely. But Go
+// measures that deadline from the start of the *response*, and a server-sent
+// event stream is one response that never ends — so every subscription in this
+// framework was severed at sixty seconds, whatever it was doing.
+//
+// The damage was quiet and out of proportion. kgrapher follows the registrar to
+// know when the cloud changes; the stream died each minute, it reconnected, and
+// the reconnection delivered an opening snapshot, which it could not tell from
+// news. So it rebuilt the whole graph and wrote a fresh timestamped snapshot to
+// the triple store — around twenty-five an hour, through a night in which
+// nothing about the cloud changed at all, until the store held five hundred
+// copies of a cloud that has one. The only symptom anybody saw was a reconnect
+// message that read like a flaky network.
+//
+// Clearing the deadline rather than lengthening it: a stream has no natural
+// duration, and any number chosen here would be a guess that eventually cuts
+// somebody's subscription. What bounds these connections instead is the
+// subscriber limit each stream enforces, and the client going away.
+func UnlimitStreamWrite(w http.ResponseWriter) error {
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+		return fmt.Errorf("cannot lift the write deadline, so this stream will be cut "+
+			"after the server's WriteTimeout: %w", err)
+	}
+	return nil
 }

@@ -602,3 +602,55 @@ func TestWaitingOnACerviceThatDoesNotExistIsSafe(t *testing.T) {
 	case <-time.After(30 * time.Millisecond):
 	}
 }
+
+// A subscription must outlive the server's WriteTimeout.
+//
+// SetoutServers gives both servers a one-minute WriteTimeout, which Go measures
+// from the start of the response — and a server-sent event stream is one
+// response that never ends. Every subscription in this framework was therefore
+// cut at sixty seconds: the thermostat's temperature feed, the registrar's
+// change stream, maitreD's load reports.
+//
+// What it cost was out of all proportion to a missing line. kgrapher follows
+// the registrar to learn when the cloud changes; the stream died each minute,
+// it reconnected, and a reconnection delivers an opening snapshot that it
+// cannot tell from news — so it rebuilt the graph and wrote a fresh snapshot to
+// the triple store roughly twenty-five times an hour, all night, while nothing
+// about the cloud changed. The store reached five hundred copies of a cloud
+// that has one.
+func TestAStreamOutlivesTheWriteTimeout(t *testing.T) {
+	// A response writer that reports the deadline it was given, which is what
+	// the real one does through the same interface.
+	publisher := NewPublisher(temperature(0.5))
+	publisher.Sample(sample(21.5))
+
+	r := httptest.NewRequest(http.MethodGet, "/sys/asset/temp", nil)
+	ctx, cancel := context.WithTimeout(r.Context(), 150*time.Millisecond)
+	defer cancel()
+
+	// Through ServeStream rather than by calling the helper directly: what
+	// failed was not the helper, it was that nothing called one.
+	rec := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	publisher.ServeStream(rec, r.WithContext(ctx))
+
+	if !rec.set {
+		t.Fatal("no write deadline was set at all, so the server's WriteTimeout still applies")
+	}
+	if !rec.deadline.IsZero() {
+		t.Errorf("the deadline was moved to %v rather than cleared; a stream has no natural "+
+			"duration, so any number here eventually cuts somebody's subscription", rec.deadline)
+	}
+}
+
+// deadlineRecorder is an http.ResponseWriter that supports SetWriteDeadline,
+// which httptest.ResponseRecorder does not.
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	deadline time.Time
+	set      bool
+}
+
+func (d *deadlineRecorder) SetWriteDeadline(deadline time.Time) error {
+	d.deadline, d.set = deadline, true
+	return nil
+}
