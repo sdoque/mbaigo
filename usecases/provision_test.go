@@ -249,3 +249,61 @@ func TestRegisterMessenger(t *testing.T) {
 		t.Errorf("expected error count %d, got %d", want, got)
 	}
 }
+
+// The system-level endpoints, and who may reach them.
+//
+// /kgraph and /smodel describe a system completely; /msg subscribes an arbitrary
+// host to everything it logs. All three were served to anyone who could reach
+// the port, which on a plant network is everyone. /cert has to stay open or the
+// cloud cannot bootstrap token verification at all.
+func TestSystemEndpointsRequireAnEnrolledCaller(t *testing.T) {
+	sys := components.NewSystem("subject", context.Background())
+	sys.Husk = &components.Husk{
+		Description: "a system under test",
+		Details:     map[string][]string{},
+		ProtoPort:   map[string]int{"https": 30999, "http": 20999, "coap": 0},
+		Messengers:  make(map[string]int),
+	}
+
+	body := `{"host":"http://attacker.example:9999","version":"MessengerRegistration_v1"}`
+
+	cases := []struct {
+		endpoint string
+		method   string
+		body     string
+		open     bool
+	}{
+		{"kgraph", http.MethodGet, "", false},
+		{"smodel", http.MethodGet, "", false},
+		{"msg", http.MethodPost, body, false},
+		{"cert", http.MethodGet, "", true},
+	}
+
+	for _, tc := range cases {
+		var reader io.Reader
+		if tc.body != "" {
+			reader = strings.NewReader(tc.body)
+		}
+		req := httptest.NewRequest(tc.method, "/subject/"+tc.endpoint, reader)
+		req.Header.Set("Content-Type", "application/json")
+		// No req.TLS: the caller presented no certificate, which is what a
+		// request on the plain-HTTP port looks like.
+		rec := httptest.NewRecorder()
+
+		ResourceHandler(&sys, rec, req)
+
+		refused := rec.Code == http.StatusUnauthorized
+		if tc.open && refused {
+			t.Errorf("/%s refused an anonymous caller; it must stay open to bootstrap verification", tc.endpoint)
+		}
+		if !tc.open && !refused {
+			t.Errorf("/%s served an anonymous caller (status %d); it discloses the plant", tc.endpoint, rec.Code)
+		}
+	}
+
+	// The one that is not merely a disclosure: a refused registration must not
+	// have taken effect.
+	if len(sys.Husk.Messengers) != 0 {
+		t.Errorf("an anonymous host registered itself as a messenger: %v", sys.Husk.Messengers)
+	}
+}
