@@ -521,3 +521,110 @@ func TestLog(t *testing.T) {
 		t.Errorf("expected error count %d, got %d", want, got)
 	}
 }
+
+// TestAnExpiredTokenDoesNotRebindTheConsumer is the regression for three
+// thermostats that spent an afternoon heating a cottage against the outdoor
+// temperature.
+//
+// A consumer that has chosen a provider — a thermostat paired to the thermometer
+// in its own room — asks the orchestrator only for a new credential when its
+// token expires. The orchestrator cannot know which provider was meant, and
+// answers with whichever candidate it likes. Taking that answer silently moves
+// the consumer to a different thing, and it goes on controlling: plausibly,
+// continuously, and against the wrong measurement.
+func TestAnExpiredTokenDoesNotRebindTheConsumer(t *testing.T) {
+	// The provider this cervice is bound to. It refuses with an expired token,
+	// which is an answer: it is exactly where the consumer thinks it is.
+	bound := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "the token expired at 2026-08-24T13:11:06+02:00", http.StatusForbidden)
+	}))
+	defer bound.Close()
+
+	// Another provider of the same service definition — the outdoor sensor.
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer other.Close()
+
+	// An orchestrator that always names the other one.
+	orchestrator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		var sp forms.ServicePoint_v1
+		sp.NewForm()
+		sp.ServiceDefinition = "temperature"
+		sp.ProviderName = "meteorologue"
+		sp.ServNode = "OutdoorModule"
+		sp.ServLocation = other.URL
+		sp.Token = "a-fresh-token-for-the-wrong-sensor"
+		body, _ := Pack(&sp, "application/json")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(body)
+	}))
+	defer orchestrator.Close()
+
+	sys := components.NewSystem("ethermostat", context.Background())
+	sys.Husk = &components.Husk{
+		ProtoPort: map[string]int{"http": 20196, "https": 0, "coap": 0},
+		CoreS: []*components.CoreSystem{
+			{Name: "orchestrator", Url: orchestrator.URL + "/orchestrator/orchestration"},
+		},
+	}
+
+	cer := &components.Cervice{
+		Definition: "temperature",
+		Protos:     []string{"http"},
+		Mode:       "get",
+		Nodes: map[string][]components.NodeInfo{
+			"IndoorModule": {{
+				URL:    bound.URL,
+				Tokens: map[string]string{"read": "an-expired-token"},
+			}},
+		},
+	}
+
+	// First call: refused with an expired token. The binding must survive.
+	if _, err := GetState(cer, &sys); err == nil {
+		t.Fatal("a 403 was reported as success")
+	}
+	if urls := knownURLs(cer); !urls[bound.URL] {
+		t.Fatal("the provider was forgotten because it answered with an error")
+	}
+
+	// Second call: the refresh path runs, the orchestrator names the wrong
+	// provider, and that answer must be refused rather than adopted.
+	_, err := GetState(cer, &sys)
+	if err == nil {
+		t.Fatal("the consumer was silently re-bound and reported success")
+	}
+
+	urls := knownURLs(cer)
+	if urls[other.URL] {
+		t.Errorf("the cervice was re-bound to %s — a different provider of the same service", other.URL)
+	}
+	if !urls[bound.URL] {
+		t.Errorf("the original binding was lost; cervice now holds %v", urls)
+	}
+}
+
+// TestAnUnreachableProviderIsForgotten keeps the fix from becoming a cervice
+// that can never move. A provider that does not answer at all may genuinely be
+// gone, and that is the one path where re-discovery should bind freely.
+func TestAnUnreachableProviderIsForgotten(t *testing.T) {
+	cer := &components.Cervice{
+		Definition: "temperature",
+		Protos:     []string{"http"},
+		Mode:       "get",
+		Nodes: map[string][]components.NodeInfo{
+			// A port nothing listens on: a transport failure, not an answer.
+			"gone": {{URL: "http://127.0.0.1:1", Tokens: map[string]string{"read": "t"}}},
+		},
+	}
+	sys := components.NewSystem("ethermostat", context.Background())
+	sys.Husk = &components.Husk{ProtoPort: map[string]int{"http": 20196}}
+
+	if _, err := GetState(cer, &sys); err == nil {
+		t.Fatal("an unreachable provider was reported as success")
+	}
+	if len(knownURLs(cer)) != 0 {
+		t.Error("an unreachable provider was kept; the next discovery cannot rebind")
+	}
+}

@@ -48,6 +48,40 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 	return stateHandler(http.MethodPut, cer, sys, bodyBytes)
 }
 
+// knownURLs is the set of providers this cervice is already bound to.
+func knownURLs(cer *components.Cervice) map[string]bool {
+	cer.Mutex.RLock()
+	defer cer.Mutex.RUnlock()
+	urls := make(map[string]bool)
+	for _, nodes := range cer.Nodes {
+		for _, ni := range nodes {
+			urls[ni.URL] = true
+		}
+	}
+	return urls
+}
+
+// keepOnly discards every node the cervice was not already bound to, so a
+// discovery made to refresh a credential cannot quietly widen or move the
+// binding.
+func keepOnly(cer *components.Cervice, allowed map[string]bool) {
+	cer.Mutex.Lock()
+	defer cer.Mutex.Unlock()
+	for node, nodes := range cer.Nodes {
+		kept := make([]components.NodeInfo, 0, len(nodes))
+		for _, ni := range nodes {
+			if allowed[ni.URL] {
+				kept = append(kept, ni)
+			}
+		}
+		if len(kept) == 0 {
+			delete(cer.Nodes, node)
+			continue
+		}
+		cer.Nodes[node] = kept
+	}
+}
+
 func stateHandler(httpMethod string, cer *components.Cervice, sys *components.System, bodyBytes []byte) (f forms.Form, err error) {
 	// The action is what this call will actually do, not what Cervice.Mode says
 	// it might. The provider recomputes it from the method, so a token minted for
@@ -60,10 +94,32 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 	// than present a token minted for another one.
 	serviceUrl, token, found := pickNode(cer, action)
 	if !found {
+		// A first discovery and a credential refresh arrive here by the same
+		// door, and they are not the same question.
+		//
+		// A cervice with no nodes is asking "who provides this?", and any
+		// answer will do. A cervice that already knows a provider — a
+		// thermostat paired to the thermometer in its own room — is asking only
+		// for a new token for *that* one. The orchestrator cannot tell the
+		// difference: it answers with whichever candidate it likes, and taking
+		// that answer silently re-binds the consumer to a different thing.
+		//
+		// On the cottage this moved all three thermostats onto the outdoor
+		// sensor after a token expired. They went on controlling — plausibly,
+		// continuously, and against a temperature from outside the house.
+		bound := knownURLs(cer)
 		if err = Search4ServicesAs(cer, sys, action); err != nil {
 			return f, err
 		}
-		serviceUrl, token, _ = pickNode(cer, action)
+		if len(bound) > 0 {
+			// Keep the binding: take a refreshed token for a provider already
+			// in hand, and discard anything else the search turned up.
+			keepOnly(cer, bound)
+		}
+		serviceUrl, token, found = pickNode(cer, action)
+		if !found {
+			return f, fmt.Errorf("no %s token for the %s provider this cervice is bound to", action, cer.Definition)
+		}
 	}
 
 	// A value somebody is already keeping current, answered without asking for
@@ -92,8 +148,20 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 
 	resp, err := sendHTTPReqWithToken(httpMethod, serviceUrl, token, bodyBytes)
 	if err != nil {
-		// Failed to reach the provider: forget everything discovered, so the next
-		// call searches again.
+		var refused *ProviderRefusal
+		if errors.As(err, &refused) {
+			// The provider answered, so it is exactly where this cervice thinks
+			// it is. Nothing about the topology is in doubt and the binding must
+			// survive; at most the credential is stale, and dropping that one
+			// token sends the next call through the refresh path above.
+			if refused.StaleCredential() {
+				forgetToken(cer, serviceUrl, action)
+			}
+			return f, err
+		}
+		// Could not reach it at all. The cloud's shape may genuinely have
+		// changed, so forget what was discovered and let the next call search
+		// without constraint. This is the only path that may re-bind.
 		cer.Mutex.Lock()
 		cer.Nodes = make(map[string][]components.NodeInfo)
 		cer.Mutex.Unlock()
