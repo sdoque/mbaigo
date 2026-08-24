@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sdoque/mbaigo/components"
@@ -626,5 +627,54 @@ func TestAnUnreachableProviderIsForgotten(t *testing.T) {
 	}
 	if len(knownURLs(cer)) != 0 {
 		t.Error("an unreachable provider was kept; the next discovery cannot rebind")
+	}
+}
+
+// TestSharedTokensAreNotWrittenInPlace reproduces a crash that took the
+// cottage's heating down at 17:52 on 24 August.
+//
+// A NodeInfo is copied by value when a consumer pins a provider into a cervice
+// of its own — ethermostat builds one cervice per heater — and copying the
+// struct copies the map header, not the map. Two of the cottage's heaters read
+// the same thermometer, so two feedback loops held two different cervice mutexes
+// over one shared token map. Deleting from it concurrently is "fatal error:
+// concurrent map writes", which is not recoverable: the whole system dies,
+// control loop and servers together.
+//
+// Run with -race to see the read side too.
+func TestSharedTokensAreNotWrittenInPlace(t *testing.T) {
+	// One provider, pinned into two cervices exactly as discoverHeaters does.
+	shared := components.NodeInfo{
+		URL:    "http://sensor.example/temperature",
+		Tokens: map[string]string{"read": "a-token", "write": "another"},
+	}
+	kitchen := &components.Cervice{
+		Definition: "temperature",
+		Nodes:      map[string][]components.NodeInfo{"IndoorModule": {shared}},
+	}
+	diningroom := &components.Cervice{
+		Definition: "temperature",
+		Nodes:      map[string][]components.NodeInfo{"IndoorModule": {shared}},
+	}
+
+	var wg sync.WaitGroup
+	for _, cer := range []*components.Cervice{kitchen, diningroom} {
+		wg.Add(1)
+		go func(c *components.Cervice) {
+			defer wg.Done()
+			for i := 0; i < 500; i++ {
+				forgetToken(c, shared.URL, "read")
+				recordNode(c, "IndoorModule", shared.URL, nil, "read", "fresh", false)
+			}
+		}(cer)
+	}
+	wg.Wait()
+
+	// The original map must be untouched: nothing may edit a map it shares.
+	if shared.Tokens["read"] != "a-token" {
+		t.Errorf("the shared token map was written in place: read = %q", shared.Tokens["read"])
+	}
+	if shared.Tokens["write"] != "another" {
+		t.Errorf("an unrelated action was disturbed: write = %q", shared.Tokens["write"])
 	}
 }

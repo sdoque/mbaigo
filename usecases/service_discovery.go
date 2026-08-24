@@ -180,10 +180,15 @@ func recordNode(cer *components.Cervice, node, url string, details map[string][]
 		if ni.URL != url {
 			continue
 		}
-		if ni.Tokens == nil {
-			ni.Tokens = make(map[string]string)
+		// Replaced rather than written into, for the reason given on
+		// tokensWithout: this map is shared with every cervice that pinned a
+		// copy of this NodeInfo, and they are not guarded by the same mutex.
+		fresh := make(map[string]string, len(ni.Tokens)+1)
+		for act, tok := range ni.Tokens {
+			fresh[act] = tok
 		}
-		ni.Tokens[action] = token
+		fresh[action] = token
+		ni.Tokens = fresh
 		ni.Details = details
 		cer.Nodes[node][i] = ni
 		return

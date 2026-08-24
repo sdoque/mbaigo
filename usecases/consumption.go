@@ -406,12 +406,42 @@ func forgetToken(cer *components.Cervice, url, action string) {
 
 	for node, nodes := range cer.Nodes {
 		for i, ni := range nodes {
-			if ni.URL == url && ni.Tokens != nil {
-				delete(ni.Tokens, action)
-				cer.Nodes[node][i] = ni
+			if ni.URL != url || ni.Tokens == nil {
+				continue
 			}
+			if _, held := ni.Tokens[action]; !held {
+				continue
+			}
+			ni.Tokens = tokensWithout(ni.Tokens, action)
+			cer.Nodes[node][i] = ni
 		}
 	}
+}
+
+// tokensWithout returns a copy of a node's tokens with one action removed,
+// because the map may not be written in place.
+//
+// A NodeInfo is copied by value when a consumer pins a provider into a cervice
+// of its own — which is what ethermostat does, one cervice per heater — and
+// copying the struct copies the map *header*, not the map. Every copy therefore
+// shares one set of tokens, guarded by whichever cervice's mutex the writer
+// happens to hold.
+//
+// Two of the cottage's heaters read the same thermometer, so two feedback loops
+// held two different locks over one map and deleted from it at the same moment.
+// Go stops that with "fatal error: concurrent map writes", which takes the whole
+// system down — the control loop, the servers, all of it. Replacing the map
+// instead of editing it means a reader holding an older copy sees a stale token
+// rather than a corrupted map, and a stale token is a thing this code already
+// knows how to handle.
+func tokensWithout(tokens map[string]string, action string) map[string]string {
+	fresh := make(map[string]string, len(tokens))
+	for act, tok := range tokens {
+		if act != action {
+			fresh[act] = tok
+		}
+	}
+	return fresh
 }
 
 // needsDiscovery reports whether any provider lacks a token for this action, and
