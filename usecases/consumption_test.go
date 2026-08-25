@@ -734,3 +734,67 @@ func TestAnUnreadableTokenIsPresentedNotRenewed(t *testing.T) {
 		}
 	}
 }
+
+// TestARenewalDoesNotDeadlockWhenTheOrchestratorPrefersAnother is the
+// regression for a dining room that lost its thermometer and could not get it
+// back.
+//
+// A bound cervice renewing its token must end up holding the provider it
+// started with. Asking the singular quest cannot guarantee that: the
+// orchestrator answers with whichever candidate it prefers, the stranger is
+// discarded, and the cervice is left bound to a provider with no token. Nothing
+// recovers it, because a provider that is up never produces the transport
+// failure that would permit re-binding — so the consumer repeats "no read token
+// for the provider this cervice is bound to" every tick, for ever.
+func TestARenewalDoesNotDeadlockWhenTheOrchestratorPrefersAnother(t *testing.T) {
+	const ours = "http://indoor.example/temperature"
+	const theirs = "http://outdoor.example/temperature"
+
+	// An orchestrator that prefers the other provider, and lists both when
+	// asked for everything — which is what a real one does.
+	orchestrator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/squests") {
+			fmt.Fprintf(w, `{"list":[
+			  {"serviceURL":%q,"serviceNode":"OutdoorModule","token":"tok-outdoor","version":"ServicePoint_v1"},
+			  {"serviceURL":%q,"serviceNode":"IndoorModule","token":"tok-indoor","version":"ServicePoint_v1"}
+			],"version":"ServicePointList_v1"}`, theirs, ours)
+			return
+		}
+		fmt.Fprintf(w, `{"serviceURL":%q,"serviceNode":"OutdoorModule","token":"tok-outdoor","version":"ServicePoint_v1"}`, theirs)
+	}))
+	defer orchestrator.Close()
+
+	sys := components.NewSystem("ethermostat", context.Background())
+	sys.Husk = &components.Husk{
+		ProtoPort: map[string]int{"http": 20196},
+		CoreS: []*components.CoreSystem{
+			{Name: "orchestrator", Url: orchestrator.URL + "/orchestrator/orchestration"},
+		},
+	}
+
+	// Bound to the indoor sensor, with no token for this action — the state a
+	// consumer is in the moment after a stale credential is dropped.
+	cer := &components.Cervice{
+		Definition: "temperature",
+		Protos:     []string{"http"},
+		Mode:       "get",
+		Nodes: map[string][]components.NodeInfo{
+			"IndoorModule": {{URL: ours, Tokens: map[string]string{}}},
+		},
+	}
+
+	url, token, err := resolveProvider(cer, &sys, "read")
+	if err != nil {
+		t.Fatalf("a bound cervice could not renew: %v", err)
+	}
+	if url != ours {
+		t.Errorf("renewed onto %s; the cervice is bound to %s", url, ours)
+	}
+	if token != "tok-indoor" {
+		t.Errorf("token %q; want the one minted for the bound provider", token)
+	}
+	if knownURLs(cer)[theirs] {
+		t.Error("the renewal widened the binding to another provider")
+	}
+}

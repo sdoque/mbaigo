@@ -142,13 +142,31 @@ func resolveProvider(cer *components.Cervice, sys *components.System, action str
 	// not the same question. A cervice with no nodes is asking "who provides
 	// this?", and any answer will do. One that already knows a provider — a
 	// thermostat paired to the thermometer in its own room — is asking only for
-	// a new token for *that* one. The orchestrator cannot tell the difference,
-	// so it answers with whichever candidate it likes, and taking that answer
-	// silently re-binds the consumer to a different thing.
+	// a new token for *that* one.
+	//
+	// So they ask differently. A first discovery takes the single answer the
+	// orchestrator prefers. A renewal asks for *every* permitted provider and
+	// then keeps only the one it already held, which is the sole way to be sure
+	// the token it gets back belongs to the provider it meant.
+	//
+	// Asking the singular question for a renewal deadlocks, and did: the
+	// orchestrator answers with whichever candidate it likes, keepOnly discards
+	// it as a stranger, and the cervice is left holding a provider with no
+	// token. Nothing recovers it — a provider that is up never produces the
+	// transport failure that would allow re-binding — so the consumer repeats
+	// "no read token for the provider this cervice is bound to" for ever. The
+	// cottage's dining room lost its thermometer that way, ten seconds at a
+	// time, while the kitchen recovered on the same tick by luck of which
+	// candidate came back.
 	bound := knownURLs(cer)
-	searchErr := Search4ServicesAs(cer, sys, action)
-	if searchErr == nil && len(bound) > 0 {
-		keepOnly(cer, bound)
+	var searchErr error
+	if len(bound) > 0 {
+		searchErr = Search4MultipleServicesAs(cer, sys, action)
+		if searchErr == nil {
+			keepOnly(cer, bound)
+		}
+	} else {
+		searchErr = Search4ServicesAs(cer, sys, action)
 	}
 
 	if fresh, freshToken, ok := pickNode(cer, action); ok && !dueForRenewal(freshToken, time.Now()) {
