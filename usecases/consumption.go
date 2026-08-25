@@ -25,6 +25,7 @@ import (
 	"io"
 	"log"
 	"testing"
+	"time"
 
 	"net/http"
 	"net/url"
@@ -82,6 +83,86 @@ func keepOnly(cer *components.Cervice, allowed map[string]bool) {
 	}
 }
 
+// renewalMargin is how much of a token's life must remain for a consumer to go
+// on using it. Below that it fetches a new one rather than waiting to be
+// refused.
+const renewalMargin = 0.2
+
+// dueForRenewal reports whether a token is close enough to expiry that it should
+// be replaced before being presented again.
+//
+// Nothing checked this before, and by design nothing needed to: renewal happened
+// by being refused, and the comment on NodeInfo.Tokens said so. It works, and it
+// costs one guaranteed 403 per binding per token lifetime — plus the reading
+// that request was carrying, because the call fails and the loop moves on.
+//
+// At the cottage that is roughly forty bindings on a five-minute lifetime: a
+// refusal every few seconds across the cloud, each losing a control cycle or a
+// recorded point. The gaps drew flat lines across an InfluxDB chart for five
+// hours and looked exactly like a frozen sensor.
+//
+// A consumer can see its own token's expiry without the authorizer's key:
+// splitToken parses the claims before it checks the signature, because it has to
+// know what it is verifying. So there is no reason for a consumer ever to be
+// surprised by an expiry.
+//
+// Only a token whose expiry can actually be read is ever due. Renewal is an
+// optimisation over being refused, so anything this cannot reason about is
+// presented as-is and judged by the provider, which is the party that decides
+// anyway. An empty token means an unauthorized cloud issued none; an unreadable
+// or unbounded one means something is wrong with it that a provider will say so
+// about. Calling either of them "due" would re-orchestrate before every single
+// call — the same storm this exists to stop, arrived at from the other side.
+func dueForRenewal(token string, now time.Time) bool {
+	claims, _, _, err := splitToken(token)
+	if err != nil || claims.Expires.IsZero() {
+		return false
+	}
+	life := claims.Expires.Sub(claims.IssuedAt)
+	if life <= 0 {
+		return false
+	}
+	return now.After(claims.Expires.Add(-time.Duration(float64(life) * renewalMargin)))
+}
+
+// resolveProvider returns the provider and token this call should use,
+// discovering or renewing as required.
+//
+// Renewal is best-effort on purpose. When a token is merely near expiry the one in
+// hand is still valid, so a failed renewal is not a failed call: it proceeds on
+// what it has and tries again next time. Renewing early must never leave a
+// consumer worse off than not renewing at all.
+func resolveProvider(cer *components.Cervice, sys *components.System, action string) (string, string, error) {
+	url, token, found := pickNode(cer, action)
+	if found && !dueForRenewal(token, time.Now()) {
+		return url, token, nil
+	}
+
+	// A first discovery and a renewal arrive here by the same door, and they are
+	// not the same question. A cervice with no nodes is asking "who provides
+	// this?", and any answer will do. One that already knows a provider — a
+	// thermostat paired to the thermometer in its own room — is asking only for
+	// a new token for *that* one. The orchestrator cannot tell the difference,
+	// so it answers with whichever candidate it likes, and taking that answer
+	// silently re-binds the consumer to a different thing.
+	bound := knownURLs(cer)
+	searchErr := Search4ServicesAs(cer, sys, action)
+	if searchErr == nil && len(bound) > 0 {
+		keepOnly(cer, bound)
+	}
+
+	if fresh, freshToken, ok := pickNode(cer, action); ok && !dueForRenewal(freshToken, time.Now()) {
+		return fresh, freshToken, nil
+	}
+	if found {
+		return url, token, nil
+	}
+	if searchErr != nil {
+		return "", "", searchErr
+	}
+	return "", "", fmt.Errorf("no %s token for the %s provider this cervice is bound to", action, cer.Definition)
+}
+
 func stateHandler(httpMethod string, cer *components.Cervice, sys *components.System, bodyBytes []byte) (f forms.Form, err error) {
 	// The action is what this call will actually do, not what Cervice.Mode says
 	// it might. The provider recomputes it from the method, so a token minted for
@@ -92,34 +173,9 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 	// different action — a cervice used for both a GET and a PUT, or one whose
 	// Mode did not describe this call. Either way, ask for this action rather
 	// than present a token minted for another one.
-	serviceUrl, token, found := pickNode(cer, action)
-	if !found {
-		// A first discovery and a credential refresh arrive here by the same
-		// door, and they are not the same question.
-		//
-		// A cervice with no nodes is asking "who provides this?", and any
-		// answer will do. A cervice that already knows a provider — a
-		// thermostat paired to the thermometer in its own room — is asking only
-		// for a new token for *that* one. The orchestrator cannot tell the
-		// difference: it answers with whichever candidate it likes, and taking
-		// that answer silently re-binds the consumer to a different thing.
-		//
-		// On the cottage this moved all three thermostats onto the outdoor
-		// sensor after a token expired. They went on controlling — plausibly,
-		// continuously, and against a temperature from outside the house.
-		bound := knownURLs(cer)
-		if err = Search4ServicesAs(cer, sys, action); err != nil {
-			return f, err
-		}
-		if len(bound) > 0 {
-			// Keep the binding: take a refreshed token for a provider already
-			// in hand, and discard anything else the search turned up.
-			keepOnly(cer, bound)
-		}
-		serviceUrl, token, found = pickNode(cer, action)
-		if !found {
-			return f, fmt.Errorf("no %s token for the %s provider this cervice is bound to", action, cer.Definition)
-		}
+	serviceUrl, token, err := resolveProvider(cer, sys, action)
+	if err != nil {
+		return f, err
 	}
 
 	// A value somebody is already keeping current, answered without asking for
@@ -146,19 +202,35 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 		}
 	}
 
-	resp, err := sendHTTPReqWithToken(httpMethod, serviceUrl, token, bodyBytes)
-	if err != nil {
+	var resp *http.Response
+	for attempt := 0; ; attempt++ {
+		resp, err = sendHTTPReqWithToken(httpMethod, serviceUrl, token, bodyBytes)
+		if err == nil {
+			break
+		}
+
 		var refused *ProviderRefusal
 		if errors.As(err, &refused) {
 			// The provider answered, so it is exactly where this cervice thinks
 			// it is. Nothing about the topology is in doubt and the binding must
-			// survive; at most the credential is stale, and dropping that one
-			// token sends the next call through the refresh path above.
-			if refused.StaleCredential() {
-				forgetToken(cer, serviceUrl, action)
+			// survive; at most the credential is stale.
+			if !refused.StaleCredential() || attempt > 0 {
+				return f, err
 			}
-			return f, err
+			// One retry, and only for a credential. Renewal ahead of expiry
+			// should have prevented this, so reaching here means a clock
+			// disagreed or a permission was withdrawn mid-flight — and in both
+			// cases the reading should arrive late rather than not at all. A
+			// control loop that loses a cycle to a housekeeping failure is how
+			// five hours of flat line got drawn across a chart.
+			forgetToken(cer, serviceUrl, action)
+			serviceUrl, token, err = resolveProvider(cer, sys, action)
+			if err != nil {
+				return f, err
+			}
+			continue
 		}
+
 		// Could not reach it at all. The cloud's shape may genuinely have
 		// changed, so forget what was discovered and let the next call search
 		// without constraint. This is the only path that may re-bind.

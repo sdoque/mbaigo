@@ -331,9 +331,12 @@ type NodeInfo struct {
 	// discovered and the cloud issued no token, which is what an unauthorized
 	// cloud does. Without it a consumer would re-orchestrate before every call.
 	//
-	// A token outlives none of the requests it is presented on: when it expires
-	// the provider refuses, the node cache is cleared, and the next call
-	// re-orchestrates for a fresh one.
+	// A consumer renews ahead of expiry rather than waiting to be refused: it
+	// can read its own token's lifetime, since the claims are parsed before the
+	// signature is checked. Renewal by refusal is what this used to do, and it
+	// costs one guaranteed 403 per binding per token lifetime — plus the reading
+	// that request was carrying. A refusal that still gets through is retried
+	// once, so a reading arrives late rather than not at all.
 	Tokens map[string]string
 }
 

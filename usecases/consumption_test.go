@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
@@ -676,5 +678,59 @@ func TestSharedTokensAreNotWrittenInPlace(t *testing.T) {
 	}
 	if shared.Tokens["write"] != "another" {
 		t.Errorf("an unrelated action was disturbed: write = %q", shared.Tokens["write"])
+	}
+}
+
+// TestATokenIsRenewedBeforeItLapses covers the change from renewing by being
+// refused to renewing ahead of expiry.
+//
+// The old design took a 403 as its signal, which works and costs one guaranteed
+// refusal per binding per token lifetime — plus the reading that request was
+// carrying. Forty bindings on a five-minute lifetime is a refusal every few
+// seconds across a cloud, and the lost readings drew flat lines across a chart
+// for five hours that looked exactly like a frozen sensor.
+func TestATokenIsRenewedBeforeItLapses(t *testing.T) {
+	issued := time.Date(2026, 8, 25, 8, 0, 0, 0, time.UTC)
+	mint := func(life time.Duration) string {
+		var claims forms.AccessToken_v1
+		claims.NewForm()
+		claims.Subject, claims.Action = "ethermostat", "read"
+		claims.IssuedAt, claims.Expires = issued, issued.Add(life)
+		payload, err := json.Marshal(claims)
+		if err != nil {
+			t.Fatalf("minting: %v", err)
+		}
+		return base64.RawURLEncoding.EncodeToString(payload) + ".c2ln"
+	}
+
+	token := mint(5 * time.Minute) // expires 08:05, renewal margin is the last minute
+	cases := []struct {
+		at   time.Time
+		want bool
+		why  string
+	}{
+		{issued, false, "freshly minted"},
+		{issued.Add(3 * time.Minute), false, "well inside its life"},
+		{issued.Add(4*time.Minute + 30*time.Second), true, "inside the final fifth"},
+		{issued.Add(6 * time.Minute), true, "already lapsed"},
+	}
+	for _, tc := range cases {
+		if got := dueForRenewal(token, tc.at); got != tc.want {
+			t.Errorf("%s: dueForRenewal = %t, want %t", tc.why, got, tc.want)
+		}
+	}
+}
+
+// TestAnUnreadableTokenIsPresentedNotRenewed is the correction to a first
+// attempt at this. Marking a token this code cannot parse as "due" looks
+// cautious and is the same storm from the other side: it re-orchestrates before
+// every call, for ever, because the next token is no more readable than the
+// last. Renewal is an optimisation over being refused, so anything it cannot
+// reason about is handed to the provider, which decides anyway.
+func TestAnUnreadableTokenIsPresentedNotRenewed(t *testing.T) {
+	for _, token := range []string{"", "not-a-token", "bm90anNvbg.c2ln"} {
+		if dueForRenewal(token, time.Now()) {
+			t.Errorf("%q would be renewed before every call", token)
+		}
 	}
 }
