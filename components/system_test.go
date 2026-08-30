@@ -71,13 +71,18 @@ type mockTrans struct {
 type mockAnswer struct {
 	status int
 	body   string
+	cloud  string
 }
 
 func (t *mockTrans) route(url string, status int, body string) {
+	t.routeWithCloud(url, status, body, "")
+}
+
+func (t *mockTrans) routeWithCloud(url string, status int, body, cloud string) {
 	if t.routes == nil {
 		t.routes = map[string]mockAnswer{}
 	}
-	t.routes[url] = mockAnswer{status, body}
+	t.routes[url] = mockAnswer{status, body, cloud}
 }
 
 func newMockTransport() *mockTrans {
@@ -108,13 +113,18 @@ func (t *mockTrans) RoundTrip(req *http.Request) (*http.Response, error) {
 	if t.err != nil {
 		return nil, t.err
 	}
-	status, body := t.status, t.body
+	status, body, cloud := t.status, t.body, ""
 	if a, routed := t.routes[req.URL.String()]; routed {
-		status, body = a.status, a.body
+		status, body, cloud = a.status, a.body, a.cloud
+	}
+	header := http.Header{}
+	if cloud != "" {
+		header.Set(LocalCloudHeader, cloud)
 	}
 	resp := &http.Response{
 		StatusCode: status,
 		Status:     http.StatusText(status),
+		Header:     header,
 		Body: errorReadCloser{
 			strings.NewReader(body),
 			t.errBody,
@@ -259,6 +269,24 @@ func TestRegistrarReferral(t *testing.T) {
 	m.route("http://lead/serviceregistrar/registry/status", http.StatusServiceUnavailable, "Service Unavailable")
 	if got, err := GetRunningCoreSystemURL(&sys, ServiceRegistrarName); err == nil {
 		t.Fatalf("a referral to a non-leader was accepted: %q", got)
+	}
+}
+
+// A referral is followed only within the cloud that gave it: the lead a
+// standby names must declare the same cloud the standby did.
+func TestReferralStaysInsideItsCloud(t *testing.T) {
+	sys := NewSystem("testSystem", context.Background())
+	sys.Husk = &Husk{CoreS: []*CoreSystem{{ServiceRegistrarName, "http://standby/serviceregistrar/registry"}}}
+	m := newMockTransport()
+	m.routeWithCloud("http://standby/serviceregistrar/registry/status", http.StatusServiceUnavailable,
+		ServiceRegistrarStandby+"http://lead/serviceregistrar/registry", "Cottage")
+	m.routeWithCloud("http://lead/serviceregistrar/registry/status", http.StatusOK, ServiceRegistrarLeader+" now", "Home")
+	if got, err := GetRunningCoreSystemURL(&sys, ServiceRegistrarName); err == nil {
+		t.Fatalf("followed a standby of one cloud to the lead of another: %q", got)
+	}
+	m.routeWithCloud("http://lead/serviceregistrar/registry/status", http.StatusOK, ServiceRegistrarLeader+" now", "Cottage")
+	if got, err := GetRunningCoreSystemURL(&sys, ServiceRegistrarName); err != nil || got != "http://lead/serviceregistrar/registry" {
+		t.Fatalf("a referral within the cloud was refused: %q %v", got, err)
 	}
 }
 

@@ -172,15 +172,15 @@ func reachable(u *url.URL) bool {
 // verifyStatus fetches a registrar's /status and returns what it said,
 // whatever the status code: a standby answers 503 and the body is the part
 // that matters, because it names the lead.
-func verifyStatus(u *url.URL) (int, []byte, error) {
+func verifyStatus(u *url.URL) (int, []byte, string, error) {
 	resp, err := http.Get(u.String())
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, "", err
 	}
 	defer resp.Body.Close()
 	// Body must be fully drained AND closed upon returning, otherwise it might leak memory
 	body, err := io.ReadAll(resp.Body)
-	return resp.StatusCode, body, err
+	return resp.StatusCode, body, resp.Header.Get(LocalCloudHeader), err
 }
 
 const ServiceRegistrarName string = "serviceregistrar"
@@ -197,14 +197,25 @@ const ServiceRegistrarStandby string = "On standby, leading registrar is "
 const LocalCloudHeader = "X-Local-Cloud"
 
 // leadsByStatus reports whether the registrar at coreURL answers /status as
-// the lead.
-func leadsByStatus(coreURL string) bool {
+// the lead of the named cloud.
+//
+// A referral is followed only within the cloud that gave it. A system does not
+// know its own cloud's name — only registrars declare one — but it can hold a
+// standby to its word: the lead it names must say the same cloud the standby
+// said. Without that, a host whose file named a standby of another cloud (a
+// copied configuration, two clouds on one LAN) would follow its referral and
+// register every service with a lead it was never meant to reach, while the
+// registrars themselves refused to elect across the same boundary.
+func leadsByStatus(coreURL, cloud string) bool {
 	u, err := url.Parse(coreURL)
 	if err != nil {
 		return false
 	}
-	_, body, err := verifyStatus(u.JoinPath("status"))
-	return err == nil && bytes.HasPrefix(body, []byte(ServiceRegistrarLeader))
+	_, body, theirs, err := verifyStatus(u.JoinPath("status"))
+	if err != nil || !bytes.HasPrefix(body, []byte(ServiceRegistrarLeader)) {
+		return false
+	}
+	return cloud == "" || theirs == "" || theirs == cloud
 }
 
 // GetRunningCoreSystemURL returns the URL of a running core system based on the provided type.
@@ -255,7 +266,7 @@ func GetRunningCoreSystemURL(sys *System, systemType string) (string, error) {
 		}
 
 		// Perform extra checks on the response from a service registrar
-		status, body, err := verifyStatus(coreURL.JoinPath("status"))
+		status, body, cloud, err := verifyStatus(coreURL.JoinPath("status"))
 		if err != nil {
 			lastErr = fmt.Errorf("verifying registrar: %w", err)
 			continue
@@ -272,10 +283,10 @@ func GetRunningCoreSystemURL(sys *System, systemType string) (string, error) {
 		// standby's word only as far as the next question.
 		if status == http.StatusServiceUnavailable && bytes.HasPrefix(body, []byte(ServiceRegistrarStandby)) {
 			lead := strings.TrimSpace(string(bytes.TrimPrefix(body, []byte(ServiceRegistrarStandby))))
-			if leadsByStatus(lead) {
+			if leadsByStatus(lead, cloud) {
 				return lead, nil
 			}
-			lastErr = fmt.Errorf("%s refers to %s as the lead, which does not answer as one", coreSystemURL, lead)
+			lastErr = fmt.Errorf("%s refers to %s as the lead, which does not answer as the lead of the same cloud", coreSystemURL, lead)
 			continue
 		}
 		lastErr = fmt.Errorf("%s is not the lead registrar: %d %s", coreSystemURL, status, strings.TrimSpace(string(body)))
