@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -278,5 +279,27 @@ func TestLearnedCoreSystemsFollowConfiguredOnes(t *testing.T) {
 	all := sys.CoreSystems()
 	if len(all) != 2 || all[0].Url != "http://file/orchestrator/orchestration" {
 		t.Fatalf("the file's entry does not come first: %v", all)
+	}
+}
+
+// With more than one orchestrator known, the first must answer before it is
+// used. A second host's generated file names an orchestrator on that host,
+// which does not exist; the one learned from the lead must be reached.
+func TestUnreachableCoreSystemFallsThrough(t *testing.T) {
+	sys := NewSystem("testSystem", context.Background())
+	// A port nothing listens on: the dial is refused at once.
+	dead := "http://127.0.0.1:1/orchestrator/orchestration"
+	live := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer live.Close()
+
+	sys.Husk = &Husk{CoreS: []*CoreSystem{{"orchestrator", dead}}}
+	if got, err := GetRunningCoreSystemURL(&sys, "orchestrator"); err != nil || got != dead {
+		t.Fatalf("a lone entry must be returned without a probe: %q %v", got, err)
+	}
+
+	sys.AddLearnedCoreSystem(CoreSystem{"orchestrator", live.URL + "/orchestrator/orchestration"})
+	got, err := GetRunningCoreSystemURL(&sys, "orchestrator")
+	if err != nil || got != live.URL+"/orchestrator/orchestration" {
+		t.Fatalf("the dead first entry was not passed over: got %q, %v", got, err)
 	}
 }

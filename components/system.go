@@ -26,6 +26,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -33,6 +34,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 // System struct aggregates an Arrowhead compliant system
@@ -134,6 +136,39 @@ func NewSystem(name string, ctx context.Context) System {
 	return newSystem
 }
 
+// candidates reports whether more than one core system of this type is known,
+// which is when it is worth asking each whether it answers.
+func candidates(sys *System, systemType string) bool {
+	n := 0
+	for _, core := range sys.CoreSystems() {
+		if core.Name == systemType && strings.TrimSpace(core.Url) != "" {
+			n++
+		}
+	}
+	return n > 1
+}
+
+// reachable reports whether something accepts connections at the URL's host
+// and port. A TCP dial and nothing more: whether what answers is the right
+// system is the caller's business, and a full request here would put a round
+// trip in front of every lookup.
+func reachable(u *url.URL) bool {
+	host := u.Host
+	if u.Port() == "" {
+		if u.Scheme == "https" {
+			host += ":443"
+		} else {
+			host += ":80"
+		}
+	}
+	conn, err := net.DialTimeout("tcp", host, 700*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
 // verifyStatus fetches a registrar's /status and returns what it said,
 // whatever the status code: a standby answers 503 and the body is the part
 // that matters, because it names the lead.
@@ -200,7 +235,19 @@ func GetRunningCoreSystemURL(sys *System, systemType string) (string, error) {
 
 		coreSystemURL := coreURL.String() // Preserves the original URL
 		if core.Name != ServiceRegistrarName {
-			return coreSystemURL, nil
+			// The first entry used to be returned unexamined, which was fine
+			// while a file named exactly one of each. It is not fine now that
+			// the list has alternates: a second host's generated file names
+			// an orchestrator on that host, which does not exist, and the one
+			// learned from the lead sat behind it, never reached. So when
+			// there is a next address to try, this one has to answer first.
+			// A single entry is still returned without a probe — nothing to
+			// fall through to, and the caller's own error says more.
+			if !candidates(sys, systemType) || reachable(coreURL) {
+				return coreSystemURL, nil
+			}
+			lastErr = fmt.Errorf("%s does not answer", coreSystemURL)
+			continue
 		}
 
 		// Perform extra checks on the response from a service registrar
