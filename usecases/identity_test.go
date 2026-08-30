@@ -105,7 +105,7 @@ func TestLogPeerRepeatsUnidentifiedAfterInterval(t *testing.T) {
 	defer log.SetOutput(os.Stderr)
 
 	sys := &components.System{Name: "esr"}
-	r := httptest.NewRequest("POST", "/esr/registry/register", nil)
+	r := httptest.NewRequest("POST", "/esr/registry/registry", nil)
 
 	// Within the interval, only the first call reports.
 	logPeer(sys, r)

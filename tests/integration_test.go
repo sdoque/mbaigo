@@ -90,8 +90,8 @@ func newServicePoint() []byte {
 
 const (
 	eventRegistryStatus string = "GET /serviceregistrar/registry/status"
-	eventRegister       string = "POST /serviceregistrar/registry/register"
-	eventUnregister     string = "DELETE /serviceregistrar/registry/unregister/13"
+	eventRegister       string = "POST /serviceregistrar/registry/registry"
+	eventUnregister     string = "DELETE /serviceregistrar/registry/registry/13"
 	eventOrchestration  string = "GET /orchestrator/orchestration"
 	eventOrchestrate    string = "POST /orchestrator/orchestration/squest"
 )

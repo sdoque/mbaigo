@@ -150,7 +150,7 @@ func registerService(sys *components.System, registrar string, ua *components.Un
 		err = fmt.Errorf("registration marshall: %w", err)
 		return
 	}
-	registrationURL := registrar + "/register"
+	registrationURL := registrar + "/registry"
 
 	var req *http.Request // Declare req outside the blocks
 	if serv.ID == 0 {
@@ -227,7 +227,7 @@ func unregisterService(registrar string, serv *components.Service) error {
 	if registrar == "" {
 		return nil // there is no need to deregister if there is no leading registrar
 	}
-	u := registrar + "/unregister/" + strconv.Itoa(serv.ID)
+	u := registrar + "/registry/" + strconv.Itoa(serv.ID)
 	req, err := http.NewRequest("DELETE", u, nil)
 	if err != nil {
 		return err
