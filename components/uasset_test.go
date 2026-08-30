@@ -123,24 +123,77 @@ func TestMobilityVocabulary(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	for _, m := range Mobilities {
-		if m == "" {
+		if m.IsZero() {
 			t.Error("an empty mobility would read as a declaration rather than as silence")
 		}
-		if seen[m] {
+		if seen[m.String()] {
 			t.Errorf("%q appears twice", m)
 		}
-		seen[m] = true
+		seen[m.String()] = true
 	}
-	for _, want := range []string{MobilityFixed, MobilityTethered, MobilityMovable} {
-		if !seen[want] {
+	for _, want := range Mobilities {
+		if !seen[want.String()] {
 			t.Errorf("%q is not in Mobilities, so an error cannot name it as permitted", want)
 		}
 	}
+}
 
-	// A detail is a list of strings, so the constants must be usable as one
-	// without conversion — the whole point of the convention.
-	ua := UnitAsset{Details: map[string][]string{"Mobility": {MobilityFixed}}}
-	if got := ua.GetDetails()["Mobility"]; len(got) != 1 || got[0] != "fixed" {
-		t.Errorf("Mobility detail = %v", got)
+// The vocabulary is enforced where the text arrives, as it is for a mission, so
+// a value outside it cannot be held at all rather than merely being discouraged.
+func TestMobilityRefusedOutsideTheVocabulary(t *testing.T) {
+	var m Mobility
+	if err := json.Unmarshal([]byte(`"portable"`), &m); err == nil {
+		t.Fatal("an unknown mobility was accepted; a configuration typo would reach a load balancer")
+	} else if !strings.Contains(err.Error(), "fixed, tethered, movable") {
+		t.Errorf("the error does not list what is permitted: %v", err)
+	}
+
+	if err := json.Unmarshal([]byte(`"movable"`), &m); err != nil || m != MobilityMovable {
+		t.Errorf("a good mobility was refused: %v %v", m, err)
+	}
+
+	// Silence is not an error: an asset that says nothing is one nothing may
+	// propose to move, which is the conservative reading.
+	if err := json.Unmarshal([]byte(`""`), &m); err != nil || !m.IsZero() {
+		t.Errorf("an absent mobility should be silence, got %v %v", m, err)
+	}
+}
+
+// A field is only worth having if it survives the round trip an operator's file
+// makes: written by the template, read back on the next start.
+func TestMobilityRoundTripsThroughJSON(t *testing.T) {
+	out, err := json.Marshal(UnitAsset{Name: "sensor", Mobility: MobilityFixed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"mobility":"fixed"`) {
+		t.Fatalf("mobility is not written as the plain word: %s", out)
+	}
+	var back UnitAsset
+	if err := json.Unmarshal(out, &back); err != nil || back.Mobility != MobilityFixed {
+		t.Errorf("mobility did not survive the round trip: %v %v", back.Mobility, err)
+	}
+}
+
+// Tethered means "movable to any host that can still reach what I talk to", and
+// a balancer cannot check reachability against a dependency nobody named.
+func TestValidateMobilityTether(t *testing.T) {
+	if err := ValidateMobility("gateway", MobilityTethered, nil); err == nil {
+		t.Error("a tethered asset naming no tether was accepted")
+	}
+	if err := ValidateMobility("gateway", MobilityTethered, []string{"192.168.1.50:502"}); err != nil {
+		t.Errorf("a properly tethered asset was refused: %v", err)
+	}
+	// The other direction is a mistake too, and a quieter one: a tether nothing
+	// reads looks like a constraint being honoured.
+	if err := ValidateMobility("sensor", MobilityFixed, []string{"somewhere"}); err == nil {
+		t.Error("tetheredTo was accepted on a fixed asset, where nothing will ever read it")
+	}
+	if err := ValidateMobility("sensor", MobilityFixed, nil); err != nil {
+		t.Errorf("a plain fixed asset was refused: %v", err)
+	}
+	// Silence stays legal.
+	if err := ValidateMobility("anything", Mobility{}, nil); err != nil {
+		t.Errorf("an undeclared mobility was refused: %v", err)
 	}
 }

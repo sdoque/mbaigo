@@ -64,6 +64,13 @@ func RegisterServices(sys *components.System) {
 		log.Fatalf("mission configuration error: %v\n", err)
 	}
 
+	// Mobility moved from Details to a field of its own; a configuration file
+	// written before that still says it the old way, and is honoured once.
+	AdoptMobilityDetails(sys)
+	if err := ValidateMobilities(sys); err != nil {
+		log.Fatalf("mobility configuration error: %v\n", err)
+	}
+
 	// Before anything is advertised, so a service registered as subscribable can
 	// be followed from the moment a consumer discovers it. Every system calls
 	// this, so turning subscription on stays a matter of configuration.

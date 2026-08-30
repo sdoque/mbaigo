@@ -35,7 +35,17 @@ import (
 type UnitAsset struct {
 	Name    string  `json:"name"`
 	Mission Mission `json:"mission,omitempty"`
-	Owner   *System `json:"-"`
+	// Mobility is what a load balancer needs and cannot derive. The graph says
+	// which host each system runs on, so what is where is already known — what
+	// is missing is whether any of it could be somewhere else. A ds18b20 reads a
+	// 1-wire device on this machine's GPIO and can never move; a kgrapher can
+	// move anywhere. Without the distinction, the first proposal a balancer
+	// makes is to relocate the sensor.
+	Mobility Mobility `json:"mobility,omitempty"`
+	// TetheredTo is what a tethered asset must still be able to reach, and is
+	// required of one — see ValidateMobility.
+	TetheredTo []string `json:"tetheredTo,omitempty"`
+	Owner      *System  `json:"-"`
 	// Details is metadata about the asset — the open slot, as on a Service.
 	// Anything a system wants said that has no field of its own goes here,
 	// reaches the registrar, and becomes a predicate in the knowledge graph.
@@ -43,18 +53,12 @@ type UnitAsset struct {
 	// Conventional keys, all optional:
 	//
 	//	FunctionalLocation  where the asset is, as an IRI or a name
-	//	Mobility            whether the asset could run on another host
-	//	TetheredTo          what a tethered asset must still be able to reach
 	//
-	// Mobility is what a load balancer needs and cannot derive. The graph says
-	// which host each system runs on, so what is where is already known — what
-	// is missing is whether any of it could be somewhere else. A ds18b20 reads a
-	// 1-wire device on this machine's GPIO and can never move; a kgrapher can
-	// move anywhere. Without the distinction, the first proposal a balancer
-	// makes is to relocate the sensor.
-	//
-	// See MobilityFixed, MobilityTethered and MobilityMovable for the values and
-	// what each obliges.
+	// What belongs here is a deployment decision — something an operator can
+	// truthfully change by editing the file. What an asset intrinsically *is*
+	// belongs in a field: Mission and Mobility both used to live in this map and
+	// both left it, because a map an operator edits is the wrong home for a fact
+	// an operator cannot alter.
 	Details     map[string][]string                              `json:"details"`
 	ServicesMap Services                                         `json:"-"`
 	CervicesMap Cervices                                         `json:"-"`
@@ -195,28 +199,120 @@ var (
 // can still reach it. Collapsing that into "fixed" would freeze a cloud that is
 // mostly relocatable; collapsing it into "movable" would license a move that
 // silently breaks the connection it depended on.
-const (
+// Mobility is whether an asset could run on another host.
+//
+// A type rather than a string in a map, for the reason Mission is one: it is an
+// intrinsic property of the asset, not a deployment decision, and a value
+// outside the vocabulary should be impossible to hold rather than merely
+// discouraged. A ds18b20 reads a 1-wire device on this machine's GPIO; no edit
+// to a configuration file can make it movable, and one that claims otherwise
+// would license a balancer to propose a move that breaks it.
+//
+// It lived in Details until 30 August 2026, where two things went wrong. An
+// operator could write anything into it, and — because a consumer builds its
+// cervice details from its own asset's details — it travelled with every
+// service quest as a requirement on the provider. A movable thermostat then
+// asked for a movable sensor, and the fixed ds18b20 in the same room could not
+// answer. See questDetails in usecases/service_discovery.go.
+type Mobility struct{ name string }
+
+// String returns the mobility as the word the vocabulary uses.
+func (m Mobility) String() string { return m.name }
+
+// IsZero reports whether no mobility has been declared. Unlike a mission, that
+// is permitted: an asset that says nothing about whether it could move is one a
+// balancer must leave where it is, which is the safe reading.
+func (m Mobility) IsZero() bool { return m.name == "" }
+
+// MarshalJSON writes the mobility as the plain string the wire has always
+// carried, so the field and the detail it replaced look the same to a reader.
+func (m Mobility) MarshalJSON() ([]byte, error) {
+	return json.Marshal(m.name)
+}
+
+// UnmarshalJSON reads a mobility from JSON, rejecting one outside the
+// vocabulary at the boundary it arrives at — the same place, and for the same
+// reason, as Mission.
+func (m *Mobility) UnmarshalJSON(data []byte) error {
+	var name string
+	if err := json.Unmarshal(data, &name); err != nil {
+		return err
+	}
+	if name == "" {
+		m.name = ""
+		return nil
+	}
+	parsed, err := MobilityFromString(name)
+	if err != nil {
+		return err
+	}
+	*m = parsed
+	return nil
+}
+
+// MobilityFromString turns a mobility that arrived as text into one the rest of
+// the program can hold, or reports that no such mobility exists.
+func MobilityFromString(name string) (Mobility, error) {
+	for _, known := range Mobilities {
+		if known.name == name {
+			return known, nil
+		}
+	}
+	return Mobility{}, fmt.Errorf("unknown mobility %q: expected one of %s", name, MobilityNames())
+}
+
+var (
 	// MobilityFixed is bound to this machine's hardware: GPIO, 1-wire, a serial
 	// port, a USB device — or, in maitreD's case, bound by its purpose, since it
 	// attests the host it runs on. Moving it is not a slower operation, it is a
 	// different deployment.
-	MobilityFixed = "fixed"
+	MobilityFixed = Mobility{"fixed"}
 
 	// MobilityTethered can move to any host that can still reach what it talks
-	// to. An asset declaring this owes the reader what it is tethered *to*, in a
-	// TetheredTo detail beside it: a balancer must verify reachability before
-	// proposing the move, and cannot do that against an unnamed dependency. A
-	// tethered asset that names nothing should be read as fixed, because a move
-	// nobody can check is a move nobody should make.
-	MobilityTethered = "tethered"
+	// to. An asset declaring this owes the reader what it is tethered *to*, in
+	// the TetheredTo field beside it: a balancer must verify reachability before
+	// proposing the move, and cannot do that against an unnamed dependency.
+	MobilityTethered = Mobility{"tethered"}
 
 	// MobilityMovable needs nothing of the machine it is on. It reads the
 	// network and computes; it can run wherever the cloud has room.
-	MobilityMovable = "movable"
+	MobilityMovable = Mobility{"movable"}
 )
 
 // Mobilities is the vocabulary, for rendering permitted values in an error.
-var Mobilities = []string{MobilityFixed, MobilityTethered, MobilityMovable}
+var Mobilities = []Mobility{MobilityFixed, MobilityTethered, MobilityMovable}
+
+// MobilityNames renders the permitted values for a configuration error.
+func MobilityNames() string {
+	names := make([]string, 0, len(Mobilities))
+	for _, m := range Mobilities {
+		names = append(names, string(m.name))
+	}
+	return strings.Join(names, ", ")
+}
+
+// ValidateMobility checks what the type alone cannot.
+//
+// A declared mobility is already known to be in the vocabulary — UnmarshalJSON
+// refused anything else. What is left is the obligation tethered carries: it
+// means "movable to any host that can still reach what I talk to", and a
+// balancer cannot check reachability against a dependency nobody named.
+//
+// That is refused rather than quietly read as fixed. Silently downgrading a
+// declaration to a safer one leaves the file saying one thing and the cloud
+// doing another, and the operator who wrote "tethered" is the only person who
+// knows what it was tethered to.
+func ValidateMobility(assetName string, m Mobility, tetheredTo []string) error {
+	if m == MobilityTethered && len(tetheredTo) == 0 {
+		return fmt.Errorf("unit asset %q declares mobility %q but names nothing in tetheredTo: a move nobody can check is a move nobody should make",
+			assetName, MobilityTethered)
+	}
+	if m != MobilityTethered && len(tetheredTo) > 0 {
+		return fmt.Errorf("unit asset %q names tetheredTo but its mobility is %q: tetheredTo means something only for %q",
+			assetName, m, MobilityTethered)
+	}
+	return nil
+}
 
 // Missions is the taxonomy in the order it is documented. Used to render the
 // permitted values in configuration errors, so an operator does not have to find
