@@ -62,6 +62,21 @@ type mockTrans struct {
 	body    string
 	err     error
 	errBody error
+	// routes answer particular URLs differently from the default, so one
+	// transport can play a standby and the lead it refers to.
+	routes map[string]mockAnswer
+}
+
+type mockAnswer struct {
+	status int
+	body   string
+}
+
+func (t *mockTrans) route(url string, status int, body string) {
+	if t.routes == nil {
+		t.routes = map[string]mockAnswer{}
+	}
+	t.routes[url] = mockAnswer{status, body}
 }
 
 func newMockTransport() *mockTrans {
@@ -92,15 +107,19 @@ func (t *mockTrans) RoundTrip(req *http.Request) (*http.Response, error) {
 	if t.err != nil {
 		return nil, t.err
 	}
+	status, body := t.status, t.body
+	if a, routed := t.routes[req.URL.String()]; routed {
+		status, body = a.status, a.body
+	}
 	resp := &http.Response{
-		StatusCode: t.status,
-		Status:     http.StatusText(t.status),
+		StatusCode: status,
+		Status:     http.StatusText(status),
 		Body: errorReadCloser{
-			strings.NewReader(t.body),
+			strings.NewReader(body),
 			t.errBody,
 			nil,
 		},
-		ContentLength: int64(len(t.body)),
+		ContentLength: int64(len(body)),
 		Request:       req,
 	}
 	return resp, nil
@@ -214,5 +233,50 @@ func TestAnEmptySlotIsNotACoreSystem(t *testing.T) {
 	got, err := GetRunningCoreSystemURL(&sys, "authorizer")
 	if err != nil || got != "https://192.168.1.10:30104/authorizer/authorization" {
 		t.Errorf("a configured authorizer resolved to %q (%v)", got, err)
+	}
+}
+
+// A standby registrar is a referral. With a registrar on every host, the one a
+// system is configured with is usually its own and usually not the lead; the
+// client follows the standby's answer once and asks the destination to confirm.
+func TestRegistrarReferral(t *testing.T) {
+	sys := NewSystem("testSystem", context.Background())
+	sys.Husk = &Husk{CoreS: []*CoreSystem{{ServiceRegistrarName, "http://standby/serviceregistrar/registry"}}}
+
+	m := newMockTransport()
+	m.route("http://standby/serviceregistrar/registry/status", http.StatusServiceUnavailable,
+		ServiceRegistrarStandby+"http://lead/serviceregistrar/registry")
+	m.route("http://lead/serviceregistrar/registry/status", http.StatusOK, ServiceRegistrarLeader+" now")
+
+	got, err := GetRunningCoreSystemURL(&sys, ServiceRegistrarName)
+	if err != nil || got != "http://lead/serviceregistrar/registry" {
+		t.Fatalf("referral not followed: got %q, %v", got, err)
+	}
+
+	// The referral is taken only as far as the next question: a destination
+	// that does not answer as the lead is not used on the standby's word.
+	m.route("http://lead/serviceregistrar/registry/status", http.StatusServiceUnavailable, "Service Unavailable")
+	if got, err := GetRunningCoreSystemURL(&sys, ServiceRegistrarName); err == nil {
+		t.Fatalf("a referral to a non-leader was accepted: %q", got)
+	}
+}
+
+// What was learned comes after what was configured, and is never added twice.
+func TestLearnedCoreSystemsFollowConfiguredOnes(t *testing.T) {
+	sys := NewSystem("testSystem", context.Background())
+	sys.Husk = &Husk{CoreS: []*CoreSystem{{"orchestrator", "http://file/orchestrator/orchestration"}}}
+
+	if !sys.AddLearnedCoreSystem(CoreSystem{"orchestrator", "http://learned/orchestrator/orchestration"}) {
+		t.Fatal("a new core system was not added")
+	}
+	if sys.AddLearnedCoreSystem(CoreSystem{"orchestrator", "http://learned/orchestrator/orchestration"}) {
+		t.Fatal("the same URL was added twice")
+	}
+	if sys.AddLearnedCoreSystem(CoreSystem{"orchestrator", "http://file/orchestrator/orchestration"}) {
+		t.Fatal("a URL the file already names was learned as new")
+	}
+	all := sys.CoreSystems()
+	if len(all) != 2 || all[0].Url != "http://file/orchestrator/orchestration" {
+		t.Fatalf("the file's entry does not come first: %v", all)
 	}
 }

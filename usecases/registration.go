@@ -83,11 +83,22 @@ func RegisterServices(sys *components.System) {
 	// Goroutine looking for leading service registrar every 5 seconds
 	go func() {
 		ticker := time.Tick(5 * time.Second)
+		// What the cloud has been asked about itself, and when. Learning costs
+		// four registry queries, so it happens when the lead changes and once
+		// a minute otherwise — not on every tick.
+		var learnedFrom string
+		var learnedAt time.Time
 		for {
 			newURL, err := components.GetRunningCoreSystemURL(sys, components.ServiceRegistrarName)
 			registrar.set(newURL) // should be empty on error anyway
 			if err != nil {
 				log.Println("failed to find lead registrar:", err)
+			}
+			if newURL != "" && holdsCertificate(sys) && (newURL != learnedFrom || time.Since(learnedAt) > time.Minute) {
+				if _, err := LearnCoreSystems(sys, newURL); err != nil {
+					log.Printf("%s: learning the cloud's core systems: %v\n", sys.Name, err)
+				}
+				learnedFrom, learnedAt = newURL, time.Now()
 			}
 
 			select {
@@ -315,4 +326,15 @@ func deepCopyMap(m map[string][]string) map[string][]string {
 // ServiceRegistrationFormsList returns the list of forms that the service registration handles
 func ServiceRegistrationFormsList() []string {
 	return []string{"ServiceRecord_v1"}
+}
+
+// holdsCertificate reports whether this system is enrolled yet. Learning waits
+// for it: what is learned is meant to be asked for over mTLS, and before
+// enrollment there is nothing to present.
+func holdsCertificate(sys *components.System) bool {
+	if sys.Mutex != nil {
+		sys.Mutex.Lock()
+		defer sys.Mutex.Unlock()
+	}
+	return sys.Husk.Certificate != ""
 }

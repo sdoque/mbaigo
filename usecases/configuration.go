@@ -254,6 +254,9 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 	// asset the template does not know about is still refused.
 	rawResources = fillMissionsFromTemplates(sys, rawResources)
 	rawResources = fillServicesFromTemplates(sys, rawResources)
+	// Behind the file's own core systems: what an earlier run learned from the
+	// registry, so a restart while the lead is down can still find a standby.
+	LoadCoreCache(sys)
 
 	sys.Name = configurationIn.CName
 	// Restore IP addresses from config, allowing operators to limit which address is used.
