@@ -38,12 +38,37 @@ import (
 type registrarTracker struct {
 	url   string
 	mutex sync.RWMutex
+	// moved is closed, and replaced, each time the lead changes to a new
+	// address — a broadcast every registration loop can select on. Without it
+	// a system noticed a failover only on its next registration tick, and for
+	// a controller that is two minutes of being invisible to a cloud whose new
+	// lead started with an empty registry.
+	moved chan struct{}
 }
 
 func (rt *registrarTracker) set(url string) {
 	rt.mutex.Lock()
+	defer rt.mutex.Unlock()
+	if rt.moved == nil {
+		rt.moved = make(chan struct{})
+	}
+	if url != "" && url != rt.url && rt.url != "" {
+		close(rt.moved)
+		rt.moved = make(chan struct{})
+	}
 	rt.url = url
-	rt.mutex.Unlock()
+}
+
+// changed returns a channel that closes when the lead next moves to a
+// different registrar. Losing the lead altogether is not a move: there is
+// nowhere to re-register yet.
+func (rt *registrarTracker) changed() <-chan struct{} {
+	rt.mutex.Lock()
+	defer rt.mutex.Unlock()
+	if rt.moved == nil {
+		rt.moved = make(chan struct{})
+	}
+	return rt.moved
 }
 
 func (rt *registrarTracker) get() string {
@@ -119,10 +144,19 @@ func RegisterServices(sys *components.System) {
 				var err error
 				for {
 					select {
-					case <-time.Tick(delay):
+					case <-time.After(delay):
 						delay, err = registerService(sys, registrar.get(), theUnitAsset, theService)
 						if err != nil {
 							log.Println("registering service:", err)
+						}
+					case <-registrar.changed():
+						// A new lead holds nothing of this system. Register with
+						// it now rather than at the end of the current period,
+						// with the id reset because that id was the old lead's.
+						theService.ID = 0
+						delay, err = registerService(sys, registrar.get(), theUnitAsset, theService)
+						if err != nil {
+							log.Println("registering service with the new lead:", err)
 						}
 					case <-sys.Ctx.Done():
 						err = unregisterService(registrar.get(), theService)

@@ -306,3 +306,37 @@ func TestRegisterService(t *testing.T) {
 		}
 	}
 }
+
+// The tracker announces a lead that moved, and only a move: the first address
+// is not a change, and losing the lead is not one either.
+func TestRegistrarTrackerAnnouncesAMove(t *testing.T) {
+	rt := &registrarTracker{}
+	closed := func(ch <-chan struct{}) bool {
+		select {
+		case <-ch:
+			return true
+		default:
+			return false
+		}
+	}
+	first := rt.changed()
+	rt.set("http://a/serviceregistrar/registry")
+	if closed(first) {
+		t.Fatal("the first lead was announced as a move")
+	}
+	rt.set("")
+	if closed(first) {
+		t.Fatal("losing the lead was announced as a move; there is nowhere to go yet")
+	}
+	rt.set("http://a/serviceregistrar/registry")
+	if closed(first) {
+		t.Fatal("the same lead returning was announced as a move")
+	}
+	rt.set("http://b/serviceregistrar/registry")
+	if !closed(first) {
+		t.Fatal("a new lead was not announced")
+	}
+	if closed(rt.changed()) {
+		t.Fatal("the channel handed out after a move is already closed")
+	}
+}

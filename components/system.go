@@ -192,6 +192,10 @@ const ServiceRegistrarLeader string = "lead Service Registrar since"
 // nobody takes.
 const ServiceRegistrarStandby string = "On standby, leading registrar is "
 
+// LocalCloudHeader carries a registrar's cloud name on its /status answer, so
+// a peer can refuse to elect across a cloud boundary.
+const LocalCloudHeader = "X-Local-Cloud"
+
 // leadsByStatus reports whether the registrar at coreURL answers /status as
 // the lead.
 func leadsByStatus(coreURL string) bool {
