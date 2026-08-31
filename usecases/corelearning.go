@@ -185,7 +185,9 @@ func saveCoreCache(sys *components.System) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(CoreCacheFileName, data, 0o644)
+	// 0600: the cache is this system's own state, and there is no reason for
+	// another user to read what registrars it has learned.
+	return os.WriteFile(CoreCacheFileName, data, 0o600)
 }
 
 // LoadCoreCache restores what an earlier run learned, behind the file's own

@@ -165,7 +165,9 @@ func reachable(u *url.URL) bool {
 	if err != nil {
 		return false
 	}
-	conn.Close()
+	// The dial was the whole question; closing it is housekeeping whose failure
+	// changes nothing about whether something answered.
+	_ = conn.Close()
 	return true
 }
 

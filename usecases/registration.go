@@ -202,7 +202,10 @@ func RegisterServices(sys *components.System) {
 						// took the lead all in the same instant.
 						seen = now
 						theService.ID = 0
-						time.Sleep(time.Duration(rand.IntN(3000)) * time.Millisecond)
+						// Jitter to spread a cloud's re-registrations, not a
+						// security value — a predictable delay would only mean a
+						// tidier thundering herd.
+						time.Sleep(time.Duration(rand.IntN(3000)) * time.Millisecond) // #nosec G404
 					}
 					delay, err = registerService(sys, registrar.get(), theUnitAsset, theService)
 					if err != nil {
