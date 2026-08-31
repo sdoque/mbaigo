@@ -228,6 +228,38 @@ func sendHTTPReq(method string, url string, data []byte) (*http.Response, error)
 // sendHTTPReqWithToken is sendHTTPReq with an access token attached. The token
 // is what proves to the provider that the authorizer permitted this specific
 // call; without it a provider in an authorized cloud refuses.
+// ProviderRefusal is an answer, not a silence: the provider was reached, and
+// replied with a status outside 2xx.
+//
+// The distinction carries more weight than it appears to. A consumer that cannot
+// reach a provider at all may be looking at a cloud whose shape has changed, and
+// discovering again is the right response. A consumer that was *answered* — with
+// "the token expired at …", say — is talking to exactly the provider it meant
+// to, and the only thing wrong is the credential it presented.
+//
+// Treating the second as the first is how a thermostat ends up reading another
+// room's thermometer: the node set is thrown away over a stale token, and the
+// next discovery binds it to whichever provider the orchestrator happens to
+// name. See the refresh path in stateHandler.
+type ProviderRefusal struct {
+	StatusCode int
+	Status     string
+	Detail     string
+}
+
+func (e *ProviderRefusal) Error() string {
+	if e.Detail != "" {
+		return e.Status + ": " + e.Detail
+	}
+	return "bad response: " + e.Status
+}
+
+// StaleCredential reports whether the provider refused the caller's identity or
+// token rather than the request itself.
+func (e *ProviderRefusal) StaleCredential() bool {
+	return e.StatusCode == http.StatusUnauthorized || e.StatusCode == http.StatusForbidden
+}
+
 func sendHTTPReqWithToken(method string, url string, token string, data []byte) (*http.Response, error) {
 	req, err := http.NewRequest(method, url, bytes.NewBuffer(data))
 	if err != nil {
@@ -255,10 +287,11 @@ func sendHTTPReqWithToken(method string, url string, token string, data []byte) 
 		// into a log line, and a remote peer that can put newlines in its own
 		// refusal can forge entries around it — the same reason paths and
 		// common names go through ForLog.
-		if detail := strings.TrimSpace(ForLog(string(reason))); detail != "" {
-			return nil, fmt.Errorf("%s: %s", resp.Status, detail)
+		return nil, &ProviderRefusal{
+			StatusCode: resp.StatusCode,
+			Status:     resp.Status,
+			Detail:     strings.TrimSpace(ForLog(string(reason))),
 		}
-		return nil, fmt.Errorf("bad response: %s", resp.Status)
 	}
 	return resp, nil
 }

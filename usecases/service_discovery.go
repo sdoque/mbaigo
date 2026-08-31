@@ -26,6 +26,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/sdoque/mbaigo/components"
@@ -144,7 +145,7 @@ func Search4ServicesAs(cer *components.Cervice, sys *components.System, action s
 	// Prepare the request to the orchestrator
 	resp, err := sendHTTPReq(http.MethodPost, orURL, qf)
 	if err != nil {
-		return err
+		return unreachableOrchestrator(sys, orURL, err)
 	}
 	defer resp.Body.Close()
 	// Read the response /////////////////////////////////
@@ -166,6 +167,22 @@ func Search4ServicesAs(cer *components.Cervice, sys *components.System, action s
 	return nil
 }
 
+// unreachableOrchestrator explains a quest that could not be delivered at all.
+//
+// The two ways to configure this wrongly fail in opposite directions, and only
+// one of them used to say so. A plaintext URL in an authorized cloud is refused
+// by the orchestrator with a sentence naming the fix; an https URL in a cloud
+// that has no CA is refused by the kernel, with "connection refused" and no clue
+// that a scheme is the reason. This supplies the missing half, and only when the
+// evidence supports it: a system holding no certificate is one whose cloud has
+// no CA, or one that has not enrolled yet.
+func unreachableOrchestrator(sys *components.System, orURL string, err error) error {
+	if !strings.HasPrefix(orURL, "https://") || sys.Husk.Certificate != "" {
+		return err
+	}
+	return fmt.Errorf("%w — the orchestrator is configured over https but this system holds no certificate; if this cloud has no CA, set the orchestrator's coreSystems URL to http", err)
+}
+
 // recordNode files a discovered endpoint under the action it was discovered for.
 //
 // It merges rather than appends: a cervice used for both a GET and a PUT is
@@ -180,10 +197,15 @@ func recordNode(cer *components.Cervice, node, url string, details map[string][]
 		if ni.URL != url {
 			continue
 		}
-		if ni.Tokens == nil {
-			ni.Tokens = make(map[string]string)
+		// Replaced rather than written into, for the reason given on
+		// tokensWithout: this map is shared with every cervice that pinned a
+		// copy of this NodeInfo, and they are not guarded by the same mutex.
+		fresh := make(map[string]string, len(ni.Tokens)+1)
+		for act, tok := range ni.Tokens {
+			fresh[act] = tok
 		}
-		ni.Tokens[action] = token
+		fresh[action] = token
+		ni.Tokens = fresh
 		ni.Details = details
 		cer.Nodes[node][i] = ni
 		return
@@ -229,7 +251,7 @@ func Search4MultipleServicesAs(cer *components.Cervice, sys *components.System, 
 	// Prepare the request to the orchestrator
 	resp, err := sendHTTPReq(http.MethodPost, orURL, qf)
 	if err != nil {
-		return err
+		return unreachableOrchestrator(sys, orURL, err)
 	}
 	defer resp.Body.Close()
 	// Read the response /////////////////////////////////
@@ -405,13 +427,30 @@ func questDetails(details map[string][]string) map[string][]string {
 	matched := make(map[string][]string, len(details))
 	relaxUnit := len(details["QuantityKind"]) > 0
 	for key, values := range details {
-		if key == "Measure" || (key == "Unit" && relaxUnit) {
+		if key == "Measure" || key == "Mobility" || (key == "Unit" && relaxUnit) {
 			continue
 		}
 		matched[key] = values
 	}
 	return matched
 }
+
+// Mobility is dropped for a different reason than Measure and Unit: it is not a
+// property of the service at all, but of the asset asking. A consumer builds its
+// cervice details with MergeDetails(ua.Details, ...) so that a meaningful
+// requirement like FunctionalLocation travels with the quest, and every other
+// attribute of the consumer travels with it. Mobility then becomes a demand that
+// the provider be as movable as the consumer — so a movable controller could
+// never be served by a fixed sensor, which is the ordinary case and not an
+// error. It cost an afternoon on 30 August 2026: the thermostat asked for a
+// temperature requiring Mobility=[movable], the ds18b20 offering it was fixed,
+// and the registrar's empty answer was reported as "unable to locate any such
+// service" — indistinguishable from a sensor that was not there.
+//
+// The denylist is the shape this already had, not a shape chosen now. It leaks
+// by construction: Model, Type or any key an operator writes into an asset's
+// details will become a requirement the same way. Carrying only what a consumer
+// declares it needs would end that, and is a larger change than this.
 
 // preferredProtocol returns "https" if the cervice supports it, otherwise "http".
 func preferredProtocol(protos []string) string {

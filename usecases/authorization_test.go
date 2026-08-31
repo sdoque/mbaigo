@@ -497,10 +497,10 @@ func TestACoreServiceAnswersBeforeTheKeyArrives(t *testing.T) {
 		Name: AuthorizerName, Url: "http://localhost:20104/authorizer/authorization",
 	})
 	// No key stored: this system has just started.
-	register := &components.Service{Definition: "register"}
+	register := &components.Service{Definition: "registry"}
 	sys.UAssets["registry"] = coreAsset("registry", register)
 
-	r := httptest.NewRequest("POST", "/serviceregistrar/registry/register", nil)
+	r := httptest.NewRequest("POST", "/serviceregistrar/registry/registry", nil)
 	r.TLS = tlsStateWithCN("ds18b20")
 
 	if status, err := AuthorizeRequest(sys, r, "registry", register); status != 0 {

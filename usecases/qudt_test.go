@@ -335,6 +335,26 @@ func TestQuestDetailsRelaxTheUnit(t *testing.T) {
 	}
 }
 
+// A consumer's own mobility is not a requirement on its provider. The thermostat
+// builds its cervice details from MergeDetails(ua.Details, ...) so that
+// FunctionalLocation travels with the quest, which carries Mobility along too —
+// and a movable controller then asks for a movable sensor. On 30 August 2026 that
+// left a thermostat unable to find a ds18b20 sitting in the same room, reported
+// as "unable to locate any such service".
+func TestQuestDetailsDropMobility(t *testing.T) {
+	q := questDetails(map[string][]string{
+		"FunctionalLocation": {"Kitchen"},
+		"Mobility":           {"movable"},
+		"Forms":              {"SignalA_v1a"},
+	})
+	if _, present := q["Mobility"]; present {
+		t.Error("Mobility was sent to the registrar, so a fixed provider can never serve a movable consumer")
+	}
+	if len(q["FunctionalLocation"]) != 1 || len(q["Forms"]) != 1 {
+		t.Errorf("a genuine matching criterion was lost: %v", q)
+	}
+}
+
 const (
 	degree = "http://qudt.org/vocab/unit/DEG"
 	radian = "http://qudt.org/vocab/unit/RAD"

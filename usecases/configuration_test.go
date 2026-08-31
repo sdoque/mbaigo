@@ -493,8 +493,25 @@ func TestSeededCoreSystemsNameTheHostNotLocalhost(t *testing.T) {
 			t.Errorf("%s is not in the generated configuration", name)
 			continue
 		}
-		if !strings.HasPrefix(url, "http://192.168.1.10:") {
+		if !strings.Contains(url, "//192.168.1.10:") {
 			t.Errorf("%s is seeded as %q; want the host's own address", name, url)
+		}
+	}
+
+	// The schemes are a decision, not an accident, so they are asserted.
+	//
+	// The orchestrator is reached only after enrollment, and an authorized cloud
+	// refuses a quest that arrives without a client certificate — so a plaintext
+	// default left every new system unable to discover anything. The registrar
+	// and the CA are reached *before* there is a certificate, so they cannot
+	// require one: GetRunningCoreSystemURL status-checks the registrar at
+	// startup, and the CA is where the certificate comes from.
+	if !strings.HasPrefix(seen["orchestrator"], "https://") {
+		t.Errorf("the orchestrator is seeded as %q; an authorized cloud refuses a plaintext quest", seen["orchestrator"])
+	}
+	for _, name := range []string{"serviceregistrar", "ca"} {
+		if !strings.HasPrefix(seen[name], "http://") {
+			t.Errorf("%s is seeded as %q; it is reached before this system has a certificate", name, seen[name])
 		}
 	}
 

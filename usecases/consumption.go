@@ -25,6 +25,7 @@ import (
 	"io"
 	"log"
 	"testing"
+	"time"
 
 	"net/http"
 	"net/url"
@@ -48,6 +49,138 @@ func SetState(cer *components.Cervice, sys *components.System, bodyBytes []byte)
 	return stateHandler(http.MethodPut, cer, sys, bodyBytes)
 }
 
+// knownURLs is the set of providers this cervice is already bound to.
+func knownURLs(cer *components.Cervice) map[string]bool {
+	cer.Mutex.RLock()
+	defer cer.Mutex.RUnlock()
+	urls := make(map[string]bool)
+	for _, nodes := range cer.Nodes {
+		for _, ni := range nodes {
+			urls[ni.URL] = true
+		}
+	}
+	return urls
+}
+
+// keepOnly discards every node the cervice was not already bound to, so a
+// discovery made to refresh a credential cannot quietly widen or move the
+// binding.
+func keepOnly(cer *components.Cervice, allowed map[string]bool) {
+	cer.Mutex.Lock()
+	defer cer.Mutex.Unlock()
+	for node, nodes := range cer.Nodes {
+		kept := make([]components.NodeInfo, 0, len(nodes))
+		for _, ni := range nodes {
+			if allowed[ni.URL] {
+				kept = append(kept, ni)
+			}
+		}
+		if len(kept) == 0 {
+			delete(cer.Nodes, node)
+			continue
+		}
+		cer.Nodes[node] = kept
+	}
+}
+
+// renewalMargin is how much of a token's life must remain for a consumer to go
+// on using it. Below that it fetches a new one rather than waiting to be
+// refused.
+const renewalMargin = 0.2
+
+// dueForRenewal reports whether a token is close enough to expiry that it should
+// be replaced before being presented again.
+//
+// Nothing checked this before, and by design nothing needed to: renewal happened
+// by being refused, and the comment on NodeInfo.Tokens said so. It works, and it
+// costs one guaranteed 403 per binding per token lifetime — plus the reading
+// that request was carrying, because the call fails and the loop moves on.
+//
+// At the cottage that is roughly forty bindings on a five-minute lifetime: a
+// refusal every few seconds across the cloud, each losing a control cycle or a
+// recorded point. The gaps drew flat lines across an InfluxDB chart for five
+// hours and looked exactly like a frozen sensor.
+//
+// A consumer can see its own token's expiry without the authorizer's key:
+// splitToken parses the claims before it checks the signature, because it has to
+// know what it is verifying. So there is no reason for a consumer ever to be
+// surprised by an expiry.
+//
+// Only a token whose expiry can actually be read is ever due. Renewal is an
+// optimisation over being refused, so anything this cannot reason about is
+// presented as-is and judged by the provider, which is the party that decides
+// anyway. An empty token means an unauthorized cloud issued none; an unreadable
+// or unbounded one means something is wrong with it that a provider will say so
+// about. Calling either of them "due" would re-orchestrate before every single
+// call — the same storm this exists to stop, arrived at from the other side.
+func dueForRenewal(token string, now time.Time) bool {
+	claims, _, _, err := splitToken(token)
+	if err != nil || claims.Expires.IsZero() {
+		return false
+	}
+	life := claims.Expires.Sub(claims.IssuedAt)
+	if life <= 0 {
+		return false
+	}
+	return now.After(claims.Expires.Add(-time.Duration(float64(life) * renewalMargin)))
+}
+
+// resolveProvider returns the provider and token this call should use,
+// discovering or renewing as required.
+//
+// Renewal is best-effort on purpose. When a token is merely near expiry the one in
+// hand is still valid, so a failed renewal is not a failed call: it proceeds on
+// what it has and tries again next time. Renewing early must never leave a
+// consumer worse off than not renewing at all.
+func resolveProvider(cer *components.Cervice, sys *components.System, action string) (string, string, error) {
+	url, token, found := pickNode(cer, action)
+	if found && !dueForRenewal(token, time.Now()) {
+		return url, token, nil
+	}
+
+	// A first discovery and a renewal arrive here by the same door, and they are
+	// not the same question. A cervice with no nodes is asking "who provides
+	// this?", and any answer will do. One that already knows a provider — a
+	// thermostat paired to the thermometer in its own room — is asking only for
+	// a new token for *that* one.
+	//
+	// So they ask differently. A first discovery takes the single answer the
+	// orchestrator prefers. A renewal asks for *every* permitted provider and
+	// then keeps only the one it already held, which is the sole way to be sure
+	// the token it gets back belongs to the provider it meant.
+	//
+	// Asking the singular question for a renewal deadlocks, and did: the
+	// orchestrator answers with whichever candidate it likes, keepOnly discards
+	// it as a stranger, and the cervice is left holding a provider with no
+	// token. Nothing recovers it — a provider that is up never produces the
+	// transport failure that would allow re-binding — so the consumer repeats
+	// "no read token for the provider this cervice is bound to" for ever. The
+	// cottage's dining room lost its thermometer that way, ten seconds at a
+	// time, while the kitchen recovered on the same tick by luck of which
+	// candidate came back.
+	bound := knownURLs(cer)
+	var searchErr error
+	if len(bound) > 0 {
+		searchErr = Search4MultipleServicesAs(cer, sys, action)
+		if searchErr == nil {
+			keepOnly(cer, bound)
+		}
+	} else {
+		searchErr = Search4ServicesAs(cer, sys, action)
+	}
+
+	if fresh, freshToken, ok := pickNode(cer, action); ok && !dueForRenewal(freshToken, time.Now()) {
+		return fresh, freshToken, nil
+	}
+	if found {
+		return url, token, nil
+	}
+	if searchErr != nil {
+		return "", "", searchErr
+	}
+	return "", "", fmt.Errorf("no %s token for the %s provider this cervice is bound to", action, cer.Definition)
+}
+
 func stateHandler(httpMethod string, cer *components.Cervice, sys *components.System, bodyBytes []byte) (f forms.Form, err error) {
 	// The action is what this call will actually do, not what Cervice.Mode says
 	// it might. The provider recomputes it from the method, so a token minted for
@@ -58,12 +191,9 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 	// different action — a cervice used for both a GET and a PUT, or one whose
 	// Mode did not describe this call. Either way, ask for this action rather
 	// than present a token minted for another one.
-	serviceUrl, token, found := pickNode(cer, action)
-	if !found {
-		if err = Search4ServicesAs(cer, sys, action); err != nil {
-			return f, err
-		}
-		serviceUrl, token, _ = pickNode(cer, action)
+	serviceUrl, token, err := resolveProvider(cer, sys, action)
+	if err != nil {
+		return f, err
 	}
 
 	// A value somebody is already keeping current, answered without asking for
@@ -90,10 +220,38 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 		}
 	}
 
-	resp, err := sendHTTPReqWithToken(httpMethod, serviceUrl, token, bodyBytes)
-	if err != nil {
-		// Failed to reach the provider: forget everything discovered, so the next
-		// call searches again.
+	var resp *http.Response
+	for attempt := 0; ; attempt++ {
+		resp, err = sendHTTPReqWithToken(httpMethod, serviceUrl, token, bodyBytes)
+		if err == nil {
+			break
+		}
+
+		var refused *ProviderRefusal
+		if errors.As(err, &refused) {
+			// The provider answered, so it is exactly where this cervice thinks
+			// it is. Nothing about the topology is in doubt and the binding must
+			// survive; at most the credential is stale.
+			if !refused.StaleCredential() || attempt > 0 {
+				return f, err
+			}
+			// One retry, and only for a credential. Renewal ahead of expiry
+			// should have prevented this, so reaching here means a clock
+			// disagreed or a permission was withdrawn mid-flight — and in both
+			// cases the reading should arrive late rather than not at all. A
+			// control loop that loses a cycle to a housekeeping failure is how
+			// five hours of flat line got drawn across a chart.
+			forgetToken(cer, serviceUrl, action)
+			serviceUrl, token, err = resolveProvider(cer, sys, action)
+			if err != nil {
+				return f, err
+			}
+			continue
+		}
+
+		// Could not reach it at all. The cloud's shape may genuinely have
+		// changed, so forget what was discovered and let the next call search
+		// without constraint. This is the only path that may re-bind.
 		cer.Mutex.Lock()
 		cer.Nodes = make(map[string][]components.NodeInfo)
 		cer.Mutex.Unlock()
@@ -338,12 +496,42 @@ func forgetToken(cer *components.Cervice, url, action string) {
 
 	for node, nodes := range cer.Nodes {
 		for i, ni := range nodes {
-			if ni.URL == url && ni.Tokens != nil {
-				delete(ni.Tokens, action)
-				cer.Nodes[node][i] = ni
+			if ni.URL != url || ni.Tokens == nil {
+				continue
 			}
+			if _, held := ni.Tokens[action]; !held {
+				continue
+			}
+			ni.Tokens = tokensWithout(ni.Tokens, action)
+			cer.Nodes[node][i] = ni
 		}
 	}
+}
+
+// tokensWithout returns a copy of a node's tokens with one action removed,
+// because the map may not be written in place.
+//
+// A NodeInfo is copied by value when a consumer pins a provider into a cervice
+// of its own — which is what ethermostat does, one cervice per heater — and
+// copying the struct copies the map *header*, not the map. Every copy therefore
+// shares one set of tokens, guarded by whichever cervice's mutex the writer
+// happens to hold.
+//
+// Two of the cottage's heaters read the same thermometer, so two feedback loops
+// held two different locks over one map and deleted from it at the same moment.
+// Go stops that with "fatal error: concurrent map writes", which takes the whole
+// system down — the control loop, the servers, all of it. Replacing the map
+// instead of editing it means a reader holding an older copy sees a stale token
+// rather than a corrupted map, and a stale token is a thing this code already
+// knows how to handle.
+func tokensWithout(tokens map[string]string, action string) map[string]string {
+	fresh := make(map[string]string, len(tokens))
+	for act, tok := range tokens {
+		if act != action {
+			fresh[act] = tok
+		}
+	}
+	return fresh
 }
 
 // needsDiscovery reports whether any provider lacks a token for this action, and

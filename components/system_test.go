@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -62,6 +63,26 @@ type mockTrans struct {
 	body    string
 	err     error
 	errBody error
+	// routes answer particular URLs differently from the default, so one
+	// transport can play a standby and the lead it refers to.
+	routes map[string]mockAnswer
+}
+
+type mockAnswer struct {
+	status int
+	body   string
+	cloud  string
+}
+
+func (t *mockTrans) route(url string, status int, body string) {
+	t.routeWithCloud(url, status, body, "")
+}
+
+func (t *mockTrans) routeWithCloud(url string, status int, body, cloud string) {
+	if t.routes == nil {
+		t.routes = map[string]mockAnswer{}
+	}
+	t.routes[url] = mockAnswer{status, body, cloud}
 }
 
 func newMockTransport() *mockTrans {
@@ -92,15 +113,24 @@ func (t *mockTrans) RoundTrip(req *http.Request) (*http.Response, error) {
 	if t.err != nil {
 		return nil, t.err
 	}
+	status, body, cloud := t.status, t.body, ""
+	if a, routed := t.routes[req.URL.String()]; routed {
+		status, body, cloud = a.status, a.body, a.cloud
+	}
+	header := http.Header{}
+	if cloud != "" {
+		header.Set(LocalCloudHeader, cloud)
+	}
 	resp := &http.Response{
-		StatusCode: t.status,
-		Status:     http.StatusText(t.status),
+		StatusCode: status,
+		Status:     http.StatusText(status),
+		Header:     header,
 		Body: errorReadCloser{
-			strings.NewReader(t.body),
+			strings.NewReader(body),
 			t.errBody,
 			nil,
 		},
-		ContentLength: int64(len(t.body)),
+		ContentLength: int64(len(body)),
 		Request:       req,
 	}
 	return resp, nil
@@ -214,5 +244,90 @@ func TestAnEmptySlotIsNotACoreSystem(t *testing.T) {
 	got, err := GetRunningCoreSystemURL(&sys, "authorizer")
 	if err != nil || got != "https://192.168.1.10:30104/authorizer/authorization" {
 		t.Errorf("a configured authorizer resolved to %q (%v)", got, err)
+	}
+}
+
+// A standby registrar is a referral. With a registrar on every host, the one a
+// system is configured with is usually its own and usually not the lead; the
+// client follows the standby's answer once and asks the destination to confirm.
+func TestRegistrarReferral(t *testing.T) {
+	sys := NewSystem("testSystem", context.Background())
+	sys.Husk = &Husk{CoreS: []*CoreSystem{{ServiceRegistrarName, "http://standby/serviceregistrar/registry"}}}
+
+	m := newMockTransport()
+	m.route("http://standby/serviceregistrar/registry/status", http.StatusServiceUnavailable,
+		ServiceRegistrarStandby+"http://lead/serviceregistrar/registry")
+	m.route("http://lead/serviceregistrar/registry/status", http.StatusOK, ServiceRegistrarLeader+" now")
+
+	got, err := GetRunningCoreSystemURL(&sys, ServiceRegistrarName)
+	if err != nil || got != "http://lead/serviceregistrar/registry" {
+		t.Fatalf("referral not followed: got %q, %v", got, err)
+	}
+
+	// The referral is taken only as far as the next question: a destination
+	// that does not answer as the lead is not used on the standby's word.
+	m.route("http://lead/serviceregistrar/registry/status", http.StatusServiceUnavailable, "Service Unavailable")
+	if got, err := GetRunningCoreSystemURL(&sys, ServiceRegistrarName); err == nil {
+		t.Fatalf("a referral to a non-leader was accepted: %q", got)
+	}
+}
+
+// A referral is followed only within the cloud that gave it: the lead a
+// standby names must declare the same cloud the standby did.
+func TestReferralStaysInsideItsCloud(t *testing.T) {
+	sys := NewSystem("testSystem", context.Background())
+	sys.Husk = &Husk{CoreS: []*CoreSystem{{ServiceRegistrarName, "http://standby/serviceregistrar/registry"}}}
+	m := newMockTransport()
+	m.routeWithCloud("http://standby/serviceregistrar/registry/status", http.StatusServiceUnavailable,
+		ServiceRegistrarStandby+"http://lead/serviceregistrar/registry", "Cottage")
+	m.routeWithCloud("http://lead/serviceregistrar/registry/status", http.StatusOK, ServiceRegistrarLeader+" now", "Home")
+	if got, err := GetRunningCoreSystemURL(&sys, ServiceRegistrarName); err == nil {
+		t.Fatalf("followed a standby of one cloud to the lead of another: %q", got)
+	}
+	m.routeWithCloud("http://lead/serviceregistrar/registry/status", http.StatusOK, ServiceRegistrarLeader+" now", "Cottage")
+	if got, err := GetRunningCoreSystemURL(&sys, ServiceRegistrarName); err != nil || got != "http://lead/serviceregistrar/registry" {
+		t.Fatalf("a referral within the cloud was refused: %q %v", got, err)
+	}
+}
+
+// What was learned comes after what was configured, and is never added twice.
+func TestLearnedCoreSystemsFollowConfiguredOnes(t *testing.T) {
+	sys := NewSystem("testSystem", context.Background())
+	sys.Husk = &Husk{CoreS: []*CoreSystem{{"orchestrator", "http://file/orchestrator/orchestration"}}}
+
+	if !sys.AddLearnedCoreSystem(CoreSystem{"orchestrator", "http://learned/orchestrator/orchestration"}) {
+		t.Fatal("a new core system was not added")
+	}
+	if sys.AddLearnedCoreSystem(CoreSystem{"orchestrator", "http://learned/orchestrator/orchestration"}) {
+		t.Fatal("the same URL was added twice")
+	}
+	if sys.AddLearnedCoreSystem(CoreSystem{"orchestrator", "http://file/orchestrator/orchestration"}) {
+		t.Fatal("a URL the file already names was learned as new")
+	}
+	all := sys.CoreSystems()
+	if len(all) != 2 || all[0].Url != "http://file/orchestrator/orchestration" {
+		t.Fatalf("the file's entry does not come first: %v", all)
+	}
+}
+
+// With more than one orchestrator known, the first must answer before it is
+// used. A second host's generated file names an orchestrator on that host,
+// which does not exist; the one learned from the lead must be reached.
+func TestUnreachableCoreSystemFallsThrough(t *testing.T) {
+	sys := NewSystem("testSystem", context.Background())
+	// A port nothing listens on: the dial is refused at once.
+	dead := "http://127.0.0.1:1/orchestrator/orchestration"
+	live := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer live.Close()
+
+	sys.Husk = &Husk{CoreS: []*CoreSystem{{"orchestrator", dead}}}
+	if got, err := GetRunningCoreSystemURL(&sys, "orchestrator"); err != nil || got != dead {
+		t.Fatalf("a lone entry must be returned without a probe: %q %v", got, err)
+	}
+
+	sys.AddLearnedCoreSystem(CoreSystem{"orchestrator", live.URL + "/orchestrator/orchestration"})
+	got, err := GetRunningCoreSystemURL(&sys, "orchestrator")
+	if err != nil || got != live.URL+"/orchestrator/orchestration" {
+		t.Fatalf("the dead first entry was not passed over: got %q, %v", got, err)
 	}
 }

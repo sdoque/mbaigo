@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"html"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -75,10 +76,23 @@ func SysHateoas(w http.ResponseWriter, req *http.Request, sys components.System)
 		text += "<li> Protocol <b>" + html.EscapeString(protocol) + "</b> using port <em>" + strconv.Itoa(port) + "</em></li>\n"
 	}
 
-	text += "</ul> <p> of the device whose IP addresses are (upon startup):</p><ul>\n"
-	for _, IPAddre := range sys.Husk.Host.IPAddresses {
-		text += "<li> " + html.EscapeString(IPAddre) + "</em></li>\n"
+	// The address this request arrived on, not every address the host has.
+	//
+	// This page is served anonymously on the plaintext port, so its whole
+	// audience is "whoever can reach this machine" — and it used to hand them
+	// the host's complete network topology. On a Raspberry Pi running Docker
+	// that is 172.17.0.1, 172.18.0.1 and 172.19.0.1 alongside the real one:
+	// three bridge networks disclosed to anyone on the LAN, telling them the
+	// host runs containers and roughly how many.
+	//
+	// It bought a reader nothing either. Whoever is looking at this page reached
+	// it on an address that demonstrably works, and that is the one worth
+	// naming; the rest were addresses they could not have used.
+	host := req.Host
+	if h, _, err := net.SplitHostPort(req.Host); err == nil {
+		host = h
 	}
+	text += "</ul> <p> of the device, reached at " + html.EscapeString(host) + "</p>\n"
 
 	text += "</ul></body></html>"
 	_, err := w.Write([]byte(text))

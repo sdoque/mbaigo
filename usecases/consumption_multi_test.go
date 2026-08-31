@@ -347,6 +347,23 @@ func (t *actionRecordingTransport) RoundTrip(req *http.Request) (*http.Response,
 		}, nil
 	}
 
+	// A real orchestrator serves both the singular and the plural quest. A
+	// cervice already bound to a provider renews through the plural one — it
+	// asks for every permitted provider and keeps the one it holds — so a stub
+	// that answers only the singular form makes a renewal look like a protocol
+	// error.
+	if strings.HasSuffix(req.URL.Path, "/squests") {
+		raw, _ := io.ReadAll(req.Body)
+		var quest forms.ServiceQuest_v1
+		if err := jsonpkg.Unmarshal(raw, &quest); err != nil {
+			return nil, err
+		}
+		t.quested = append(t.quested, quest.Action)
+		return json(fmt.Sprintf(
+			`{"list":[{"serviceURL":%q,"serviceNode":"n","token":"tok-%s","version":"ServicePoint_v1"}],"version":"ServicePointList_v1"}`,
+			t.serviceURL, quest.Action))
+	}
+
 	if strings.HasSuffix(req.URL.Path, "/squest") {
 		raw, _ := io.ReadAll(req.Body)
 		var quest forms.ServiceQuest_v1

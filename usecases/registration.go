@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"sync"
@@ -38,12 +39,65 @@ import (
 type registrarTracker struct {
 	url   string
 	mutex sync.RWMutex
+	// last is the most recent lead that existed, and generation counts the
+	// times it changed to a different one. A failover is seen by the poller as
+	// old lead, then nothing while the election runs, then new lead — so a
+	// move is judged against the last lead that was, not against the empty
+	// reading in between, or the ordinary sequence would never count as one.
+	//
+	// moved is closed, and replaced, on each such move — a broadcast every
+	// registration loop can select on. The generation is what a loop compares
+	// after any wake, so a move that lands while it is inside an HTTP call
+	// (which is when a dying lead is slowest to answer) is not lost: the
+	// channel it was holding is the old one, and the count says what happened.
+	// Without this a system noticed a failover only on its next registration
+	// tick — for a controller, two minutes invisible to a cloud whose new lead
+	// started with an empty registry.
+	last       string
+	generation uint64
+	moved      chan struct{}
+}
+
+// newRegistrarTracker makes the channel once, so no method has to wonder
+// whether it exists: a nil channel blocks a select arm forever, which would be
+// this fix's own bug reintroduced by a method that forgot the check.
+func newRegistrarTracker() *registrarTracker {
+	return &registrarTracker{moved: make(chan struct{})}
 }
 
 func (rt *registrarTracker) set(url string) {
+	rt.mutex.RLock()
+	same := url == rt.url
+	rt.mutex.RUnlock()
+	if same {
+		return // the common tick: nothing changed, no writer takes the lock
+	}
 	rt.mutex.Lock()
+	defer rt.mutex.Unlock()
 	rt.url = url
-	rt.mutex.Unlock()
+	if url == "" || url == rt.last {
+		return // lost, or back where it was: nowhere new to go
+	}
+	if rt.last != "" {
+		rt.generation++
+		close(rt.moved)
+		rt.moved = make(chan struct{})
+	}
+	rt.last = url
+}
+
+// changed returns a channel that closes on the next move to a different lead.
+func (rt *registrarTracker) changed() <-chan struct{} {
+	rt.mutex.RLock()
+	defer rt.mutex.RUnlock()
+	return rt.moved
+}
+
+// moves returns how many times the lead has moved, for a loop to compare.
+func (rt *registrarTracker) moves() uint64 {
+	rt.mutex.RLock()
+	defer rt.mutex.RUnlock()
+	return rt.generation
 }
 
 func (rt *registrarTracker) get() string {
@@ -64,6 +118,13 @@ func RegisterServices(sys *components.System) {
 		log.Fatalf("mission configuration error: %v\n", err)
 	}
 
+	// Mobility moved from Details to a field of its own; a configuration file
+	// written before that still says it the old way, and is honoured once.
+	AdoptMobilityDetails(sys)
+	if err := ValidateMobilities(sys); err != nil {
+		log.Fatalf("mobility configuration error: %v\n", err)
+	}
+
 	// Before anything is advertised, so a service registered as subscribable can
 	// be followed from the moment a consumer discovers it. Every system calls
 	// this, so turning subscription on stays a matter of configuration.
@@ -71,16 +132,27 @@ func RegisterServices(sys *components.System) {
 
 	// Keep track of the registrar URL. The URL is shared between goroutines,
 	// so it must be protected from data races using a mutex.
-	registrar := &registrarTracker{}
+	registrar := newRegistrarTracker()
 
 	// Goroutine looking for leading service registrar every 5 seconds
 	go func() {
 		ticker := time.Tick(5 * time.Second)
+		// What the cloud has been asked about itself, and when. Learning costs
+		// four registry queries, so it happens when the lead changes and once
+		// a minute otherwise — not on every tick.
+		var learnedFrom string
+		var learnedAt time.Time
 		for {
 			newURL, err := components.GetRunningCoreSystemURL(sys, components.ServiceRegistrarName)
 			registrar.set(newURL) // should be empty on error anyway
 			if err != nil {
 				log.Println("failed to find lead registrar:", err)
+			}
+			if newURL != "" && holdsCertificate(sys) && (newURL != learnedFrom || time.Since(learnedAt) > time.Minute) {
+				if _, err := LearnCoreSystems(sys, newURL); err != nil {
+					log.Printf("%s: learning the cloud's core systems: %v\n", sys.Name, err)
+				}
+				learnedFrom, learnedAt = newURL, time.Now()
 			}
 
 			select {
@@ -99,13 +171,20 @@ func RegisterServices(sys *components.System) {
 			go func(theUnitAsset *components.UnitAsset, theService *components.Service) {
 				delay := 1 * time.Second
 				var err error
+				// One timer, reset after each registration, rather than a
+				// time.After per iteration that a move would orphan for a period.
+				wait := time.NewTimer(delay)
+				defer wait.Stop()
+				seen := registrar.moves()
 				for {
+					// The channel is taken before waiting and the count compared
+					// after, whichever arm woke: a move during the registration
+					// below closes the channel this holds and bumps the count,
+					// and neither is lost to the next iteration.
+					moved := registrar.changed()
 					select {
-					case <-time.Tick(delay):
-						delay, err = registerService(sys, registrar.get(), theUnitAsset, theService)
-						if err != nil {
-							log.Println("registering service:", err)
-						}
+					case <-wait.C:
+					case <-moved:
 					case <-sys.Ctx.Done():
 						err = unregisterService(registrar.get(), theService)
 						if err != nil {
@@ -113,6 +192,32 @@ func RegisterServices(sys *components.System) {
 						}
 						return
 					}
+					if now := registrar.moves(); now != seen {
+						// A new lead holds nothing of this system, and the id it
+						// has is the old lead's: the next registration is a
+						// fresh one, whichever arm woke — so the timer path cannot
+						// renew a foreign id and the move path then register a
+						// second record. After a short random pause, so a cloud of
+						// many systems does not arrive at a registrar that just
+						// took the lead all in the same instant.
+						seen = now
+						theService.ID = 0
+						// Jitter to spread a cloud's re-registrations, not a
+						// security value — a predictable delay would only mean a
+						// tidier thundering herd.
+						time.Sleep(time.Duration(rand.IntN(3000)) * time.Millisecond) // #nosec G404
+					}
+					delay, err = registerService(sys, registrar.get(), theUnitAsset, theService)
+					if err != nil {
+						log.Println("registering service:", err)
+					}
+					if !wait.Stop() {
+						select {
+						case <-wait.C:
+						default:
+						}
+					}
+					wait.Reset(delay)
 				}
 			}(aResource, service)
 		}
@@ -143,7 +248,7 @@ func registerService(sys *components.System, registrar string, ua *components.Un
 		err = fmt.Errorf("registration marshall: %w", err)
 		return
 	}
-	registrationURL := registrar + "/register"
+	registrationURL := registrar + "/registry"
 
 	var req *http.Request // Declare req outside the blocks
 	if serv.ID == 0 {
@@ -220,7 +325,7 @@ func unregisterService(registrar string, serv *components.Service) error {
 	if registrar == "" {
 		return nil // there is no need to deregister if there is no leading registrar
 	}
-	u := registrar + "/unregister/" + strconv.Itoa(serv.ID)
+	u := registrar + "/registry/" + strconv.Itoa(serv.ID)
 	req, err := http.NewRequest("DELETE", u, nil)
 	if err != nil {
 		return err
@@ -308,4 +413,15 @@ func deepCopyMap(m map[string][]string) map[string][]string {
 // ServiceRegistrationFormsList returns the list of forms that the service registration handles
 func ServiceRegistrationFormsList() []string {
 	return []string{"ServiceRecord_v1"}
+}
+
+// holdsCertificate reports whether this system is enrolled yet. Learning waits
+// for it: what is learned is meant to be asked for over mTLS, and before
+// enrollment there is nothing to present.
+func holdsCertificate(sys *components.System) bool {
+	if sys.Mutex != nil {
+		sys.Mutex.Lock()
+		defer sys.Mutex.Unlock()
+	}
+	return sys.Husk.Certificate != ""
 }

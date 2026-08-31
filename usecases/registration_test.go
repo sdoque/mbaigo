@@ -306,3 +306,44 @@ func TestRegisterService(t *testing.T) {
 		}
 	}
 }
+
+// The tracker announces a lead that moved — including the ordinary failover
+// sequence, in which the poller sees the old lead, then nothing while the
+// election runs, then the new one. The first address is not a move, losing the
+// lead is not, and the same lead returning is not.
+func TestRegistrarTrackerAnnouncesAMove(t *testing.T) {
+	rt := newRegistrarTracker()
+	closed := func(ch <-chan struct{}) bool {
+		select {
+		case <-ch:
+			return true
+		default:
+			return false
+		}
+	}
+	first := rt.changed()
+	rt.set("http://a/serviceregistrar/registry")
+	if closed(first) || rt.moves() != 0 {
+		t.Fatal("the first lead was announced as a move")
+	}
+	rt.set("")
+	rt.set("http://a/serviceregistrar/registry")
+	if closed(first) || rt.moves() != 0 {
+		t.Fatal("losing the lead and getting it back was announced as a move")
+	}
+
+	// The real sequence: a, nothing, b.
+	rt.set("")
+	rt.set("http://b/serviceregistrar/registry")
+	if !closed(first) || rt.moves() != 1 {
+		t.Fatal("a new lead after a gap was not announced")
+	}
+	second := rt.changed()
+	if closed(second) {
+		t.Fatal("the channel handed out after a move is already closed")
+	}
+	rt.set("http://c/serviceregistrar/registry")
+	if !closed(second) || rt.moves() != 2 {
+		t.Fatal("a direct move was not announced")
+	}
+}

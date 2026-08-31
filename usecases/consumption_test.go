@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +11,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/sdoque/mbaigo/components"
 	"github.com/sdoque/mbaigo/forms"
@@ -519,5 +522,279 @@ func TestLog(t *testing.T) {
 	Log(&sys, forms.LevelDebug, testLogMsg)
 	if got, want := sys.Husk.Messengers[testLogHost], 0; got != want {
 		t.Errorf("expected error count %d, got %d", want, got)
+	}
+}
+
+// TestAnExpiredTokenDoesNotRebindTheConsumer is the regression for three
+// thermostats that spent an afternoon heating a cottage against the outdoor
+// temperature.
+//
+// A consumer that has chosen a provider — a thermostat paired to the thermometer
+// in its own room — asks the orchestrator only for a new credential when its
+// token expires. The orchestrator cannot know which provider was meant, and
+// answers with whichever candidate it likes. Taking that answer silently moves
+// the consumer to a different thing, and it goes on controlling: plausibly,
+// continuously, and against the wrong measurement.
+func TestAnExpiredTokenDoesNotRebindTheConsumer(t *testing.T) {
+	// The provider this cervice is bound to. It refuses with an expired token,
+	// which is an answer: it is exactly where the consumer thinks it is.
+	bound := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "the token expired at 2026-08-24T13:11:06+02:00", http.StatusForbidden)
+	}))
+	defer bound.Close()
+
+	// Another provider of the same service definition — the outdoor sensor.
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer other.Close()
+
+	// An orchestrator that always names the other one.
+	orchestrator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		var sp forms.ServicePoint_v1
+		sp.NewForm()
+		sp.ServiceDefinition = "temperature"
+		sp.ProviderName = "meteorologue"
+		sp.ServNode = "OutdoorModule"
+		sp.ServLocation = other.URL
+		sp.Token = "a-fresh-token-for-the-wrong-sensor"
+		body, _ := Pack(&sp, "application/json")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(body)
+	}))
+	defer orchestrator.Close()
+
+	sys := components.NewSystem("ethermostat", context.Background())
+	sys.Husk = &components.Husk{
+		ProtoPort: map[string]int{"http": 20196, "https": 0, "coap": 0},
+		CoreS: []*components.CoreSystem{
+			{Name: "orchestrator", Url: orchestrator.URL + "/orchestrator/orchestration"},
+		},
+	}
+
+	cer := &components.Cervice{
+		Definition: "temperature",
+		Protos:     []string{"http"},
+		Mode:       "get",
+		Nodes: map[string][]components.NodeInfo{
+			"IndoorModule": {{
+				URL:    bound.URL,
+				Tokens: map[string]string{"read": "an-expired-token"},
+			}},
+		},
+	}
+
+	// First call: refused with an expired token. The binding must survive.
+	if _, err := GetState(cer, &sys); err == nil {
+		t.Fatal("a 403 was reported as success")
+	}
+	if urls := knownURLs(cer); !urls[bound.URL] {
+		t.Fatal("the provider was forgotten because it answered with an error")
+	}
+
+	// Second call: the refresh path runs, the orchestrator names the wrong
+	// provider, and that answer must be refused rather than adopted.
+	_, err := GetState(cer, &sys)
+	if err == nil {
+		t.Fatal("the consumer was silently re-bound and reported success")
+	}
+
+	urls := knownURLs(cer)
+	if urls[other.URL] {
+		t.Errorf("the cervice was re-bound to %s — a different provider of the same service", other.URL)
+	}
+	if !urls[bound.URL] {
+		t.Errorf("the original binding was lost; cervice now holds %v", urls)
+	}
+}
+
+// TestAnUnreachableProviderIsForgotten keeps the fix from becoming a cervice
+// that can never move. A provider that does not answer at all may genuinely be
+// gone, and that is the one path where re-discovery should bind freely.
+func TestAnUnreachableProviderIsForgotten(t *testing.T) {
+	cer := &components.Cervice{
+		Definition: "temperature",
+		Protos:     []string{"http"},
+		Mode:       "get",
+		Nodes: map[string][]components.NodeInfo{
+			// A port nothing listens on: a transport failure, not an answer.
+			"gone": {{URL: "http://127.0.0.1:1", Tokens: map[string]string{"read": "t"}}},
+		},
+	}
+	sys := components.NewSystem("ethermostat", context.Background())
+	sys.Husk = &components.Husk{ProtoPort: map[string]int{"http": 20196}}
+
+	if _, err := GetState(cer, &sys); err == nil {
+		t.Fatal("an unreachable provider was reported as success")
+	}
+	if len(knownURLs(cer)) != 0 {
+		t.Error("an unreachable provider was kept; the next discovery cannot rebind")
+	}
+}
+
+// TestSharedTokensAreNotWrittenInPlace reproduces a crash that took the
+// cottage's heating down at 17:52 on 24 August.
+//
+// A NodeInfo is copied by value when a consumer pins a provider into a cervice
+// of its own — ethermostat builds one cervice per heater — and copying the
+// struct copies the map header, not the map. Two of the cottage's heaters read
+// the same thermometer, so two feedback loops held two different cervice mutexes
+// over one shared token map. Deleting from it concurrently is "fatal error:
+// concurrent map writes", which is not recoverable: the whole system dies,
+// control loop and servers together.
+//
+// Run with -race to see the read side too.
+func TestSharedTokensAreNotWrittenInPlace(t *testing.T) {
+	// One provider, pinned into two cervices exactly as discoverHeaters does.
+	shared := components.NodeInfo{
+		URL:    "http://sensor.example/temperature",
+		Tokens: map[string]string{"read": "a-token", "write": "another"},
+	}
+	kitchen := &components.Cervice{
+		Definition: "temperature",
+		Nodes:      map[string][]components.NodeInfo{"IndoorModule": {shared}},
+	}
+	diningroom := &components.Cervice{
+		Definition: "temperature",
+		Nodes:      map[string][]components.NodeInfo{"IndoorModule": {shared}},
+	}
+
+	var wg sync.WaitGroup
+	for _, cer := range []*components.Cervice{kitchen, diningroom} {
+		wg.Add(1)
+		go func(c *components.Cervice) {
+			defer wg.Done()
+			for i := 0; i < 500; i++ {
+				forgetToken(c, shared.URL, "read")
+				recordNode(c, "IndoorModule", shared.URL, nil, "read", "fresh", false)
+			}
+		}(cer)
+	}
+	wg.Wait()
+
+	// The original map must be untouched: nothing may edit a map it shares.
+	if shared.Tokens["read"] != "a-token" {
+		t.Errorf("the shared token map was written in place: read = %q", shared.Tokens["read"])
+	}
+	if shared.Tokens["write"] != "another" {
+		t.Errorf("an unrelated action was disturbed: write = %q", shared.Tokens["write"])
+	}
+}
+
+// TestATokenIsRenewedBeforeItLapses covers the change from renewing by being
+// refused to renewing ahead of expiry.
+//
+// The old design took a 403 as its signal, which works and costs one guaranteed
+// refusal per binding per token lifetime — plus the reading that request was
+// carrying. Forty bindings on a five-minute lifetime is a refusal every few
+// seconds across a cloud, and the lost readings drew flat lines across a chart
+// for five hours that looked exactly like a frozen sensor.
+func TestATokenIsRenewedBeforeItLapses(t *testing.T) {
+	issued := time.Date(2026, 8, 25, 8, 0, 0, 0, time.UTC)
+	mint := func(life time.Duration) string {
+		var claims forms.AccessToken_v1
+		claims.NewForm()
+		claims.Subject, claims.Action = "ethermostat", "read"
+		claims.IssuedAt, claims.Expires = issued, issued.Add(life)
+		payload, err := json.Marshal(claims)
+		if err != nil {
+			t.Fatalf("minting: %v", err)
+		}
+		return base64.RawURLEncoding.EncodeToString(payload) + ".c2ln"
+	}
+
+	token := mint(5 * time.Minute) // expires 08:05, renewal margin is the last minute
+	cases := []struct {
+		at   time.Time
+		want bool
+		why  string
+	}{
+		{issued, false, "freshly minted"},
+		{issued.Add(3 * time.Minute), false, "well inside its life"},
+		{issued.Add(4*time.Minute + 30*time.Second), true, "inside the final fifth"},
+		{issued.Add(6 * time.Minute), true, "already lapsed"},
+	}
+	for _, tc := range cases {
+		if got := dueForRenewal(token, tc.at); got != tc.want {
+			t.Errorf("%s: dueForRenewal = %t, want %t", tc.why, got, tc.want)
+		}
+	}
+}
+
+// TestAnUnreadableTokenIsPresentedNotRenewed is the correction to a first
+// attempt at this. Marking a token this code cannot parse as "due" looks
+// cautious and is the same storm from the other side: it re-orchestrates before
+// every call, for ever, because the next token is no more readable than the
+// last. Renewal is an optimisation over being refused, so anything it cannot
+// reason about is handed to the provider, which decides anyway.
+func TestAnUnreadableTokenIsPresentedNotRenewed(t *testing.T) {
+	for _, token := range []string{"", "not-a-token", "bm90anNvbg.c2ln"} {
+		if dueForRenewal(token, time.Now()) {
+			t.Errorf("%q would be renewed before every call", token)
+		}
+	}
+}
+
+// TestARenewalDoesNotDeadlockWhenTheOrchestratorPrefersAnother is the
+// regression for a dining room that lost its thermometer and could not get it
+// back.
+//
+// A bound cervice renewing its token must end up holding the provider it
+// started with. Asking the singular quest cannot guarantee that: the
+// orchestrator answers with whichever candidate it prefers, the stranger is
+// discarded, and the cervice is left bound to a provider with no token. Nothing
+// recovers it, because a provider that is up never produces the transport
+// failure that would permit re-binding — so the consumer repeats "no read token
+// for the provider this cervice is bound to" every tick, for ever.
+func TestARenewalDoesNotDeadlockWhenTheOrchestratorPrefersAnother(t *testing.T) {
+	const ours = "http://indoor.example/temperature"
+	const theirs = "http://outdoor.example/temperature"
+
+	// An orchestrator that prefers the other provider, and lists both when
+	// asked for everything — which is what a real one does.
+	orchestrator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/squests") {
+			fmt.Fprintf(w, `{"list":[
+			  {"serviceURL":%q,"serviceNode":"OutdoorModule","token":"tok-outdoor","version":"ServicePoint_v1"},
+			  {"serviceURL":%q,"serviceNode":"IndoorModule","token":"tok-indoor","version":"ServicePoint_v1"}
+			],"version":"ServicePointList_v1"}`, theirs, ours)
+			return
+		}
+		fmt.Fprintf(w, `{"serviceURL":%q,"serviceNode":"OutdoorModule","token":"tok-outdoor","version":"ServicePoint_v1"}`, theirs)
+	}))
+	defer orchestrator.Close()
+
+	sys := components.NewSystem("ethermostat", context.Background())
+	sys.Husk = &components.Husk{
+		ProtoPort: map[string]int{"http": 20196},
+		CoreS: []*components.CoreSystem{
+			{Name: "orchestrator", Url: orchestrator.URL + "/orchestrator/orchestration"},
+		},
+	}
+
+	// Bound to the indoor sensor, with no token for this action — the state a
+	// consumer is in the moment after a stale credential is dropped.
+	cer := &components.Cervice{
+		Definition: "temperature",
+		Protos:     []string{"http"},
+		Mode:       "get",
+		Nodes: map[string][]components.NodeInfo{
+			"IndoorModule": {{URL: ours, Tokens: map[string]string{}}},
+		},
+	}
+
+	url, token, err := resolveProvider(cer, &sys, "read")
+	if err != nil {
+		t.Fatalf("a bound cervice could not renew: %v", err)
+	}
+	if url != ours {
+		t.Errorf("renewed onto %s; the cervice is bound to %s", url, ours)
+	}
+	if token != "tok-indoor" {
+		t.Errorf("token %q; want the one minted for the bound provider", token)
+	}
+	if knownURLs(cer)[theirs] {
+		t.Error("the renewal widened the binding to another provider")
 	}
 }

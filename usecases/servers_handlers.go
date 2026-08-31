@@ -265,16 +265,69 @@ func handleThreeParts(w http.ResponseWriter, r *http.Request, part string, sys *
 	case "doc":
 		SysHateoas(w, r, *sys)
 	case "kgraph":
+		if !enrolled(w, r) {
+			return
+		}
 		KGraphing(w, r, sys)
 	case "smodel":
+		if !enrolled(w, r) {
+			return
+		}
 		SModeling(w, r, sys)
 	case "cert":
+		// Deliberately open, and it must stay that way. A provider fetches the
+		// authorizer's certificate through this to learn the key it verifies
+		// tokens with, so requiring a credential to read one would leave the
+		// cloud unable to bootstrap verification at all. It is safe precisely
+		// because a certificate is public and nobody can forge a CA-signed one.
 		forms.Certificate(w, r, *sys)
 	case "msg":
+		if !enrolled(w, r) {
+			return
+		}
 		RegisterMessenger(w, r, sys)
 	default:
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 	}
+}
+
+// enrolled reports whether the request came from a system this cloud enrolled,
+// refusing it if not.
+//
+// This is authentication, not authorization: it asks only whether the caller
+// holds a certificate this cloud's CA issued, never which system it is or what
+// policy says about it. No token is required and no authorizer need exist, so a
+// deployment that has not adopted authorization is affected exactly as much as
+// one that has — which is correct, because what these three endpoints disclose
+// does not depend on that choice.
+//
+// The HTTPS server is configured with tls.RequireAndVerifyClientCert, so a
+// request that reaches a handler there has already presented a certificate
+// checked against the CA. On the plain-HTTP server r.TLS is nil and this always
+// refuses. That asymmetry is the whole mechanism.
+//
+// What it protects, and why these three:
+//
+//   - /kgraph and /smodel describe the system completely — every asset, service,
+//     endpoint, unit, quantity kind and functional location. Together with the
+//     registrar's syslist they let an unauthenticated host on the network draw
+//     an accurate map of the plant without ever presenting a credential.
+//   - /msg is not a read at all. It registers an arbitrary host to receive every
+//     log message this system emits, pushed outbound to it. Left open, any host
+//     on the LAN could subscribe itself on every system in the cloud and be sent
+//     a continuous account of what the plant is doing.
+//
+// /cert stays open above, for the bootstrap reason stated there. /doc is a page
+// for a person and is left open for now, which is a decision rather than an
+// oversight: it discloses much of what /kgraph does, in HTML.
+func enrolled(w http.ResponseWriter, r *http.Request) bool {
+	if _, ok := PeerCN(r); ok {
+		return true
+	}
+	// The same words a caller gets for a service it may not have, so the two
+	// cannot be told apart by their refusals.
+	http.Error(w, "the caller presented no verified certificate", http.StatusUnauthorized)
+	return false
 }
 
 // handleFourParts handles a request with four parts
@@ -404,10 +457,18 @@ func handleFiveParts(w http.ResponseWriter, r *http.Request, resourceName, servi
 // permitted refuses a request the authorizer has not sanctioned, writing the
 // refusal itself and reporting whether serving may continue.
 //
-// It guards service dispatch only. The system-level endpoints — /doc, /kgraph,
-// /smodel and above all /cert — stay open: a provider fetches the authorizer's
-// own certificate through /cert, so requiring a token to read one would leave the
-// cloud unable to bootstrap verification at all.
+// It guards service dispatch only, which is not the same as saying the rest is
+// open. The system-level endpoints are handled in handleThreeParts: /kgraph,
+// /smodel and /msg require a caller this cloud enrolled (see enrolled), /cert
+// stays open so a provider can fetch the authorizer's certificate and bootstrap
+// verification at all, and /doc is still served to anyone.
+//
+// The distinction is authentication against authorization. Those three ask only
+// whether the caller holds a certificate this CA issued; this function asks what
+// policy says about a named subject and a classified service. A system-level
+// endpoint has no service record — no definition, no mission — so there is
+// nothing for a policy to reason about, which is why they are guarded by
+// identity rather than by rule.
 func permitted(sys *components.System, w http.ResponseWriter, r *http.Request, assetName string, services map[string]*components.Service, servicePath string) bool {
 	serv := findServiceByPath(services, servicePath)
 	if serv == nil {

@@ -376,6 +376,20 @@ func modelUAsset(sys *components.System) string {
 			assetModel += fmt.Sprintf("    afo:hasMission \"%s\" ;\n", (*asset).Mission)
 		}
 
+		// Written from the fields, through the same helper the details use, so
+		// the predicates are the ones the graph already carried when these two
+		// were details — a reader's query does not change because the struct did.
+		if !(*asset).Mobility.IsZero() {
+			if pred, ok := detailPredicate("Mobility"); ok {
+				assetModel += fmt.Sprintf("    %s %s ;\n", pred, rdfObject((*asset).Mobility.String()))
+			}
+		}
+		for _, tether := range (*asset).TetheredTo {
+			if pred, ok := detailPredicate("TetheredTo"); ok {
+				assetModel += fmt.Sprintf("    %s %s ;\n", pred, rdfObject(tether))
+			}
+		}
+
 		details := (*asset).GetDetails()
 		for key, values := range details {
 			// FunctionalLocation lands in the AFO namespace because the

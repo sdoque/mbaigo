@@ -39,10 +39,15 @@ type ConfigurableAsset struct {
 	// does not exist is refused as the file is read, where the message can name
 	// the file and the field, rather than carried inward to be refused later as
 	// an authorization question.
-	Mission  components.Mission   `json:"mission,omitempty"`
-	Details  map[string][]string  `json:"details"`
-	Services []components.Service `json:"services"`
-	Traits   []json.RawMessage    `json:"traits"`
+	Mission components.Mission `json:"mission,omitempty"`
+	// Intrinsic properties, beside the mission and for the same reason: a value
+	// outside the vocabulary is refused as the file is read, naming the file and
+	// the field.
+	Mobility   components.Mobility  `json:"mobility,omitempty"`
+	TetheredTo []string             `json:"tetheredTo,omitempty"`
+	Details    map[string][]string  `json:"details"`
+	Services   []components.Service `json:"services"`
+	Traits     []json.RawMessage    `json:"traits"`
 }
 
 // templateOut is the struct used to prepare the systemconfig.json file
@@ -83,10 +88,12 @@ func setupDefaultConfig(sys *components.System) (defaultConfig templateOut, err 
 	servicesTemplate := getServicesList(assetTemplate)
 
 	confAsset := ConfigurableAsset{
-		Name:     assetTemplate.GetName(),
-		Mission:  assetTemplate.Mission,
-		Details:  assetTemplate.GetDetails(),
-		Services: servicesTemplate,
+		Name:       assetTemplate.GetName(),
+		Mission:    assetTemplate.Mission,
+		Mobility:   assetTemplate.Mobility,
+		TetheredTo: assetTemplate.TetheredTo,
+		Details:    assetTemplate.GetDetails(),
+		Services:   servicesTemplate,
 	}
 
 	// If the asset exposes traits, serialize them and store as raw JSON
@@ -133,9 +140,26 @@ func setupDefaultConfig(sys *components.System) (defaultConfig templateOut, err 
 		Name: "serviceregistrar",
 		Url:  "http://" + host + ":20102/serviceregistrar/registry",
 	}
+	// The orchestrator over https, unlike the registrar and the CA below.
+	//
+	// A consumer reaches the orchestrator only after it holds a certificate —
+	// discovery happens when it first consumes, long after enrollment — so mTLS
+	// is available by then, and a quest arriving without a client certificate
+	// cannot be named by any policy. An authorized cloud therefore refuses every
+	// plaintext quest, which is what a plaintext default produced: three systems
+	// on 30 August 2026 came up unable to discover anything until the same edit
+	// was made to each.
+	//
+	// The registrar and the CA stay plaintext because they are reached *before*
+	// there is a certificate: GetRunningCoreSystemURL status-checks the registrar
+	// at startup, and the CA is where the certificate comes from. Bootstrapping
+	// over a channel that requires the thing being bootstrapped does not work.
+	//
+	// A cloud with no CA at all needs this changed back to http, and is told so
+	// — see the guidance on a refused quest in service_discovery.go.
 	orches := components.CoreSystem{
 		Name: "orchestrator",
-		Url:  "http://" + host + ":20103/orchestrator/orchestration",
+		Url:  "https://" + host + ":30103/orchestrator/orchestration",
 	}
 	ca := components.CoreSystem{
 		Name: "ca",
@@ -230,6 +254,9 @@ func Configure(sys *components.System) ([]json.RawMessage, error) {
 	// asset the template does not know about is still refused.
 	rawResources = fillMissionsFromTemplates(sys, rawResources)
 	rawResources = fillServicesFromTemplates(sys, rawResources)
+	// Behind the file's own core systems: what an earlier run learned from the
+	// registry, so a restart while the lead is down can still find a standby.
+	LoadCoreCache(sys)
 
 	sys.Name = configurationIn.CName
 	// Restore IP addresses from config, allowing operators to limit which address is used.
