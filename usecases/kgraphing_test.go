@@ -421,8 +421,8 @@ func TestModelServicesWritesMethodsAsIRIs(t *testing.T) {
 	out := modelServices("testhost_mysys", ua, sys)
 
 	for _, want := range []string{
-		"alc:hasMethods <http://www.w3.org/2011/http-methods#GET>",
-		"alc:hasMethods <http://www.w3.org/2011/http-methods#PUT>",
+		"afo:hasMethods <http://www.w3.org/2011/http-methods#GET>",
+		"afo:hasMethods <http://www.w3.org/2011/http-methods#PUT>",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("modelServices: missing %q\n%s", want, out)
@@ -559,6 +559,36 @@ func TestPromotedTermsAreInTheAFONamespace(t *testing.T) {
 	for _, term := range []string{"hasMode", "hasUnit", "hasQuantityKind"} {
 		if got := predicate(term); got != "afo:"+term {
 			t.Errorf("predicate(%q) = %q; want afo:%s", term, got, term)
+		}
+	}
+}
+
+// A display name is a label, and labels are literals. Rendered through
+// rdfObject a name that happened to be a valid Turtle local name became
+// alc:KitchenHeater — an identifier where a label was meant, which is how the
+// cottage came to hold two bathrooms that no query could join.
+func TestADisplayNameIsALabelAndNeverAnIdentifier(t *testing.T) {
+	for _, name := range []string{"KitchenHeater", "lumi.remote.b28ac1", "Kitchen Heater"} {
+		got, ok := detailStatement("DisplayName", name)
+		if !ok {
+			t.Fatalf("detailStatement rejected the display name %q", name)
+		}
+		if want := `rdfs:label "` + name + `"`; got != want {
+			t.Errorf("detailStatement(DisplayName, %q) = %q; want %q", name, got, want)
+		}
+	}
+}
+
+// Every other detail keeps the has<Key> shape, and the promoted ones resolve
+// into AFO rather than the namespace the framework mints in.
+func TestPromotedDetailsResolveIntoAFO(t *testing.T) {
+	for key, want := range map[string]string{
+		"Forms":   "afo:hasForms",
+		"Methods": "afo:hasMethods",
+	} {
+		got, ok := detailStatement(key, "x")
+		if !ok || !strings.HasPrefix(got, want+" ") {
+			t.Errorf("detailStatement(%q, ...) = %q; want it to start with %q", key, got, want)
 		}
 	}
 }
