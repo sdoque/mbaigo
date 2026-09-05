@@ -527,3 +527,38 @@ func TestEveryAFOTermEmittedIsOntologyVocabulary(t *testing.T) {
 		}
 	}
 }
+
+// A mode is written as the individual the ontology declares, not as the word
+// the framework uses internally. AFO 2.1.0 closed afo:Mode to three members, so
+// a graph carrying "get" as a string says nothing a reasoner can use — and a
+// mode outside the three would put an undefined term in AFO's namespace, which
+// is the fault afoDefined exists to prevent.
+func TestModeIsWrittenAsTheOntologysIndividual(t *testing.T) {
+	cases := []struct {
+		mode string
+		want string
+	}{
+		{"get", "afo:Get"},
+		{"set", "afo:Set"},
+		{"do", "afo:Do"},
+		{"GET", "afo:Get"},   // the framework's own casing must not matter
+		{" set ", "afo:Set"}, // nor a stray space in a configuration file
+		{"", ""},
+		{"nonsense", ""}, // left out rather than minted
+	}
+	for _, c := range cases {
+		if got := modeIRI(c.mode); got != c.want {
+			t.Errorf("modeIRI(%q) = %q; want %q", c.mode, got, c.want)
+		}
+	}
+}
+
+// The three terms promoted in 2.1.0 must resolve to the AFO namespace, or the
+// graph goes on describing them where nothing defines them.
+func TestPromotedTermsAreInTheAFONamespace(t *testing.T) {
+	for _, term := range []string{"hasMode", "hasUnit", "hasQuantityKind"} {
+		if got := predicate(term); got != "afo:"+term {
+			t.Errorf("predicate(%q) = %q; want afo:%s", term, got, term)
+		}
+	}
+}
