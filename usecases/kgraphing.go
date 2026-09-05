@@ -57,7 +57,7 @@ func KGraphing(w http.ResponseWriter, req *http.Request, sys *components.System)
 
 func prefixes() (description string) {
 	description = "@prefix alc: <http://www.synecdoque.com/lcloud/> .\n"
-	description += "@prefix afo: <http://www.synecdoque.com/2025/afo#> .\n"
+	description += "@prefix afo: <https://w3id.org/synecdoque/afo#> .\n"
 	description += "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n"
 	description += "@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n"
 	description += "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
