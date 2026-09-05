@@ -80,10 +80,34 @@ func rdfObject(value string) string {
 	if isValidPNLocal(value) {
 		return "alc:" + value
 	}
-	// Escape backslashes and double quotes for a Turtle string literal.
+	return turtleString(value)
+}
+
+// turtleString writes a value as a Turtle literal whatever it looks like, for
+// the details whose value is text and must not be mistaken for a name.
+func turtleString(value string) string {
 	escaped := strings.ReplaceAll(value, `\`, `\\`)
 	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
 	return `"` + escaped + `"`
+}
+
+// detailStatement renders one detail as the predicate and object it belongs in.
+//
+// Most take a has<Key> predicate with rdfObject choosing between an IRI and a
+// literal. A display name does not: it is a label, so it takes the term RDFS
+// already defines and is always written as a literal. Put through rdfObject, a
+// name that happened to be a valid local name became alc:KitchenHeater — an
+// identifier where a label was meant, which is the fault that left the cottage
+// with two bathrooms.
+func detailStatement(key, value string) (string, bool) {
+	if key == "DisplayName" {
+		return "rdfs:label " + turtleString(value), true
+	}
+	pred, ok := detailPredicate(key)
+	if !ok {
+		return "", false
+	}
+	return pred + " " + rdfObject(value), true
 }
 
 // afoDefined names the predicates the Arrowhead Framework Ontology defines.
@@ -131,6 +155,9 @@ var afoDefined = map[string]bool{
 	// action, and a unit and a quantity kind are what make a number mean
 	// something; none of the three is a property of one deployment.
 	"hasMode": true, "hasQuantityKind": true, "hasUnit": true,
+	// 2.2.0. A form is the payload a service speaks and a method is how it is
+	// asked; both are what the framework itself defines, not what a site does.
+	"hasForms": true, "hasMethods": true, "consumesFrom": true,
 }
 
 // modeIRI names a service's mode as the individual the ontology declares,
@@ -327,13 +354,13 @@ func modelHusk(sys *components.System) string {
 		if key == "LocalCloud" {
 			continue
 		}
-		pred, ok := detailPredicate(key)
-		if !ok {
-			log.Printf("kgraph: the detail %q cannot be written as a predicate and is left out of the graph; use a name of letters, digits, underscores or hyphens\n", key)
-			continue
-		}
 		for _, value := range values {
-			huskModel += fmt.Sprintf("    %s %s ;\n", pred, rdfObject(value))
+			statement, ok := detailStatement(key, value)
+			if !ok {
+				log.Printf("kgraph: the detail %q cannot be written as a predicate and is left out of the graph; use a name of letters, digits, underscores or hyphens\n", key)
+				continue
+			}
+			huskModel += fmt.Sprintf("    %s ;\n", statement)
 		}
 	}
 
@@ -423,13 +450,13 @@ func modelUAsset(sys *components.System) string {
 			// they too have an alignment target. That decision lives in
 			// afoDefined now rather than in an exception here, and the key
 			// is checked before it reaches the predicate position.
-			pred, ok := detailPredicate(key)
-			if !ok {
-				log.Printf("kgraph: the detail %q cannot be written as a predicate and is left out of the graph; use a name of letters, digits, underscores or hyphens\n", key)
-				continue
-			}
 			for _, value := range values {
-				assetModel += fmt.Sprintf("    %s %s ;\n", pred, rdfObject(value))
+				statement, ok := detailStatement(key, value)
+				if !ok {
+					log.Printf("kgraph: the detail %q cannot be written as a predicate and is left out of the graph; use a name of letters, digits, underscores or hyphens\n", key)
+					continue
+				}
+				assetModel += fmt.Sprintf("    %s ;\n", statement)
 			}
 		}
 
@@ -480,20 +507,20 @@ func modelCervices(sName string, ua *components.UnitAsset) string {
 
 		details := cervice.Details
 		for key, values := range details {
-			pred, ok := detailPredicate(key)
-			if !ok {
-				log.Printf("kgraph: the detail %q cannot be written as a predicate and is left out of the graph; use a name of letters, digits, underscores or hyphens\n", key)
-				continue
-			}
 			for _, value := range values {
-				cerviceModel += fmt.Sprintf("    %s %s ;\n", pred, rdfObject(value))
+				statement, ok := detailStatement(key, value)
+				if !ok {
+					log.Printf("kgraph: the detail %q cannot be written as a predicate and is left out of the graph; use a name of letters, digits, underscores or hyphens\n", key)
+					continue
+				}
+				cerviceModel += fmt.Sprintf("    %s ;\n", statement)
 			}
 		}
 
 		for pName, nodes := range cervice.Nodes {
 			cerviceModel += fmt.Sprintf("    afo:consumes alc:%s ;\n", pName)
 			for _, ni := range nodes {
-				cerviceModel += fmt.Sprintf("    "+predicate("fromUrl")+" <%s> ;\n", ni.URL)
+				cerviceModel += fmt.Sprintf("    %s <%s> ;\n", predicate("consumesFrom"), ni.URL)
 			}
 		}
 
@@ -538,13 +565,13 @@ func modelServices(sName string, ua *components.UnitAsset, sys *components.Syste
 		// Additional details
 		details := service.Details
 		for key, values := range details {
-			pred, ok := detailPredicate(key)
-			if !ok {
-				log.Printf("kgraph: the detail %q cannot be written as a predicate and is left out of the graph; use a name of letters, digits, underscores or hyphens\n", key)
-				continue
-			}
 			for _, value := range values {
-				serviceModel += fmt.Sprintf("    %s %s ;\n", pred, rdfObject(value))
+				statement, ok := detailStatement(key, value)
+				if !ok {
+					log.Printf("kgraph: the detail %q cannot be written as a predicate and is left out of the graph; use a name of letters, digits, underscores or hyphens\n", key)
+					continue
+				}
+				serviceModel += fmt.Sprintf("    %s ;\n", statement)
 			}
 		}
 
