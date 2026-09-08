@@ -592,3 +592,33 @@ func TestPromotedDetailsResolveIntoAFO(t *testing.T) {
 		}
 	}
 }
+
+// A core system is written as what it is. The ontology carried
+// CertificateAuthority, ServiceRegistrar and Orchestrator from its first
+// release and the graph used none of them: every system was an afo:System, so
+// asking a cloud for its certificate authorities returned nothing, and
+// SecureLocalCloud — a cloud containing one — could not be satisfied by any
+// graph this framework produced.
+func TestCoreSystemsAreWrittenAsWhatTheyAre(t *testing.T) {
+	for name, want := range map[string]string{
+		"serviceregistrar": "ServiceRegistrar",
+		"orchestrator":     "Orchestrator",
+		"ca":               "CertificateAuthority",
+		"maitreD":          "MaitreD",
+		"authorizer":       "Authorizer",
+	} {
+		got, ok := coreClasses[name]
+		if !ok {
+			t.Errorf("%q has no AFO class, so it is written as a bare afo:System", name)
+			continue
+		}
+		if got != want {
+			t.Errorf("coreClasses[%q] = %q; want %q", name, got, want)
+		}
+	}
+	// An application system stays a plain System: inventing a class for each
+	// would put terms in AFO's namespace that AFO does not define.
+	if class, ok := coreClasses["thermostat"]; ok {
+		t.Errorf("an application system was given the core class %q", class)
+	}
+}
