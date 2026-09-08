@@ -158,6 +158,28 @@ var afoDefined = map[string]bool{
 	// 2.2.0. A form is the payload a service speaks and a method is how it is
 	// asked; both are what the framework itself defines, not what a site does.
 	"hasForms": true, "hasMethods": true, "consumesFrom": true,
+	// 2.3.0. A default form is a fact about a service, and the kind of PKI a
+	// certification asset implements is a fact about the framework's own
+	// security, not about the site it is deployed at.
+	"hasDefaultForm": true,
+}
+
+// coreClasses is the AFO class a core system belongs to, by the name it is
+// known by. Everything else is an afo:System and nothing more.
+//
+// The ontology has carried CertificateAuthority, ServiceRegistrar and
+// Orchestrator since its first release and the graph never once used them:
+// every system was written as afo:System, so a query for the certificate
+// authorities of a cloud returned nothing, and SecureLocalCloud — defined as a
+// cloud containing one — could not be satisfied by any graph this framework
+// produced. Naming the class here is what makes the vocabulary describe
+// something.
+var coreClasses = map[string]string{
+	components.ServiceRegistrarName: "ServiceRegistrar",
+	"orchestrator":                  "Orchestrator",
+	"ca":                            "CertificateAuthority",
+	"maitreD":                       "MaitreD",
+	AuthorizerName:                  "Authorizer",
 }
 
 // modeIRI names a service's mode as the individual the ontology declares,
@@ -265,7 +287,19 @@ func endpointLocalName(sys *components.System, protocol string, port int) string
 // modelSystem creates a knowledge graph of the system that aggregates the husk and unit assets
 func modelSystem(sys *components.System) (systemModel string) {
 	sName := sys.Husk.Host.Name + "_" + sys.Name
+	// A core system is written as what it is as well as what it is generally,
+	// so a reader can ask for the registrars of a cloud without matching names.
+	//
+	// The second type is a repeated predicate and not a comma list. Both are
+	// valid Turtle; only one of them is read by the parsers in this project,
+	// which take a line at a time. Written as "a afo:System, afo:MaitreD" the
+	// core systems vanished from the painter's canvas and stopped being counted
+	// as systems by the kgrapher — twice, silently, because a parser that does
+	// not know a construct does not complain about it.
 	systemModel = fmt.Sprintf("alc:%s a afo:System ;\n", sName)
+	if class, ok := coreClasses[sys.Name]; ok {
+		systemModel += fmt.Sprintf("    a afo:%s ;\n", class)
+	}
 	systemModel += fmt.Sprintf("    afo:hasName \"%s\" ;\n", sys.Name)
 
 	// The Husk instance is in the alc: namespace, not afo:
