@@ -798,3 +798,78 @@ func TestARenewalDoesNotDeadlockWhenTheOrchestratorPrefersAnother(t *testing.T) 
 		t.Error("the renewal widened the binding to another provider")
 	}
 }
+
+// A 404 means the provider is reachable but no longer has what was asked for —
+// a renamed asset, a withdrawn service, a different system on the same address.
+// The binding has to be dropped so the next call re-discovers, or the consumer
+// asks a dead URL for ever. Found on the lab cloud by renaming a sensor's unit
+// asset under a running thermostat: it logged 404s and said it would keep
+// asking "until it resumes", and only a restart fixed it.
+func TestA404ClearsTheBindingSoDiscoveryRuns(t *testing.T) {
+	gone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Resource not found", http.StatusNotFound)
+	}))
+	defer gone.Close()
+	sys := components.NewSystem("thermostat", context.Background())
+	sys.Husk = &components.Husk{ProtoPort: map[string]int{"http": 20152, "https": 0, "coap": 0}}
+	// The node carries a token, or resolveProvider goes to the orchestrator for
+	// one and the provider is never contacted at all — which is how the first
+	// version of this test passed without exercising anything.
+	cer := &components.Cervice{
+		Definition: "temperature", Protos: []string{"http"}, Mode: "get",
+		Nodes: map[string][]components.NodeInfo{"sensor": {{
+			URL: gone.URL, Tokens: map[string]string{"read": "a-valid-token"},
+		}}},
+	}
+
+	if _, err := GetState(cer, &sys); err == nil {
+		t.Fatal("a 404 was reported as success")
+	}
+	if urls := knownURLs(cer); urls[gone.URL] {
+		t.Error("the binding survived a 404; the next call would ask the same dead URL for ever")
+	}
+}
+
+// The opposite case, and the reason this is not simply "any error re-binds". A
+// provider answering 503 is present and temporarily unable — a rangefinder that
+// cannot see, a sensor with no reading yet. Dropping that binding would re-run
+// discovery on every blind cycle, and could re-bind to a different provider of
+// the same definition that happens to be answering.
+func TestA503KeepsTheBinding(t *testing.T) {
+	blind := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "no valid reading yet", http.StatusServiceUnavailable)
+	}))
+	defer blind.Close()
+
+	sys := components.NewSystem("thermostat", context.Background())
+	sys.Husk = &components.Husk{ProtoPort: map[string]int{"http": 20152, "https": 0, "coap": 0}}
+	cer := &components.Cervice{
+		Definition: "temperature", Protos: []string{"http"}, Mode: "get",
+		Nodes: map[string][]components.NodeInfo{"sensor": {{
+			URL: blind.URL, Tokens: map[string]string{"read": "a-valid-token"},
+		}}},
+	}
+
+	if _, err := GetState(cer, &sys); err == nil {
+		t.Fatal("a 503 was reported as success")
+	}
+	if urls := knownURLs(cer); !urls[blind.URL] {
+		t.Error("the binding was dropped on a 503; a provider that is present but blind must stay bound")
+	}
+}
+
+func TestVanishedCoversOnlyGoneResources(t *testing.T) {
+	for code, want := range map[int]bool{
+		http.StatusNotFound:            true,
+		http.StatusGone:                true,
+		http.StatusServiceUnavailable:  false,
+		http.StatusUnauthorized:        false,
+		http.StatusForbidden:           false,
+		http.StatusInternalServerError: false,
+		http.StatusBadRequest:          false,
+	} {
+		if got := (&ProviderRefusal{StatusCode: code}).Vanished(); got != want {
+			t.Errorf("Vanished(%d) = %v, want %v", code, got, want)
+		}
+	}
+}

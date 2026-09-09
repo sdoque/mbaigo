@@ -260,6 +260,25 @@ func (e *ProviderRefusal) StaleCredential() bool {
 	return e.StatusCode == http.StatusUnauthorized || e.StatusCode == http.StatusForbidden
 }
 
+// Vanished reports whether the provider is still answering but no longer has
+// what was asked for.
+//
+// The distinction matters because it decides whether a binding survives. A
+// refusal normally means the topology is not in doubt: the provider is where it
+// was, and 401, 403, 500 or a 503 from a sensor that cannot see are all states
+// of a provider that still exists. A 404 is different in kind. The host
+// answered, so it is reachable, but the path is gone — the asset was renamed,
+// the service withdrawn, or the system replaced by another on the same address.
+// Continuing to ask cannot succeed.
+//
+// Found by renaming a sensor's unit asset on a running cloud: the consumer kept
+// requesting the old URL and logging 404s, reporting that it would keep asking
+// "until it resumes". It never re-discovered, because a 404 is an answer and
+// only silence cleared the binding. Only a restart fixed it.
+func (e *ProviderRefusal) Vanished() bool {
+	return e.StatusCode == http.StatusNotFound || e.StatusCode == http.StatusGone
+}
+
 func sendHTTPReqWithToken(method string, url string, token string, data []byte) (*http.Response, error) {
 	req, err := http.NewRequest(method, url, bytes.NewBuffer(data))
 	if err != nil {
