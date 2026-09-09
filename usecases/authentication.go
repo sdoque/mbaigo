@@ -54,6 +54,35 @@ func EnsureCertReady(sys *components.System) chan struct{} {
 	return sys.Husk.CertReady
 }
 
+// Certificate requests back off from a short first retry rather than waiting a
+// flat minute, because the first attempt of a cold start nearly always fails
+// and the failure is nearly always brief.
+//
+// A whole cloud starting at once has an ordering it cannot avoid: the CA must
+// be listening before anything can enrol, and a maitreD must hold its own
+// certificate before it can sign a measurement for anything else on its host.
+// Neither takes long. But with a flat minute, each unmet dependency cost a full
+// minute, and they stacked: on the CA's own host the registrar waited two
+// minutes — one for the CA to come up, another for that host's maitreD to
+// enrol. A sixteen-system cloud took 120 s to be serving TLS, of which about
+// 119 s was sleeping. Started in dependency order the same cloud took under
+// four seconds, and the enrolment itself is 20 ms.
+//
+// So: start at a second, double up to a minute, and stay there. A transient
+// dependency is cleared in the first few tries; a CA that is genuinely absent
+// still settles to one attempt a minute rather than hammering it.
+const (
+	firstCertRetry = time.Second
+	maxCertRetry   = time.Minute
+)
+
+func nextCertRetry(d time.Duration) time.Duration {
+	if d *= 2; d > maxCertRetry {
+		return maxCertRetry
+	}
+	return d
+}
+
 // RequestCertificate kicks off TLS-certificate acquisition for the system.
 // It is non-blocking: a goroutine generates a fresh ECDSA key pair in
 // memory, builds a CSR, and retries enrollment with the CA until success or
@@ -134,14 +163,14 @@ func acquireCertificate(sys *components.System, certReady chan struct{}) {
 	csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrBytes})
 
 	var response string
-	for {
+	for delay := firstCertRetry; ; delay = nextCertRetry(delay) {
 		response, err = sendCSR(sys, csrPEM)
 		if err == nil {
 			break
 		}
-		log.Printf("certification attempt failed (%v); retrying in 1 minute\n", err)
+		log.Printf("certification attempt failed (%v); retrying in %s\n", err, delay)
 		select {
-		case <-time.After(time.Minute):
+		case <-time.After(delay):
 		case <-sys.Ctx.Done():
 			log.Println("context canceled, aborting certificate request")
 			return

@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/sdoque/mbaigo/components"
+	"time"
 )
 
 // EnsureCertReady is the gate between RequestCertificate (the producer that
@@ -101,5 +102,46 @@ func TestEnsureCertReadyClosesOnSignal(t *testing.T) {
 		// success
 	default:
 		t.Fatal("EnsureCertReady returned a channel that did not reflect the close")
+	}
+}
+
+// The backoff exists because a cold start's first failure is nearly always
+// brief — the CA is a second from listening, or this host's maitreD is a second
+// from having the certificate it needs before it can sign.
+func TestCertRetryBacksOffFromASecond(t *testing.T) {
+	if firstCertRetry != time.Second {
+		t.Errorf("first retry is %s; a cold start pays this before its first success", firstCertRetry)
+	}
+	d := firstCertRetry
+	steps := []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second}
+	for _, want := range steps {
+		d = nextCertRetry(d)
+		if d != want {
+			t.Fatalf("backoff reached %s, want %s", d, want)
+		}
+	}
+	// It must settle rather than grow without bound: a CA that is genuinely
+	// absent should be asked once a minute, not once an hour.
+	for i := 0; i < 20; i++ {
+		d = nextCertRetry(d)
+	}
+	if d != maxCertRetry {
+		t.Errorf("backoff settled at %s, want %s", d, maxCertRetry)
+	}
+}
+
+// Sixteen systems each waiting a flat minute per unmet dependency is what made
+// a simultaneous cold start take two minutes. Four tries now cover the first
+// fifteen seconds, which is longer than any dependency in a cold start took.
+func TestBackoffCoversAColdStartQuickly(t *testing.T) {
+	total, d := time.Duration(0), firstCertRetry
+	tries := 0
+	for total < 15*time.Second {
+		total += d
+		d = nextCertRetry(d)
+		tries++
+	}
+	if tries > 5 {
+		t.Errorf("%d attempts to cover 15 s; the old flat minute needed 1 and took 60 s", tries)
 	}
 }
