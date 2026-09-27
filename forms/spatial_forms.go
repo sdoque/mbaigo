@@ -209,3 +209,60 @@ func (m *MapA_v1a) Check() error {
 func init() {
 	FormTypeMap["MapA_v1.0"] = reflect.TypeOf(MapA_v1a{})
 }
+
+// PathA_v1a is a route: a series of poses, in order, in one named frame.
+//
+// Parallel arrays, as in ScanA, because a path is read as a whole: a follower
+// needs the shape ahead, not one waypoint at a time. Headings travel with the
+// positions because a vehicle that must arrive facing a way needs to know it,
+// and a follower can steer towards the tangent rather than towards the next
+// point.
+//
+// Frame is the whole point of carrying it. A path is only valid in the map it
+// was planned in: a cartographer that restarts begins a new map with a new
+// origin, and the same coordinates then name another place. A follower must
+// compare this frame with the frame of the pose it steers by, and refuse the
+// path when they differ.
+type PathA_v1a struct {
+	XMLName xml.Name `json:"-" xml:"PathA"`
+
+	X       []float64 `json:"x" xml:"x"`             // one per pose
+	Y       []float64 `json:"y" xml:"y"`             // one per pose
+	Heading []float64 `json:"heading" xml:"heading"` // one per pose, positive counter-clockwise
+
+	Frame        string `json:"frame" xml:"frame"`
+	DistanceUnit string `json:"distanceUnit" xml:"distanceUnit"`
+	AngleUnit    string `json:"angleUnit" xml:"angleUnit"`
+
+	Timestamp time.Time `json:"timestamp" xml:"timestamp"`
+	Version   string    `json:"version" xml:"version"`
+}
+
+// NewForm creates a new form of type PathA
+func (p *PathA_v1a) NewForm() Form {
+	p.Version = "PathA_v1.0"
+	return p
+}
+
+// FormVersion returns the version of the form
+func (p *PathA_v1a) FormVersion() string {
+	return p.Version
+}
+
+// Check reports whether the three arrays line up. Out of step, a follower would
+// steer to a heading taken from another point of the route.
+func (p *PathA_v1a) Check() error {
+	if len(p.Y) != len(p.X) || len(p.Heading) != len(p.X) {
+		return fmt.Errorf("path arrays out of step: %d x, %d y, %d heading",
+			len(p.X), len(p.Y), len(p.Heading))
+	}
+	if p.Frame == "" {
+		return fmt.Errorf("a path with no frame cannot be followed: its coordinates name nowhere")
+	}
+	return nil
+}
+
+// Register PathA_v1a in the formTypeMap
+func init() {
+	FormTypeMap["PathA_v1.0"] = reflect.TypeOf(PathA_v1a{})
+}
