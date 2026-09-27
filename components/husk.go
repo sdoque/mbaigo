@@ -54,6 +54,10 @@ type Husk struct {
 	// HTTPS server bind) read from it via select with sys.Ctx.Done().
 	CertReady chan struct{} `json:"-"`
 
+	// External are the services outside this cloud that the system depends on,
+	// declared by the system itself. See ExternalAttachment.
+	External []ExternalAttachment `json:"-"`
+
 	// AuthorizerKey is the public key a provider verifies access tokens with,
 	// taken from the authorizer's certificate and validated against CA_cert.
 	//
@@ -179,4 +183,37 @@ func (b *BoundPorts) Any() bool {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return len(b.ports) > 0
+}
+
+// ExternalAttachment is a service outside the local cloud that a system depends
+// on: a triple store, a time-series database, a broker, a field device.
+//
+// The cloud's security machinery does not reach these. A system may be attested,
+// hold a certificate, verify its callers and check tokens on every request, and
+// still fetch from a database over plain HTTP with no credential — and until a
+// system declared it, nothing recorded that. The security posture described the
+// inbound direction and was silent on the outbound one, so a graph of the cloud
+// overstated how protected it was.
+//
+// Declared by the system, because only the system knows what it attaches to.
+// Nothing enforces the declaration and nothing can; an undeclared attachment is
+// simply invisible, exactly as all of them were before.
+type ExternalAttachment struct {
+	// Name is what the thing is, for a person: "triple store", "OPC UA server".
+	Name string
+	// Protocol is how it is reached: "http", "https", "opc.tcp", "mqtt".
+	Protocol string
+	// Encrypted reports whether the transport protects the traffic.
+	Encrypted bool
+	// Authenticated reports whether this system presents a credential.
+	// A store with no security configured is legitimately unauthenticated;
+	// this records the fact, it does not judge it.
+	Authenticated bool
+}
+
+// Attach records a dependency on a service outside the cloud. Call it at
+// startup, once the system knows how it is configured to reach the thing:
+// whether a credential was supplied is usually a configuration question.
+func (h *Husk) Attach(a ExternalAttachment) {
+	h.External = append(h.External, a)
 }

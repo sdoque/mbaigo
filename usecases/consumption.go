@@ -229,9 +229,20 @@ func stateHandler(httpMethod string, cer *components.Cervice, sys *components.Sy
 
 		var refused *ProviderRefusal
 		if errors.As(err, &refused) {
-			// The provider answered, so it is exactly where this cervice thinks
-			// it is. Nothing about the topology is in doubt and the binding must
-			// survive; at most the credential is stale.
+			// A provider that answers is where this cervice thinks it is, and
+			// the binding must survive — unless what it answered is that the
+			// thing being asked for is no longer there. A 404 says the address
+			// is right and the resource is not, which is a change of topology
+			// wearing the clothes of an answer, and the only cure is to look
+			// again.
+			if refused.Vanished() {
+				cer.Mutex.Lock()
+				cer.Nodes = make(map[string][]components.NodeInfo)
+				cer.Mutex.Unlock()
+				return f, err
+			}
+			// Otherwise nothing about the topology is in doubt; at most the
+			// credential is stale.
 			if !refused.StaleCredential() || attempt > 0 {
 				return f, err
 			}

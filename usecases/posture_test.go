@@ -17,6 +17,7 @@
 package usecases
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -164,5 +165,51 @@ func TestSecurityPostureIsInTheKnowledgeGraph(t *testing.T) {
 	// The system block has to point at it, or nothing can find it.
 	if !strings.Contains(modelSystem(sys), "afo:hasSecurityPosture") {
 		t.Error("the system does not link to its security posture")
+	}
+}
+
+// A system can be attested, identified and token-checked on the way in and
+// still fetch from a database in the clear on the way out. Before attachments
+// were declared, the posture said "authorized" and stopped there.
+func TestPostureReportsAnUnprotectedAttachment(t *testing.T) {
+	sys := components.NewSystem("kgrapher", context.Background())
+	sys.Husk = &components.Husk{ProtoPort: map[string]int{"http": 20105, "https": 30105}}
+	sys.Husk.Attach(components.ExternalAttachment{
+		Name: "triple store", Protocol: "http", Encrypted: false, Authenticated: false,
+	})
+
+	p := Posture(&sys)
+	if p.Exposed != 1 {
+		t.Fatalf("Exposed = %d, want 1", p.Exposed)
+	}
+	if !strings.Contains(p.String(), "triple store") {
+		t.Errorf("the startup line does not name what is unprotected: %s", p.String())
+	}
+}
+
+// A credential is enough to stop counting it as exposed: an unencrypted link
+// to a store on the same host, carrying a token, is a different situation from
+// an anonymous one and the operator should not be told they are the same.
+func TestAnAuthenticatedAttachmentIsNotCountedExposed(t *testing.T) {
+	sys := components.NewSystem("collector", context.Background())
+	sys.Husk = &components.Husk{ProtoPort: map[string]int{"http": 20106}}
+	sys.Husk.Attach(components.ExternalAttachment{
+		Name: "time series", Protocol: "http", Encrypted: false, Authenticated: true,
+	})
+	if p := Posture(&sys); p.Exposed != 0 {
+		t.Errorf("Exposed = %d, want 0 for an authenticated attachment", p.Exposed)
+	}
+}
+
+// A system that reaches nothing outside must read exactly as it did before.
+func TestNoAttachmentsChangesNothing(t *testing.T) {
+	sys := components.NewSystem("thermostat", context.Background())
+	sys.Husk = &components.Husk{ProtoPort: map[string]int{"http": 20152}}
+	p := Posture(&sys)
+	if p.Exposed != 0 || len(p.External) != 0 {
+		t.Errorf("a system with no declared attachments reported %d exposed", p.Exposed)
+	}
+	if strings.Contains(p.String(), "outside this cloud") {
+		t.Errorf("the startup line mentions attachments where there are none: %s", p.String())
 	}
 }
