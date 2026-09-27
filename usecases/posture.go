@@ -68,6 +68,17 @@ type SecurityPosture struct {
 
 	OffersTLS        bool // an HTTPS port is configured
 	AcceptsPlaintext bool // an HTTP port is configured, so requests need no TLS
+
+	// External are the services outside the cloud this system depends on, as
+	// the system declared them. The four fields above describe how this system
+	// is protected from callers; these describe what it reaches for, which the
+	// cloud's machinery does not cover and a reader of the graph should not
+	// have to assume.
+	External []components.ExternalAttachment
+
+	// Exposed counts declared attachments that are neither encrypted nor
+	// authenticated. It is the number worth acting on.
+	Exposed int
 }
 
 // Posture reports how this system is currently protected.
@@ -93,6 +104,13 @@ func Posture(sys *components.System) SecurityPosture {
 
 	p.OffersTLS = sys.Husk.ProtoPort["https"] != 0
 	p.AcceptsPlaintext = sys.Husk.ProtoPort["http"] != 0
+
+	p.External = append(p.External, sys.Husk.External...)
+	for _, a := range p.External {
+		if !a.Encrypted && !a.Authenticated {
+			p.Exposed++
+		}
+	}
 
 	switch {
 	case !p.NamesCA:
@@ -137,6 +155,21 @@ func (p SecurityPosture) String() string {
 	// level describes.
 	if p.AcceptsPlaintext && p.Level != PostureOpen {
 		notes = append(notes, "an HTTP port is open, so this system is also reachable without TLS")
+	}
+
+	// The outbound direction, which every level above describes nothing about.
+	// A system can be attested, identified and token-checked on the way in and
+	// still fetch from a database in the clear on the way out; saying "authorized"
+	// and stopping there is how that goes unnoticed.
+	if p.Exposed > 0 {
+		names := make([]string, 0, p.Exposed)
+		for _, a := range p.External {
+			if !a.Encrypted && !a.Authenticated {
+				names = append(names, a.Name)
+			}
+		}
+		notes = append(notes, fmt.Sprintf("reaches %s outside this cloud with neither encryption nor a credential",
+			strings.Join(names, ", ")))
 	}
 
 	return fmt.Sprintf("security: %s — %s", p.Level, strings.Join(notes, "; "))

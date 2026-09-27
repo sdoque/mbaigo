@@ -137,6 +137,9 @@ var afoDefined = map[string]bool{
 	"communicatesOver": true, "consumes": true, "consumesService": true,
 	"consumingFromSystem": true, "contains": true, "endpointOfHusk": true,
 	"hasDeveloper": true, "hasHusk": true, "hasSecurityPosture": true,
+	// 2.4.0. What a system reaches outside the cloud, and whether anything
+	// protects it — facts the framework can state and the cloud cannot enforce.
+	"hasExternalAttachment": true, "isEncrypted": true, "isAuthenticated": true,
 	"hasServer": true, "hasUnitAsset": true, "hostedOnEndpoint": true,
 	"hostingEndpoint": true, "isContainedIn": true, "isHostOf": true,
 	"isHuskOf": true, "isServerOf": true, "isUnitAssetOf": true,
@@ -361,7 +364,22 @@ func modelSecurity(sys *components.System) string {
 		m += fmt.Sprintf("    %s \"%t\"^^xsd:boolean ;\n", predicate(f.predicate), f.value)
 	}
 
+	// Each attachment is its own node: a posture with one boolean for "reaches
+	// something unprotected" would say a system is exposed without saying what
+	// it reaches, and the remedy differs per attachment.
+	for i := range p.External {
+		m += fmt.Sprintf("    afo:hasExternalAttachment alc:%s_External_%d ;\n", sName, i)
+	}
 	m = finalizeBlock(m)
+
+	for i, a := range p.External {
+		e := fmt.Sprintf("alc:%s_External_%d a afo:ExternalAttachment ;\n", sName, i)
+		e += fmt.Sprintf("    afo:hasName %s ;\n", turtleString(a.Name))
+		e += fmt.Sprintf("    afo:usesProtocol %s ;\n", turtleString(a.Protocol))
+		e += fmt.Sprintf("    afo:isEncrypted \"%t\"^^xsd:boolean ;\n", a.Encrypted)
+		e += fmt.Sprintf("    afo:isAuthenticated \"%t\"^^xsd:boolean ;\n", a.Authenticated)
+		m += finalizeBlock(e)
+	}
 	return m
 }
 
