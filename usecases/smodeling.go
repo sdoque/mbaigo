@@ -19,9 +19,13 @@
 // Mapping from Arrowhead concepts to SysML v2:
 //   - System          → part def '<name>System' (BDD) + instantiated part (IBD)
 //   - UnitAsset       → part def '<name>Block' with in/out ports
-//   - Provided service → out port '<def>' : ~'<def>'   (conjugated = provided)
-//   - Consumed service → in port '<def>' : '<def>'     (required)
+//   - Provided service → out port '<def>' : '<Def>'
+//   - Consumed service → in port '<def>' : '<Def>'
 //   - Cervice Nodes   → connect statements in the IBD
+//
+// A port whose service declares a unit carries it: the value's SysML v2
+// quantity type and measurement reference, and the QUDT unit and quantity kind
+// the knowledge graph states for the same service (see sysml_units.go).
 
 package usecases
 
@@ -76,13 +80,13 @@ func sysmlPortDefs(sys *components.System) string {
 		for _, svc := range ua.GetServices() {
 			if !seen[svc.Definition] {
 				seen[svc.Definition] = true
-				out.WriteString(fmt.Sprintf("    port def '%s';\n", portDefName(svc.Definition)))
+				out.WriteString(fmt.Sprintf("    port def '%s' :> ServicePort;\n", portDefName(svc.Definition)))
 			}
 		}
 		for _, cerv := range ua.GetCervices() {
 			if !seen[cerv.Definition] {
 				seen[cerv.Definition] = true
-				out.WriteString(fmt.Sprintf("    port def '%s';\n", portDefName(cerv.Definition)))
+				out.WriteString(fmt.Sprintf("    port def '%s' :> ServicePort;\n", portDefName(cerv.Definition)))
 			}
 		}
 	}
@@ -129,11 +133,14 @@ func sysmlBlockDefs(sys *components.System) string {
 	// redefines.
 	out.WriteString(fmt.Sprintf("        attribute redefines name : String = \"%s\";\n", sys.Name))
 	out.WriteString("        attribute redefines host : String;\n")
-	for proto, port := range sys.Husk.ProtoPort {
-		if port != 0 {
-			out.WriteString(fmt.Sprintf("        attribute %sPort : Integer;\n", proto))
-		}
+	for _, proto := range sortedProtocols(sys.Husk.ProtoPort) {
+		out.WriteString(fmt.Sprintf("        attribute %sPort : Integer;\n", proto))
+		// The endpoint's port number is bound to the attribute the cloud's
+		// IBD gives a value, so the number is stated once.
+		out.WriteString(fmt.Sprintf("        attribute %sEndpoint :> endpoints { :>> protocol = %q; :>> portNumber = %sPort; }\n",
+			proto, proto, proto))
 	}
+	out.WriteString(sysmlPosture(sys))
 	for assetName := range sys.UAssets {
 		out.WriteString(fmt.Sprintf("        part '%s' : '%s';\n", assetName, assetTypeName(sys, assetName)))
 	}
@@ -142,18 +149,24 @@ func sysmlBlockDefs(sys *components.System) string {
 	// Per-asset blocks: each asset specialises from mAF::UnitAsset.
 	for assetName, ua := range sys.UAssets {
 		out.WriteString(fmt.Sprintf("    part def '%s' :> UnitAsset {\n", assetTypeName(sys, assetName)))
-		// 'mission' is inherited from UnitAsset — it must use 'redefines'.
+		// 'mission' and 'functionalLocation' are inherited from UnitAsset —
+		// they must use 'redefines'. The mission is a literal of mAF's closed
+		// Mission enumeration, as it is a closed type in the framework.
 		if !ua.Mission.IsZero() {
-			out.WriteString(fmt.Sprintf("        attribute redefines mission : String = \"%s\";\n", ua.Mission))
+			out.WriteString(fmt.Sprintf("        attribute redefines mission = Mission::'%s';\n", ua.Mission))
+		}
+		if places := ua.Details["FunctionalLocation"]; len(places) > 0 {
+			out.WriteString(fmt.Sprintf("        attribute redefines functionalLocation = %s;\n", sysmlStrings(places)))
 		}
 
 		for _, svc := range ua.GetServices() {
-			out.WriteString(fmt.Sprintf("        out port '%s' : '%s';  // provided service\n",
-				svc.Definition, portDefName(svc.Definition)))
+			subscribable := svc.SubscribeAble
+			out.WriteString(sysmlPort("out", svc.Definition, "provided service", svc.Details,
+				portFacts{regPeriod: svc.RegPeriod, subscribable: &subscribable}))
 		}
 		for _, cerv := range ua.GetCervices() {
-			out.WriteString(fmt.Sprintf("        in port '%s' : '%s';  // consumed service\n",
-				cerv.Definition, portDefName(cerv.Definition)))
+			out.WriteString(sysmlPort("in", cerv.Definition, "consumed service", cerv.Details,
+				portFacts{mode: cerv.Mode}))
 		}
 
 		// Link the asset to its behavior when cervices carry Mode tags.
@@ -167,6 +180,146 @@ func sysmlBlockDefs(sys *components.System) string {
 	}
 
 	return out.String()
+}
+
+// sortedProtocols lists the protocols a husk actually binds, in a stable order.
+func sortedProtocols(protoPort map[string]int) []string {
+	var protos []string
+	for proto, port := range protoPort {
+		if port != 0 {
+			protos = append(protos, proto)
+		}
+	}
+	sort.Strings(protos)
+	return protos
+}
+
+// sysmlPosture states the system's security posture and what it reaches outside
+// the cloud, from the same usecases.Posture the knowledge graph is written
+// from — so the model and the graph cannot disagree about either.
+func sysmlPosture(sys *components.System) string {
+	p := Posture(sys)
+	var b strings.Builder
+	b.WriteString("        attribute :>> posture {\n")
+	fmt.Fprintf(&b, "            attribute :>> securityLevel = %q;\n", p.Level)
+	for _, f := range []struct {
+		name  string
+		value bool
+	}{
+		{"namesCertificateAuthority", p.NamesCA},
+		{"namesAuthorizer", p.NamesAuthorizer},
+		{"isIdentified", p.Identified},
+		{"canVerifyPeers", p.CanVerifyPeers},
+		{"verifiesTokens", p.VerifiesTokens},
+		{"offersTLS", p.OffersTLS},
+		{"acceptsPlaintext", p.AcceptsPlaintext},
+	} {
+		fmt.Fprintf(&b, "            attribute :>> %s = %t;\n", f.name, f.value)
+	}
+	b.WriteString("        }\n")
+	used := make(map[string]int)
+	for _, a := range p.External {
+		name := a.Name
+		if used[name]++; used[name] > 1 {
+			name = fmt.Sprintf("%s %d", a.Name, used[name])
+		}
+		fmt.Fprintf(&b, "        part '%s' :> externalAttachments {\n", strings.ReplaceAll(name, "'", ""))
+		fmt.Fprintf(&b, "            attribute :>> name = %q;\n", a.Name)
+		if a.Protocol != "" {
+			fmt.Fprintf(&b, "            attribute :>> protocol = %q;\n", a.Protocol)
+		}
+		fmt.Fprintf(&b, "            attribute :>> isEncrypted = %t;\n", a.Encrypted)
+		fmt.Fprintf(&b, "            attribute :>> isAuthenticated = %t;\n", a.Authenticated)
+		b.WriteString("        }\n")
+	}
+	return b.String()
+}
+
+// portFacts are what a port says beyond its details: a provided service's
+// registration and subscription, a consumed service's mode.
+type portFacts struct {
+	mode         string
+	regPeriod    int
+	subscribable *bool
+}
+
+// sysmlPort emits one port usage. A service that declares a unit gets a body
+// saying what its value is: typed by the SysML v2 quantity, on the unit's
+// measurement reference, with the QUDT identifiers the knowledge graph uses for
+// the same service. A consumer's port carries the unit it asks for, so a
+// connection between a °F provider and a °C consumer shows two units — which
+// is where the framework converts.
+func sysmlPort(direction, definition, role string, details map[string][]string, facts portFacts) string {
+	q, unitIRI, kindIRI, typed := sysmlQuantityFor(details)
+	head := fmt.Sprintf("        %s port '%s' : '%s'", direction, definition, portDefName(definition))
+
+	var body []string
+	add := func(format string, args ...any) { body = append(body, fmt.Sprintf(format, args...)) }
+	if mode, ok := sysmlMode(facts.mode); ok {
+		add("attribute :>> mode = Mode::'%s';", mode)
+	}
+	if methods := details["Methods"]; len(methods) > 0 {
+		iris := make([]string, len(methods))
+		for i, m := range methods {
+			iris[i] = bareIRI(m)
+		}
+		add("attribute :>> methods = %s;", sysmlStrings(iris))
+	}
+	if forms := details["Forms"]; len(forms) > 0 {
+		add("attribute :>> forms = %s;", sysmlStrings(forms))
+	}
+	if def := firstDetail(details, "DefaultForm"); def != "" {
+		add("attribute :>> defaultForm = %q;", def)
+	}
+	if facts.regPeriod > 0 {
+		add("attribute :>> registrationPeriod = %d [SI::s];", facts.regPeriod)
+	}
+	if facts.subscribable != nil {
+		add("attribute :>> subscribable = %t;", *facts.subscribable)
+	}
+	if unitIRI == "" && kindIRI == "" && len(body) == 0 {
+		return fmt.Sprintf("%s;  // %s\n", head, role)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s {  // %s\n", head, role)
+	if typed {
+		fmt.Fprintf(&b, "            attribute :>> value : %s { :>> mRef = %s; }\n", q.ValueType, q.Ref)
+	} else if unitIRI != "" {
+		fmt.Fprintf(&b, "            // no SysML v2 unit is mapped for %s; see sysml_units.go\n", local(unitIRI))
+	}
+	if unitIRI != "" {
+		fmt.Fprintf(&b, "            attribute :>> qudtUnit = \"%s\";\n", unitIRI)
+	}
+	if kindIRI != "" {
+		fmt.Fprintf(&b, "            attribute :>> qudtQuantityKind = \"%s\";\n", kindIRI)
+	}
+	for _, line := range body {
+		fmt.Fprintf(&b, "            %s\n", line)
+	}
+	b.WriteString("        }\n")
+	return b.String()
+}
+
+// sysmlMode names a cervice's mode as mAF's Mode literal, if it is one.
+func sysmlMode(mode string) (string, bool) {
+	switch m := strings.ToLower(strings.TrimSpace(mode)); m {
+	case "get", "set", "do":
+		return m, true
+	}
+	return "", false
+}
+
+// sysmlStrings writes one string, or several as a SysML v2 sequence.
+func sysmlStrings(values []string) string {
+	quoted := make([]string, len(values))
+	for i, v := range values {
+		quoted[i] = strconv.Quote(v)
+	}
+	if len(quoted) == 1 {
+		return quoted[0]
+	}
+	return "(" + strings.Join(quoted, ", ") + ")"
 }
 
 // sysmlIBD emits the IBD: the instantiated system part with host metadata, provided
@@ -359,6 +512,10 @@ func systemBaseType(name string) string {
 		return "Orchestrator"
 	case "ca":
 		return "CertificateAuthority"
+	case "authorizer":
+		return "Authorizer"
+	case "maitreD":
+		return "MaitreD"
 	default:
 		return "ArrowheadSystem"
 	}

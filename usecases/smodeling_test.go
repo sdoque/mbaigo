@@ -16,6 +16,7 @@
 package usecases
 
 import (
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -77,6 +78,8 @@ func TestSystemBaseType(t *testing.T) {
 		{"serviceregistrar", "ServiceRegistrar"},
 		{"orchestrator", "Orchestrator"},
 		{"ca", "CertificateAuthority"},
+		{"authorizer", "Authorizer"},
+		{"maitreD", "MaitreD"},
 		{"thermostat", "ArrowheadSystem"},
 		{"", "ArrowheadSystem"},
 	}
@@ -184,7 +187,7 @@ func TestSysmlBlockDefs(t *testing.T) {
 		"attribute httpPort : Integer",
 		"part 'sensor1' : 'mysys_sensor1UnitAsset'",
 		"part def 'mysys_sensor1UnitAsset' :> UnitAsset",
-		`attribute redefines mission : String = "measurement"`,
+		"attribute redefines mission = Mission::'measurement'",
 		"out port 'temperature' : 'Temperature'",
 		"in port 'humidity' : 'Humidity'",
 	} {
@@ -375,5 +378,65 @@ func TestSModeling(t *testing.T) {
 	}
 	if !strings.HasPrefix(w.Body.String(), "package 'testhost_mysys' {") {
 		t.Error("body must begin with the SysML package declaration")
+	}
+}
+
+// ── posture, attachments, endpoints and port facts ────────────────────────────
+
+// The model states the posture the graph states, from the same Posture, and
+// every attachment outside the cloud as a part a connection can reach.
+func TestTheModelStatesThePostureAndAttachments(t *testing.T) {
+	sys := newKGTestSystem()
+	addTestAsset(sys)
+	sys.Husk.ProtoPort = map[string]int{"http": 8080, "https": 8443}
+	sys.Husk.External = []components.ExternalAttachment{
+		{Name: "triple store", Protocol: "https", Encrypted: true, Authenticated: true},
+		{Name: "time-series database", Protocol: "http"},
+	}
+
+	out := sysmlBlockDefs(sys)
+	p := Posture(sys)
+	for _, want := range []string{
+		"attribute :>> posture {",
+		fmt.Sprintf("attribute :>> securityLevel = %q;", p.Level),
+		"attribute :>> offersTLS = true;",
+		"attribute :>> acceptsPlaintext = true;",
+		"attribute :>> isIdentified = false;",
+		"part 'triple store' :> externalAttachments {",
+		"attribute :>> isEncrypted = true;",
+		"part 'time-series database' :> externalAttachments {",
+		"attribute :>> isAuthenticated = false;",
+		`attribute httpsEndpoint :> endpoints { :>> protocol = "https"; :>> portNumber = httpsPort; }`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+// A provided port says how it is registered and whether it can be followed; a
+// consumed one how it is used. The same facts the graph gives each service.
+func TestAPortStatesItsServiceFacts(t *testing.T) {
+	yes := true
+	provided := sysmlPort("out", "temperature", "provided service", map[string][]string{
+		"Forms":   {"SignalA_v1a"},
+		"Methods": components.HTTPMethods("GET"),
+	}, portFacts{regPeriod: 30, subscribable: &yes})
+	for _, want := range []string{
+		`attribute :>> forms = "SignalA_v1a";`,
+		`attribute :>> methods = "http://www.w3.org/2011/http-methods#GET";`,
+		"attribute :>> registrationPeriod = 30 [SI::s];",
+		"attribute :>> subscribable = true;",
+	} {
+		if !strings.Contains(provided, want) {
+			t.Errorf("missing %q in:\n%s", want, provided)
+		}
+	}
+	consumed := sysmlPort("in", "OnOff", "consumed service", nil, portFacts{mode: "set"})
+	if !strings.Contains(consumed, "attribute :>> mode = Mode::'set';") {
+		t.Errorf("a consumed port's mode:\n%s", consumed)
+	}
+	if odd := sysmlPort("in", "OnOff", "consumed service", nil, portFacts{mode: "whatever"}); strings.Contains(odd, "Mode::") {
+		t.Errorf("a mode mAF does not define was written:\n%s", odd)
 	}
 }

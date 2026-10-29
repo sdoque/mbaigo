@@ -30,6 +30,16 @@ systems' own list.
 
 ## Worth doing
 
+- **`keepOnly` compares provider URLs literally**, so the http and https
+  addresses of one provider are two providers. A consumer bound over http,
+  because the provider registered in the same second its HTTPS listener bound,
+  renews by keeping only the http URL, discards the https answers, and is left
+  with nothing. The next call then asks for any provider of the definition.
+  That is how the cottage's bathroom heater bound to the light on 27 September
+  2026. The ethermostat now rebinds by name, but every other consumer still
+  has the gap. Compare the host and the service path rather than the whole
+  URL, or have a provider register only once its HTTPS listener is up, or both.
+
 - **Nothing exercises a system from an empty directory to a running state.**
   Every one of a day's worth of faults lived in that gap — nine systems that
   could not start, two TLS regressions, a mission that was not a mission — and
