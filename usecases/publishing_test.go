@@ -654,3 +654,46 @@ func (d *deadlineRecorder) SetWriteDeadline(deadline time.Time) error {
 	d.deadline, d.set = deadline, true
 	return nil
 }
+
+// A vector's change is how far it moved, so its threshold works as a single
+// value's does. Before, a form that was not a UnitBearer counted every sample
+// as a change, and an IMU's subscribers would have been sent every sample.
+func TestAVectorIsThresholdedByHowFarItMoved(t *testing.T) {
+	vector := func(x, y, z float64) *forms.VectorA_v1a {
+		v := &forms.VectorA_v1a{X: x, Y: y, Z: z, Unit: "http://qudt.org/vocab/unit/M-PER-SEC2", Frame: forms.VectorVehicle}
+		v.NewForm()
+		return v
+	}
+	publisher := NewPublisher(temperature(0.5))
+	sub, done := publisher.addSubscriber(terms{})
+	defer done()
+
+	publisher.Sample(vector(0, 0, 9.81))
+	<-sub.events // the first is always sent
+	// Each component moves less than the threshold, and so does the whole.
+	publisher.Sample(vector(0.2, 0.2, 9.81))
+	select {
+	case <-sub.events:
+		t.Error("a vector that moved 0.28 against a threshold of 0.5 was broadcast")
+	default:
+	}
+	// No component moves by the threshold, but the vector does: 0.3 and 0.4 is 0.5.
+	publisher.Sample(vector(0.3, 0.4, 9.81))
+	select {
+	case got := <-sub.events:
+		if v := got.(*forms.VectorA_v1a); v.X != 0.3 || v.Y != 0.4 {
+			t.Errorf("broadcast %+v", v)
+		}
+	default:
+		t.Error("a vector that moved 0.5 from what was last sent was not broadcast")
+	}
+	// A vector that cannot be compared, here in another unit, is a change.
+	other := vector(0.3, 0.4, 9.81)
+	other.Unit = "http://qudt.org/vocab/unit/G"
+	publisher.Sample(other)
+	select {
+	case <-sub.events:
+	default:
+		t.Error("a vector in another unit was taken as unchanged")
+	}
+}

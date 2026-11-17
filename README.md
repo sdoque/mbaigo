@@ -64,6 +64,8 @@ Versioned forms for what systems send each other.
 
 - `SignalA_v1a` — a numeric value with unit and timestamp.
 - `SignalB_v1a` — a boolean value with timestamp.
+- `VectorA_v1a` — three components with one unit, a named frame and a
+  timestamp: an acceleration, an angular velocity, a magnetic field.
 - `ServicePoint_v1`, `SystemRecordList_v1` — service-registry payloads.
 - `Certificate` — certificate-distribution payload.
 

@@ -142,6 +142,7 @@ is also the agenda for what to propose upstream.
 |------|----------------|
 | `utilities.go` | the framework's HTTP client, form packing, name-case helpers |
 | `registry_reading.go` | reading the registrar's list of systems, in one place |
+| `registry_following.go` | following the registrar's event stream and rebuilding when the cloud changes (kgrapher, modeler) |
 | `cost.go`, `footprint.go` | what a service call costs, in money and in carbon |
 | `shutdown.go` | one signal handler, so Ctrl+C interrupts a blocking startup |
 
