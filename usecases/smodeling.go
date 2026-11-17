@@ -223,7 +223,7 @@ func sysmlPosture(sys *components.System) string {
 		if used[name]++; used[name] > 1 {
 			name = fmt.Sprintf("%s %d", a.Name, used[name])
 		}
-		fmt.Fprintf(&b, "        part '%s' :> externalAttachments {\n", strings.ReplaceAll(name, "'", ""))
+		fmt.Fprintf(&b, "        ref part '%s' :> externalAttachments {\n", strings.ReplaceAll(name, "'", ""))
 		fmt.Fprintf(&b, "            attribute :>> name = %q;\n", a.Name)
 		if a.Protocol != "" {
 			fmt.Fprintf(&b, "            attribute :>> protocol = %q;\n", a.Protocol)

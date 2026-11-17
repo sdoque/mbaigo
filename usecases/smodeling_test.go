@@ -402,9 +402,9 @@ func TestTheModelStatesThePostureAndAttachments(t *testing.T) {
 		"attribute :>> offersTLS = true;",
 		"attribute :>> acceptsPlaintext = true;",
 		"attribute :>> isIdentified = false;",
-		"part 'triple store' :> externalAttachments {",
+		"ref part 'triple store' :> externalAttachments {",
 		"attribute :>> isEncrypted = true;",
-		"part 'time-series database' :> externalAttachments {",
+		"ref part 'time-series database' :> externalAttachments {",
 		"attribute :>> isAuthenticated = false;",
 		`attribute httpsEndpoint :> endpoints { :>> protocol = "https"; :>> portNumber = httpsPort; }`,
 	} {
