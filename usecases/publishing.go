@@ -83,6 +83,11 @@ type Publisher struct {
 	// leave baseline alone, or the drift is never reported however far it goes.
 	baseline    float64
 	hasBaseline bool
+	// sent is the form last broadcast, for a form whose change is a distance
+	// rather than a difference of one value (forms.Distancer). The same
+	// question as baseline, kept as the whole form because a vector's change
+	// is measured from all of it.
+	sent        forms.Form
 	subscribers map[int]*subscription
 	nextID      int
 }
@@ -160,6 +165,10 @@ func (p *Publisher) Sample(value forms.Form) {
 	if p == nil {
 		return
 	}
+	if d, ok := value.(forms.Distancer); ok {
+		p.sampleDistance(value, d)
+		return
+	}
 	reading, ok := value.(forms.UnitBearer)
 	if !ok {
 		// A form with no value to compare cannot be thresholded, so every sample
@@ -179,6 +188,29 @@ func (p *Publisher) Sample(value forms.Form) {
 		// creeping by a tenth of the threshold every second would never report a
 		// change however far it drifted from where the subscribers think it is.
 		p.baseline, p.hasBaseline = current, true
+	}
+	p.mu.Unlock()
+
+	p.broadcast(value, worth)
+}
+
+// sampleDistance is Sample for a form with several values, a vector: it has
+// moved when its distance from the one last broadcast reaches the threshold.
+//
+// Without this every sample of a vector was a change, because it is not a
+// UnitBearer. For a temperature read every two seconds that was harmless; an
+// IMU sampled a hundred times a second would have sent every subscriber every
+// sample, noise and all, whatever threshold the service declared.
+func (p *Publisher) sampleDistance(value forms.Form, d forms.Distancer) {
+	p.mu.Lock()
+	worth := p.sent == nil
+	if !worth {
+		distance, comparable := d.DistanceFrom(p.sent)
+		worth = !comparable || moved(0, distance, p.service.Threshold)
+	}
+	p.latest, p.hasLatest = value, true
+	if worth {
+		p.sent = value
 	}
 	p.mu.Unlock()
 

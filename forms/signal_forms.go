@@ -86,6 +86,17 @@ type UnitBearer interface {
 	SetValue(float64)
 }
 
+// Distancer is a form with more than one value whose change from an earlier
+// sample can still be told as one number: how far it moved. A publisher
+// measures a vector's change this way, as it measures a single value's by the
+// difference, so a threshold means the same thing for both.
+//
+// The bool is false when the two cannot be compared, a different unit or frame
+// for instance, and a publisher then counts the sample as a change.
+type Distancer interface {
+	DistanceFrom(earlier Form) (float64, bool)
+}
+
 // GetUnit returns the unit the value is expressed in.
 func (sig *SignalA_v1a) GetUnit() string { return sig.Unit }
 
